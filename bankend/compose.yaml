@@ -2,6 +2,9 @@
 # Infrastructure only:   docker compose up -d mysql redis kafka   (then run services with ./mvnw)
 # Secrets come from .env (see .env.example).
 
+# Pinned so the project (containers, mysql_data volume) does not depend on the folder name.
+name: digital-banking-system
+
 x-app-env: &app-env
   MYSQL_HOST: mysql
   MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
