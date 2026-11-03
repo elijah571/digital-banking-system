@@ -1,0 +1,73 @@
+# Production overrides — layered on top of compose.yaml:
+#
+#   docker compose -f compose.yaml -f compose.prod.yaml up -d
+#
+# - Only the API gateway is reachable from outside (put HTTPS in front of it).
+# - MySQL / Redis / Kafka and the internal services are reachable only on the Docker network.
+# - Containers restart automatically (also after a server reboot).
+# - Swagger UI / API docs are switched off.
+# Requires Docker Compose >= 2.24 (for !reset).
+
+x-prod: &prod
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-prod-app-env: &prod-app-env
+  SPRINGDOC_API_DOCS_ENABLED: "false"
+  SPRINGDOC_SWAGGER_UI_ENABLED: "false"
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+
+services:
+  mysql:
+    <<: *prod
+    ports: !reset []
+  redis:
+    <<: *prod
+    ports: !reset []
+  kafka:
+    <<: *prod
+    ports: !reset []
+
+  auth-service:
+    <<: *prod
+    ports: !reset []
+    environment: *prod-app-env
+    mem_limit: 512m
+  account-service:
+    <<: *prod
+    ports: !reset []
+    environment: *prod-app-env
+    mem_limit: 768m
+  transaction-service:
+    <<: *prod
+    ports: !reset []
+    environment: *prod-app-env
+    mem_limit: 768m
+  fraud-detection-service:
+    <<: *prod
+    ports: !reset []
+    environment: *prod-app-env
+    mem_limit: 512m
+  payment-service:
+    <<: *prod
+    ports: !reset []
+    environment: *prod-app-env
+    mem_limit: 512m
+  notification-service:
+    <<: *prod
+    ports: !reset []
+    environment:
+      <<: *prod-app-env
+      MAIL_LOG_CONTENT: "false"   # never log verification links / reset tokens in production
+    mem_limit: 384m
+  api-gateway:
+    <<: *prod
+    environment: *prod-app-env
+    mem_limit: 512m
+    ports: !override
+      - "${GATEWAY_PORT:-8080}:8080"

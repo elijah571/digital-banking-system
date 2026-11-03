@@ -1,0 +1,45 @@
+package org.elibanking.authservice.service;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.elibanking.authservice.entity.User;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Component;
+
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
+
+/** Publishes email requests; notification-service sends them through SMTP. */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class AuthEventPublisher {
+
+    public static final String VERIFICATION_TOPIC = "auth.email-verification.requested";
+    public static final String PASSWORD_RESET_TOPIC = "auth.password-reset.requested";
+    public static final String PASSWORD_CHANGED_TOPIC = "auth.password.changed";
+
+    private final KafkaTemplate<String, Object> kafkaTemplate;
+
+    public void verificationRequested(User user, String link, Duration ttl) {
+        send(VERIFICATION_TOPIC, user, Map.of("link", link, "expiresInMinutes", ttl.toMinutes()));
+    }
+
+    public void passwordResetRequested(User user, String token, String link, Duration ttl) {
+        send(PASSWORD_RESET_TOPIC, user, Map.of("token", token, "link", link, "expiresInMinutes", ttl.toMinutes()));
+    }
+
+    public void passwordChanged(User user) {
+        send(PASSWORD_CHANGED_TOPIC, user, Map.of());
+    }
+
+    private void send(String topic, User user, Map<String, Object> extra) {
+        Map<String, Object> event = new HashMap<>(extra);
+        event.put("userId", user.getId());
+        event.put("email", user.getEmail());
+        event.put("fullName", user.getFullName());
+        kafkaTemplate.send(topic, user.getId(), event);
+        log.info("Published {} for user {}", topic, user.getId());
+    }
+}

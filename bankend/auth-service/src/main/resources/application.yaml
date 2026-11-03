@@ -1,0 +1,47 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: auth-service
+
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/auth_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: ${SHOW_SQL:false}
+    open-in-view: false
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+
+  # Local runs: read JWT_SECRET / ADMIN_* from the project-root .env (ignored if absent, e.g. in Docker)
+  config:
+    import: optional:file:../.env[.properties]
+
+auth:
+  jwt-secret: ${JWT_SECRET:}
+  jwt-issuer: elibanking-auth
+  access-token-ttl: ${JWT_ACCESS_TTL:15m}
+  refresh-token-ttl: ${JWT_REFRESH_TTL:7d}
+  verification-token-ttl: 24h
+  password-reset-token-ttl: 30m
+  public-base-url: ${APP_PUBLIC_URL:http://localhost:8080}
+  password-reset-url: ${PASSWORD_RESET_URL:http://localhost:3000/reset-password}
+  admin-email: ${ADMIN_EMAIL:}
+  admin-password: ${ADMIN_PASSWORD:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

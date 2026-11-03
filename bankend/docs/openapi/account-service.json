@@ -1,0 +1,545 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Account Service API",
+    "description": "Bank accounts and balances. Errors are returned as application/problem+json.",
+    "version": "v1"
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current host"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Accounts",
+      "description": "Open accounts, read balances, and the balance operations used by the transfer saga"
+    }
+  ],
+  "paths": {
+    "/api/v1/accounts/{accountNumber}/deduct": {
+      "put": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Deduct from balance (ADMIN / internal saga step 1)",
+        "description": "Called by transaction-service when a transfer starts. Fails if the account is not ACTIVE or has insufficient funds.",
+        "operationId": "deductBalance",
+        "parameters": [
+          {
+            "name": "accountNumber",
+            "in": "path",
+            "description": "10-digit account number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 3693612260
+          },
+          {
+            "name": "amount",
+            "in": "query",
+            "description": "Amount to deduct",
+            "required": true,
+            "schema": {
+              "type": "number"
+            },
+            "example": 1000
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balance deducted",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Insufficient funds, or account not active",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountNumber}/credit": {
+      "put": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Credit balance (ADMIN / internal refund)",
+        "description": "Called by transaction-service to refund the sender when a transfer is cancelled (OTP expired or wrong). Receivers are credited via the `transaction.completed` Kafka event.",
+        "operationId": "creditBalance",
+        "parameters": [
+          {
+            "name": "accountNumber",
+            "in": "path",
+            "description": "10-digit account number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 3693612260
+          },
+          {
+            "name": "amount",
+            "in": "query",
+            "description": "Amount to credit",
+            "required": true,
+            "schema": {
+              "type": "number"
+            },
+            "example": 1000
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balance credited",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountNumber}/block": {
+      "put": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Block an account (ADMIN)",
+        "description": "Sets the account status to BLOCKED. A blocked account can no longer send money. Also triggered automatically when a wrong OTP is entered.",
+        "operationId": "blockAccount",
+        "parameters": [
+          {
+            "name": "accountNumber",
+            "in": "path",
+            "description": "10-digit account number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 3693612260
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Account blocked",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/create": {
+      "post": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Open a new account",
+        "description": "Creates an ACTIVE account owned by the logged-in user, with a generated 10-digit account number. The account email is the user's login email. The initial deposit becomes the opening balance. Daily limit: SAVINGS 100,000 · CURRENT 5,000,000.",
+        "operationId": "createAccount",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Account created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (missing name, invalid email, non-positive deposit…)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An account already exists for this email",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts": {
+      "get": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "List all accounts (ADMIN)",
+        "description": "Every account in the bank, newest first.",
+        "operationId": "getAllAccounts",
+        "responses": {
+          "200": {
+            "description": "All accounts",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AccountResponse"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not an admin",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AccountResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountNumber}": {
+      "get": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Get account details",
+        "description": "Users can only read their own accounts; admins can read any.",
+        "operationId": "getAccount",
+        "parameters": [
+          {
+            "name": "accountNumber",
+            "in": "path",
+            "description": "10-digit account number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 3693612260
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Account found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account belongs to another user",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountNumber}/balance": {
+      "get": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Get account balance",
+        "description": "Returns the current balance as a plain number, e.g. `9000.00`.",
+        "operationId": "getBalance",
+        "parameters": [
+          {
+            "name": "accountNumber",
+            "in": "path",
+            "description": "10-digit account number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 3693612260
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current balance",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account belongs to another user",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/me": {
+      "get": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "My accounts",
+        "description": "Accounts owned by the logged-in user.",
+        "operationId": "getMyAccounts",
+        "responses": {
+          "200": {
+            "description": "List of accounts (may be empty)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AccountResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ProblemDetail": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string",
+            "format": "uri"
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        }
+      },
+      "CreateAccountRequest": {
+        "type": "object",
+        "properties": {
+          "accountHolderName": {
+            "type": "string",
+            "example": "Alice Johnson",
+            "minLength": 1
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Ignored for logged-in users: the email of the account owner (from the login token) is used",
+            "example": "alice@example.com"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Must be unique",
+            "example": "08012345678",
+            "minLength": 1
+          },
+          "accountType": {
+            "type": "string",
+            "enum": [
+              "SAVINGS",
+              "CURRENT",
+              "FIXED_DEPOSIT"
+            ],
+            "example": "SAVINGS"
+          },
+          "initialDeposit": {
+            "type": "number",
+            "description": "Opening balance",
+            "example": 10000,
+            "minimum": 0
+          }
+        },
+        "required": [
+          "accountHolderName",
+          "accountType",
+          "initialDeposit",
+          "phone"
+        ]
+      },
+      "AccountResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "accountNumber": {
+            "type": "string"
+          },
+          "accountHolderName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "accountType": {
+            "type": "string",
+            "enum": [
+              "SAVINGS",
+              "CURRENT",
+              "FIXED_DEPOSIT"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "BLOCKED",
+              "CLOSED"
+            ]
+          },
+          "balance": {
+            "type": "number"
+          },
+          "initialDeposit": {
+            "type": "number"
+          },
+          "dailyTransactionLimit": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}
