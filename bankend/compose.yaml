@@ -1,4 +1,4 @@
-# Full stack:            docker compose up -d --build
+# Full stack:            docker compose up -d --build   (multi-stage builds: no local JDK needed)
 # Infrastructure only:   docker compose up -d mysql redis kafka   (then run services with ./mvnw)
 # Secrets come from .env (see .env.example).
 
@@ -23,8 +23,11 @@ x-app-depends: &app-depends
 services:
   # ---------------- Infrastructure ----------------
   mysql:
-    image: mysql:latest
+    # Pinned. Keep in sync with libs/banking-common TestImages. Never downgrade: MySQL cannot read a newer data directory.
+    image: mysql:26.10
     container_name: mysql
+    # Lets Flyway (non-SUPER users) create the ledger's append-only triggers while binary logging is on
+    command: ["--log-bin-trust-function-creators=1"]
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
       MYSQL_DATABASE: digital_banking
@@ -41,7 +44,7 @@ services:
       - banking-network
 
   redis:
-    image: redis:latest
+    image: redis:8.10.2
     container_name: redis
     ports:
       - "${REDIS_HOST_PORT:-6379}:6379"   # set REDIS_HOST_PORT in .env if 6379 is taken on the host
@@ -54,7 +57,7 @@ services:
       - banking-network
 
   kafka:
-    image: apache/kafka:latest
+    image: apache/kafka:4.3.1
     container_name: kafka-broker
     ports:
       - "9092:9092"
@@ -95,7 +98,9 @@ services:
   # ---------------- Application services ----------------
   # Every service port is published for testing. In production publish only 8080 (the gateway).
   account-service:
-    build: ./account-service
+    build:
+      context: .
+      dockerfile: account-service/Dockerfile
     environment: *app-env
     depends_on: *app-depends
     ports:
@@ -105,12 +110,14 @@ services:
       - banking-network
 
   transaction-service:
-    build: ./transaction-service
+    build:
+      context: .
+      dockerfile: transaction-service/Dockerfile
     environment: *app-env
     depends_on:
       <<: *app-depends
       account-service:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "8082:8082"
     restart: on-failure
@@ -118,12 +125,14 @@ services:
       - banking-network
 
   fraud-detection-service:
-    build: ./fraud-detection-service
+    build:
+      context: .
+      dockerfile: fraud-detection-service/Dockerfile
     environment: *app-env
     depends_on:
       <<: *app-depends
       account-service:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "8084:8084"
     restart: on-failure
@@ -131,13 +140,18 @@ services:
       - banking-network
 
   payment-service:
-    build: ./payment-service
+    build:
+      context: .
+      dockerfile: payment-service/Dockerfile
     environment:
       <<: *app-env
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
-    depends_on: *app-depends
+    depends_on:
+      <<: *app-depends
+      account-service:
+        condition: service_healthy
     ports:
       - "8085:8085"
     restart: on-failure
@@ -145,7 +159,9 @@ services:
       - banking-network
 
   auth-service:
-    build: ./auth-service
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
     environment:
       <<: *app-env
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
@@ -165,7 +181,9 @@ services:
       - banking-network
 
   notification-service:
-    build: ./notification-service
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
     environment:
       <<: *app-env
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
@@ -185,7 +203,9 @@ services:
       - banking-network
 
   api-gateway:
-    build: ./API-GATEWAY
+    build:
+      context: .
+      dockerfile: API-GATEWAY/Dockerfile
     environment:
       REDIS_HOST: redis
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
@@ -198,13 +218,13 @@ services:
       redis:
         condition: service_healthy
       auth-service:
-        condition: service_started
+        condition: service_healthy
       account-service:
-        condition: service_started
+        condition: service_healthy
       transaction-service:
-        condition: service_started
+        condition: service_healthy
       payment-service:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "8080:8080"
     restart: on-failure

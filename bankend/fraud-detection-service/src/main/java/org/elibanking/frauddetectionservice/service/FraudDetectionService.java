@@ -29,10 +29,10 @@ public class FraudDetectionService {
     private int maxTransactionPerMinute;
 
     @Value("${fraud.suspicious-amount-multiplier}")
-    private Double suspiciousAmountMultiplier;
+    private BigDecimal suspiciousAmountMultiplier;
 
     @Value("${fraud.max-balance-percentage}")
-    private Double maxBalancePercentage;
+    private BigDecimal maxBalancePercentage;
 
     public void checkTransaction(Map<String, Object> payload) {
         String transactionId = (String) payload.get("transactionId");
@@ -109,12 +109,10 @@ public class FraudDetectionService {
         }
 
         BigDecimal averageAmount = new BigDecimal(averageString);
-        BigDecimal threshold = averageAmount.multiply(
-                BigDecimal.valueOf(suspiciousAmountMultiplier)
-        );
+        BigDecimal threshold = averageAmount.multiply(suspiciousAmountMultiplier);
 
         BigDecimal newAverage = averageAmount.add(amount)
-                .divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
+                .divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_EVEN);
         redisTemplate.opsForValue().set(averageKey, newAverage.toString());
 
         log.info("Amount check - amount: {} threshold: {} suspicious: {}",
@@ -125,7 +123,7 @@ public class FraudDetectionService {
 
     private boolean isBalanceCheckFailed(BigDecimal senderBalance, BigDecimal amount) {
         // Calculate max allowed based on percentage (e.g., senderBalance * 0.90)
-        BigDecimal maxAllowed = senderBalance.multiply(BigDecimal.valueOf(maxBalancePercentage));
+        BigDecimal maxAllowed = senderBalance.multiply(maxBalancePercentage);
 
         log.info("Balance check - amount: {} maxAllowed: {} suspicious: {}",
                 amount, maxAllowed, amount.compareTo(maxAllowed) > 0

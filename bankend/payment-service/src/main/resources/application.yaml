@@ -11,9 +11,16 @@ spring:
     password: ${MYSQL_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  flyway:
+    # Databases created by Hibernate before Flyway existed have tables but no history table:
+    # mark them as version 1 (= V1__baseline_schema.sql) instead of failing.
+    baseline-on-migrate: true
+    baseline-version: 1
+
   jpa:
+    open-in-view: false
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate   # schema is owned by Flyway (src/main/resources/db/migration)
     show-sql: ${SHOW_SQL:false}
     properties:
       hibernate:

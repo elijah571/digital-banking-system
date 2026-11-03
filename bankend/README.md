@@ -63,19 +63,31 @@ X-User-Role` from the token. Each service uses those headers for ownership check
 
 ## 2. Run
 
-**Everything in Docker:**
+**Everything in Docker** (only Docker needed — images are built with multi-stage Dockerfiles, no local JDK):
 ```bash
-./scripts/build.sh           # mvnw package for all 7 services, then docker compose build
-docker compose up -d
-docker compose ps            # wait until all services are "running"
+docker compose up -d --build --wait   # builds all images, waits until every healthcheck is green
+docker compose ps
 docker compose logs -f account-service
 ```
+Each container has a healthcheck (`/actuator/health`), and services start only after their dependencies are healthy.
+Database schemas are managed by **Flyway** (`<service>/src/main/resources/db/migration`) and applied on startup;
+Hibernate only validates them (`ddl-auto: validate`). Databases created before Flyway are baselined at V1 automatically.
 
 **Or infrastructure in Docker, services from your IDE / terminal (fast dev loop):**
 ```bash
 docker compose up -d mysql redis kafka
+./scripts/build.sh                     # installs libs/banking-common (shared code) + builds every service
 account-service/mvnw -f account-service/pom.xml spring-boot:run     # repeat for each service
 ```
+
+**Tests** (need Docker: integration tests run on real MySQL / Kafka / Redis via Testcontainers):
+```bash
+./scripts/build.sh --test              # shared lib + every service: unit, integration, ArchUnit
+account-service/mvnw -f account-service/pom.xml verify             # one service (install libs/banking-common first)
+```
+ArchUnit rules (`libs/banking-common`, `MoneyArchRules`) fail the build if `double`/`float` appear in money code,
+if `BigDecimal` is converted to/from `double`, or if `BigDecimal.equals` is used instead of `compareTo`.
+CI (`.github/workflows/ci.yml`, at the repository root) runs all of this plus `compose up` + the smoke test on every push.
 
 ## 3. Test the endpoints
 
@@ -105,7 +117,6 @@ AWS EC2 / Lightsail; ≥ 4 GB RAM recommended for 6 JVMs + Kafka + MySQL):
 ```bash
 git clone <repo> && cd digital-banking-system
 cp .env.example .env && nano .env      # strong MYSQL_ROOT_PASSWORD, Stripe keys
-./scripts/build.sh                     # needs JDK 25 on the server (or build images elsewhere and push to a registry)
 docker compose -f compose.yaml -f compose.prod.yaml up -d
 BASE_URL=http://<server-ip>:8080 ./scripts/smoke-test.sh
 ```
