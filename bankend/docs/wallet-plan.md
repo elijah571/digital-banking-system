@@ -248,7 +248,7 @@ Each service that publishes (account, wallet, payment, transaction) gets an `out
 
 1. **Foundations.** Testcontainers base in every service (existing `contextLoads` moves to it). Flyway V1 baselines. `validate` + `open-in-view=false`. Multi-stage Dockerfiles, healthchecks, pinned images. Shared lib skeleton (D1). ArchUnit money rule. CI `ci.yml`.
 2. **Ledger core (account-service).** Money, ledger tables and triggers, posting with locks, reversals, reconciliation, statement, backfill and its test, audit, outbox, idempotency, resource server with SERVICE tokens, admin credit/deduct with reason. ADR `0001-locking.md` and `ledger.md`. Concurrency tests (50 parallel, opposite transfers).
-3. **Transfers onto the ledger.** transaction-service changes from section 4. Update the smoke test and Postman. All 107 existing checks still pass, adapted only where the contract was deliberately changed (Idempotency-Key, reason), and each change is listed in the commit.
+3. **Transfers onto the ledger.** transaction-service changes from section 4. **Checklist from 8.18 and 8.19:** remove `ACCOUNT_LEGACY_HEADERS_ENABLED` and the legacy path from account-service; move transaction-service, fraud-detection and payment-service to service tokens (`sub` = their service name); set the flag to `false` in the dev compose file. Update the smoke test and Postman. All 107 existing checks still pass, adapted only where the contract was deliberately changed (Idempotency-Key, reason), and each change is listed in the commit.
 4. **wallet-service and PIN.** `threat-model-pin.md` **first**, then PIN, the auth verify-password endpoint, OTP, lockout, log-masking test.
 5. **Deposits.** payment-service internal intent, webhook outbox, wallet consumer, expiry, tests (replay, bad signature, mismatch). The smoke test signs webhook payloads itself with `STRIPE_WEBHOOK_SECRET` via openssl, so no Stripe CLI is needed. **Starts after phase 2 is done.** D26 and D27 are approved (8.17). The ledger side is in phase 2 (`CardDepositPostings`). The wallet is credited the requested amount, never more and never less (review fix 3).
 6. **Withdrawals and the outbound pipeline.** State machine (with REVERSED), limits, fraud endpoint, gate, maker-checker, expiry, recovery, and the `PayoutProvider` interface with its simulator, which lives in payment-service (8.2, 8.3). The pipeline is built for both types from the start (`type = WITHDRAWAL` now), so 6b adds a type and does not add a second pipeline. All transition and concurrency tests.
@@ -464,7 +464,7 @@ Each variable goes into `.env.example` and into `docs/deploy.md` in the phase th
 | `OUTBOUND_FEE` | wallet | `0.00` | Flat NGN, both types. |
 | `LEDGER_CURRENCIES` | account | `NGN` | Section 4 said `USD`. |
 | `TRANSFER_PIN_REQUIRED` | transaction | `true` | D2, unchanged. |
-| `CARD_DEPOSIT_MIN` | wallet | `20000` (proposed, not yet approved, 8.17) | Minimum card deposit in NGN. At ₦20,000 the measured Stripe fee is 5.98% (8.17). Stripe itself refuses amounts under about ₦705 (50 US cents). |
+| `CARD_DEPOSIT_MIN` | wallet | `20000` (approved 2026-11-04, 8.19) | Minimum card deposit in NGN. At ₦20,000 the measured Stripe fee is 5.98% (8.17). Stripe itself refuses amounts under about ₦705 (50 US cents). |
 
 Still in section 4: `INTERNAL_JWT_SECRET`, `PIN_PEPPER`, `WITHDRAWAL_*`, `DEPOSIT_EXPIRY`, and the `STRIPE_*` keys. The `PAYOUT_SIM_*` placeholder in section 4 is replaced by the two `PAYOUT_SIM_*` variables above.
 
@@ -583,7 +583,7 @@ The review's fixes and clean-ups are numbered 1–6 here, separately from the fi
 - Stripe refuses amounts below 50 US cents. That's about ₦704 at this rate. A ₦500 charge was refused.
 - **Proposal:** `CARD_DEPOSIT_MIN = 20000`. The fee is then 5.98%, about ₦1,197. ₦10,000 would be 8.16%. The fee is ours, because the wallet is credited exactly the requested amount. Caveats: these are test-mode charges, seven samples, and live pricing may differ. Check on a live account before go-live.
 
-**Open point (not decided).** A receipt in another currency can't be booked, because the ledger is NGN-only and we create every PaymentIntent in NGN. Proposal: reject it and alert. If it ever happens, add a `DEPOSIT_SUSPENSE:{currency}` seed. Confirm, or tell me what you prefer.
+**Decided 2026-11-04 (8.19):** a receipt in another currency is rejected and alerted, and the full receipt is kept in a review table. There is no per-currency suspense.
 
 **Progress.**
 - Phase 2, slice 2a (deposit postings, V3, the fee conversion, `docs/ledger.md`): committed as `b773bbc` (code) and `8f750a1` (docs). The suite was 35/35 green.
@@ -606,4 +606,27 @@ The review's fixes and clean-ups are numbered 1–6 here, separately from the fi
 
 **What I'd do.** B. It keeps every phase green, and it closes the gap at the end of phase 3, not at the end of phase 6. A still leaves the gap open, and C changes the phase boundaries you approved.
 
-**Needs your decision.** A, B or C. I'm not building the resource server until you choose.
+**Decided 2026-11-04: option B, with the limits in 8.19.**
+
+### 8.19 Answers of 2026-11-04 (third round), and the test incident
+
+**Approved.**
+1. **8.18, option B**, with these limits:
+   - `ACCOUNT_LEGACY_HEADERS_ENABLED` defaults to `false`. Startup fails if it is `true` under the `prod` profile.
+   - The legacy path covers only the endpoints today's callers use. The answer listed three, but there is a fourth: `GET /api/v1/accounts/{accountNumber}` is called without a token by transaction-service and payment-service, and excluding it would break both. **It is included.** The legacy set is `PUT …/deduct`, `PUT …/credit`, `GET …/balance` and `GET /{accountNumber}`, for 10-digit account numbers only. Please confirm.
+   - Each request that gets in through the legacy path logs a warning with the caller: remote address, user agent, and `X-User-Id` if present. Today's callers send no identity, so until phase 3 adds service tokens with `sub`, a caller can only be identified by address.
+   - The internal ledger API and every new endpoint never accept the legacy path. The internal ledger API accepts service tokens only. My reading of "every new endpoint accepts service tokens only" is that new user-facing endpoints (the statement, the admin reconciliation and adjustments) take user tokens, since the gateway forwards user tokens, and that they never take the legacy path. Please confirm.
+   - Phase 3 checklist: added to section 5, phase 3.
+2. **CARD_DEPOSIT_MIN = 20000** is the default (8.10). Small amounts can still come in by bank transfer, which has no minimum (6c).
+3. **Currency mismatch:** reject and alert, with no per-currency suspense. The full receipt is kept in a review table, `receipt_review`, in account_db next to the ledger, shaped like `unmatched_inbound`. The review row and the outbox alert are written in the same transaction.
+4. **Test isolation:** the cause and the fix are below. The three leaked topics are deleted.
+5. **Rebuild of account-service:** after a fresh dump, V2 to V5 apply to the dev database, and the reconciliation result is recorded in the report.
+6. **The old 26.10 volume** stays until phase 2 is finished.
+
+**Cause of the dev-broker writes.** The outbox producer read `spring.kafka.bootstrap-servers` as a plain property. That property defaults to `localhost:9092`, the dev broker's published port. Testcontainers' `@ServiceConnection` changes Boot's connection details, not the property, so the producer went to the dev broker. The dev database was not touched: its counts were 23 accounts (98000.00), 19 users, 23 transactions, 65 tokens and 7 payments before and after the test runs. Only Kafka received writes, and the three test topics held four test messages.
+
+**Fix.** The property is set to the container's address in tests. The producer takes its address from `KafkaConnectionDetails`. A test context refuses to start if Kafka, MySQL, the datasource or `spring.data.redis.port` is on 9092, 3306 or 6379. I checked this by pointing the property at 9092: the context refused to start and named the property. Account-service has no Redis code, so its `spring.data.redis` block is removed.
+
+**A second bug, found by the same test run.** The scheduled relay called `publishPending()` on itself, which bypasses the `@Transactional` proxy. The row locks were released after each SELECT, so concurrent passes sent the same rows: 85 deliveries for 20 events in the new concurrency test. The relay's scheduled pass now opens its own transaction. The concurrency test reproduces the failure on the old code and passes on the new code.
+
+The account-service suite is 60/60 green on MySQL 9.7.4.
