@@ -18,12 +18,23 @@ PROJECT=smoke
 OUT=$(mktemp -d /tmp/smoke-throwaway.XXXXXX)
 WT=$(mktemp -d /tmp/smoke-src.XXXXXX) && rmdir "$WT"       # git worktree add needs a path that does not exist yet
 OVERRIDE="$OUT/compose.override.yaml"
+TRACE="$OUT/verify-trace.tsv"
 FOLLOWER=""
 DEV_BEFORE=$(docker volume ls --format '{{.Name}}' | grep -E '^digital-banking-system_mysql' | sort || true)
+
+# Evidence, kept before every teardown, pass or fail (wallet-plan 8.29): both services' logs, and this stack's auth_tokens rows.
+# The token rows hold SHA-256 hashes only; raw tokens are never stored.
+capture_evidence() {
+  local dc=(docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE")
+  (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps auth-service) > "$OUT/auth-service.log" 2>&1
+  (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps notification-service) > "$OUT/notification-service.log" 2>&1
+  (cd "$WT/$REL" && "${dc[@]}" exec -T mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -t auth_db -e "SELECT u.email, u.email_verified, t.type, t.token_hash, t.created_at, t.expires_at, t.used_at FROM auth_tokens t JOIN users u ON u.id = t.user_id ORDER BY u.email, t.created_at"') > "$OUT/auth-tokens.txt" 2>&1
+}
 
 cleanup() {
   [[ -n "$FOLLOWER" ]] && kill "$FOLLOWER" 2>/dev/null
   if [[ -d "$WT/$REL" ]]; then
+    capture_evidence
     (cd "$WT/$REL" && docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE" down -v) > "$OUT/down.log" 2>&1
   fi
   git -C "$ROOT" worktree remove --force "$WT" 2>/dev/null
@@ -63,12 +74,13 @@ done
 echo "gateway: $(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health)"
 
 # 4. The notification log, followed into a file for the smoke test. The PID is kept, so the kill stops only this process.
-docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE" logs -f --no-log-prefix notification-service > "$OUT/notification.log" 2>&1 &
+docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE" logs -f --no-log-prefix --timestamps notification-service > "$OUT/notification.log" 2>&1 &
 FOLLOWER=$!
 sleep 2
 
-# 5. The smoke test, through the gateway.
-NOTIFICATION_LOG="$OUT/notification.log" BASE_URL=http://localhost:8080 ./scripts/smoke-test.sh > "$OUT/smoke.log" 2>&1
+# 5. The smoke test, through the gateway. Each verify call is traced to $TRACE (see verify_call in smoke-test.sh).
+printf 'call\ttoken_empty\ttoken_len\ttoken_sha256\tstatus\tbody\trequest_sent\temail_logged\tverify_sent\tto_lines_after_mark\tlink_lines_after_mark\n' > "$TRACE"
+NOTIFICATION_LOG="$OUT/notification.log" TRACE_FILE="$TRACE" BASE_URL=http://localhost:8080 ./scripts/smoke-test.sh > "$OUT/smoke.log" 2>&1
 SMOKE_RC=$?
 grep -E '^Result' "$OUT/smoke.log" | sed 's/\x1b\[[0-9;]*m//g'
 

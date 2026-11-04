@@ -15,6 +15,7 @@ set -uo pipefail
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 API="$BASE_URL/api/v1"
 NOTIFICATION_LOG="${NOTIFICATION_LOG:-}"
+TRACE_FILE="${TRACE_FILE:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUN_ID="$(date +%s)"
@@ -62,7 +63,7 @@ check() {
 
 notification_logs() {
   if [[ -n "$NOTIFICATION_LOG" ]]; then cat "$NOTIFICATION_LOG"
-  else (cd "$ROOT_DIR" && docker compose logs --no-log-prefix notification-service 2>/dev/null); fi
+  else (cd "$ROOT_DIR" && docker compose logs --no-log-prefix --timestamps notification-service 2>/dev/null); fi
 }
 
 # log_mark -> how many lines the notification log has now. Take a mark before an action, then read only what comes after it,
@@ -78,6 +79,32 @@ link_after() {
     sleep 1
   done
   return 1
+}
+
+# Evidence for a 400 from verify-email (wallet-plan 8.29). When TRACE_FILE is set, each verify call appends one row: whether the
+# token sent was empty and its length, the SHA-256 of the token (it matches auth_tokens.token_hash; the raw token is never
+# written), the status and body, and three times: the request that sent the email, the email's log line, the verify call.
+now_ts() { date -u +%Y-%m-%dT%H:%M:%S.%3NZ; }
+
+# logged_ts_after MARK EMAIL -> the time of the first "to=EMAIL" line logged after line MARK (the log carries timestamps).
+logged_ts_after() {
+  notification_logs | tail -n "+$(($1 + 1))" | grep -F "to=$2" | sed -n '1p' | awk '{print $1}'
+}
+
+# verify_call CALL TOKEN SENT LOGGED MARK EMAIL -> calls verify-email, sets STATUS and BODY for check, and traces the call.
+verify_call() {
+  local call=$1 token=$2 sent=$3 logged=$4 mark=$5 email=$6 verified resp sha="" empty=no to_lines="" link_lines=""
+  verified=$(now_ts)
+  resp=$(curl -s -w $'\n%{http_code}' "$API/auth/verify-email?token=$token")
+  STATUS=${resp##*$'\n'}; BODY=${resp%$'\n'*}
+  [[ -n "$TRACE_FILE" ]] || return 0
+  if [[ -z "$token" ]]; then empty=yes; else sha=$(printf '%s' "$token" | sha256sum | cut -d' ' -f1); fi
+  if [[ -n "$mark" ]]; then
+    to_lines=$(notification_logs | tail -n "+$((mark + 1))" | grep -cF "to=$email")
+    link_lines=$(notification_logs | tail -n "+$((mark + 1))" | grep -cF 'verify-email?token=')
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$call" "$empty" "${#token}" "$sha" "$STATUS" \
+    "$(tr '\t\r\n' '   ' <<<"$BODY" | cut -c1-200)" "$sent" "$logged" "$verified" "$to_lines" "$link_lines" >> "$TRACE_FILE"
 }
 
 # otp_after MARK -> the newest OTP logged after line MARK. Waits up to 30 s, then fails.
@@ -105,10 +132,11 @@ wait_status() { # TX_ID WANTED TOKEN
 signup() {
   local name=$1 email; email="$(tr '[:upper:]' '[:lower:]' <<<"$1").$RUN_ID@test.com"
   local mark; mark=$(log_mark)
+  local sent; sent=$(now_ts)
   call POST /auth/register "{\"fullName\":\"$name Tester\",\"email\":\"$email\",\"password\":\"$PASSWORD\"}"
   check "POST /auth/register ($name)" 201 .emailVerified false
   local token; token=$(link_after "$mark" "$email" 'verify-email\?token=\K[A-Za-z0-9_-]+')
-  STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$API/auth/verify-email?token=$token"); BODY=""
+  verify_call "$name (link from email)" "$token" "$sent" "$(logged_ts_after "$mark" "$email")" "$mark" "$email"
   check "GET  /auth/verify-email ($name, link from email)" 200
   call POST /auth/login "{\"email\":\"$email\",\"password\":\"$PASSWORD\"}"
   check "POST /auth/login ($name)" 200 .user.role USER
@@ -138,12 +166,13 @@ check "POST /auth/register duplicate email -> 409" 409
 call POST /auth/login "{\"email\":\"$E\",\"password\":\"$PASSWORD\"}"
 check "POST /auth/login before email verified -> 403" 403
 resend_mark=$(log_mark)
+resend_sent=$(now_ts)
 call POST /auth/resend-verification "{\"email\":\"$E\"}"
 check "POST /auth/resend-verification" 200
 resend_token=$(link_after "$resend_mark" "$E" 'verify-email\?token=\K[A-Za-z0-9_-]+')
-STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$API/auth/verify-email?token=$resend_token"); BODY=""
+verify_call "Dave, link from the resend" "$resend_token" "$resend_sent" "$(logged_ts_after "$resend_mark" "$E")" "$resend_mark" "$E"
 check "GET  /auth/verify-email (Dave, link from the resend)" 200
-STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$API/auth/verify-email?token=not-a-real-token"); BODY=""
+verify_call "bad token" "not-a-real-token" "" "" "" ""
 check "GET  /auth/verify-email bad token -> 400" 400
 
 signup Alice
