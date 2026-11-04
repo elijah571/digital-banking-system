@@ -300,7 +300,10 @@ fi
 call POST /transactions "$(printf "$TX" "$C" "$B" 1950 large)" "$Carol_TOKEN"
 check "POST /transactions (Carol, 97% of balance)" 201; T3=$(jq -r .id <<<"$BODY")
 if wait_status "$T3" PENDING_VERIFICATION "$Carol_TOKEN"; then
-  call POST "/transactions/$T3/verify?otp=000000" "" "$Carol_TOKEN"; check "POST /transactions/{id}/verify (wrong OTP) -> FLAGGED" 200 .status FLAGGED
+  # wallet-plan D6: the first two wrong OTPs get a 400 and the transfer waits; the third flags it, refunds it and blocks the account.
+  call POST "/transactions/$T3/verify?otp=000000" "" "$Carol_TOKEN"; check "POST /transactions/{id}/verify (wrong OTP 1 of 3) -> 400" 400 .detail "Incorrect OTP. 2 attempts left"
+  call POST "/transactions/$T3/verify?otp=000000" "" "$Carol_TOKEN"; check "POST /transactions/{id}/verify (wrong OTP 2 of 3) -> 400" 400 .detail "Incorrect OTP. 1 attempt left"
+  call POST "/transactions/$T3/verify?otp=000000" "" "$Carol_TOKEN"; check "POST /transactions/{id}/verify (wrong OTP 3 of 3) -> FLAGGED" 200 .status FLAGGED
   sleep 2
   call GET "/accounts/$C" "" "$Carol_TOKEN";                  check "     sender account BLOCKED" 200 .status BLOCKED
   call GET "/accounts/$C/balance" "" "$Carol_TOKEN";          check "     sender refunded" 200 ".==2000" true

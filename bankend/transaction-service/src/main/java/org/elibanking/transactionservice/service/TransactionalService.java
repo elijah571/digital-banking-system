@@ -7,6 +7,7 @@ import org.elibanking.transactionservice.client.AccountInfo;
 import feign.FeignException;
 import org.elibanking.transactionservice.client.AccountService;
 import org.elibanking.transactionservice.client.LedgerClient;
+import org.elibanking.transactionservice.exception.InvalidOtpException;
 import org.elibanking.transactionservice.exception.TransactionRejectedException;
 import org.elibanking.transactionservice.outbox.OutboxWriter;
 import org.elibanking.transactionservice.exception.TransactionAccessDeniedException;
@@ -52,6 +53,7 @@ public class TransactionalService {
     private final TransactionTemplate tx;
     private final KafkaTemplate<String, Object> kafkaTemplate; // Fixed: removed duplicate declaration
     private final RedisTemplate<String, String> redisTemplate;
+    private final OtpCodes otps;
 
     public TransactionResponse transfer(TransactionRequest request, Caller caller) {
         log.info("Start Transfer");
@@ -182,29 +184,44 @@ public class TransactionalService {
                     + " is not awaiting OTP verification (status: " + transaction.getStatus() + ")");
         }
 
-        String otpKey = "verification:otp:" + transactionId;
-        String storedOtp = redisTemplate.opsForValue().get(otpKey);
+        String storedHash = redisTemplate.opsForValue().get(OtpCodes.codeKey(transactionId));
 
-        if (storedOtp == null) {
+        if (storedHash == null) {
             log.warn("OTP expired for transaction: {}", transactionId);
+            forgetOtp(transactionId);
             compensateTransaction(transaction, "OTP expired - transaction cancelled and amount refunded");
             return mapToResponse(transaction);
         }
 
-        // Fixed: Correct logic for matching OTP
-        if (!storedOtp.equals(otp)) {
-            log.warn("Wrong OTP entered - blocking account and refunding: {}", transactionId);
-            redisTemplate.delete(otpKey);
-            blockAccountAndCompensate(transaction,
-                    "Wrong OTP entered - transaction cancelled, account blocked for security");
+        if (otps.matches(transactionId, otp, storedHash)) {
+            log.info("OTP verified - completing transaction: {}", transactionId);
+            forgetOtp(transactionId);
+            completeTransaction(transaction);
             return mapToResponse(transaction);
         }
 
-        // OTP is correct
-        log.info("OTP verified - completing transaction: {}", transactionId);
-        redisTemplate.delete(otpKey);
-        completeTransaction(transaction);
+        // A wrong code counts. The first two only get a 400 and the transfer waits. The third flags it, refunds it and blocks the account.
+        Long attempts = redisTemplate.opsForValue().increment(OtpCodes.attemptsKey(transactionId));
+        long count = attempts == null ? OtpCodes.MAX_ATTEMPTS : attempts;
+        if (count == 1) {
+            redisTemplate.expire(OtpCodes.attemptsKey(transactionId), OtpCodes.TTL);
+        }
+        if (count < OtpCodes.MAX_ATTEMPTS) {
+            log.warn("Wrong OTP for transaction {} (attempt {} of {})", transactionId, count, OtpCodes.MAX_ATTEMPTS);
+            throw new InvalidOtpException(OtpCodes.MAX_ATTEMPTS - count);
+        }
+
+        log.warn("Wrong OTP for transaction {} for the last time - blocking account and refunding", transactionId);
+        forgetOtp(transactionId);
+        blockAccountAndCompensate(transaction,
+                "Wrong OTP entered - transaction cancelled, account blocked for security");
         return mapToResponse(transaction);
+    }
+
+    /** Removes the code and its attempt count. A code is single use, whatever the outcome. */
+    private void forgetOtp(String transactionId) {
+        redisTemplate.delete(OtpCodes.codeKey(transactionId));
+        redisTemplate.delete(OtpCodes.attemptsKey(transactionId));
     }
 
     private void compensateTransaction(Transaction transaction, String reason) {

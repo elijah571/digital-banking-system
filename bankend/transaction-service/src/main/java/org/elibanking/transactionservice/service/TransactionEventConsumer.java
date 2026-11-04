@@ -1,5 +1,6 @@
 package org.elibanking.transactionservice.service;
 
+import org.elibanking.transactionservice.config.OtpTopicConfig;
 import org.elibanking.transactionservice.exception.TransactionNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.elibanking.transactionservice.entity.Transaction;
@@ -11,31 +12,29 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Random;
 
 @Service
 @Slf4j
 public class TransactionEventConsumer {
 
-    private static final long OTP_EXPIRY_MINUTES = 5;
-    private static final String TRANSACTION_OTP_GENERATED_TOPIC = "transaction.otp.generated";
-
     private final TransactionalService transactionalService;
     private final TransactionRepository transactionRepository;
     private final RedisTemplate<String, String> redisTemplate;
     private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final OtpCodes otps;
 
     public TransactionEventConsumer(TransactionalService transactionalService,
                                     TransactionRepository transactionRepository,
                                     RedisTemplate<String, String> redisTemplate,
-                                    KafkaTemplate<String, Object> kafkaTemplate) {
+                                    KafkaTemplate<String, Object> kafkaTemplate,
+                                    OtpCodes otps) {
         this.transactionalService = transactionalService;
         this.transactionRepository = transactionRepository;
         this.redisTemplate = redisTemplate;
         this.kafkaTemplate = kafkaTemplate;
+        this.otps = otps;
     }
 
     @KafkaListener(topics = "transaction.verification.required", groupId = "transaction-service-group")
@@ -56,16 +55,15 @@ public class TransactionEventConsumer {
                 return;
             }
 
-            int randomOtp = 100000 + new Random().nextInt(900000);
-            String otp = String.format("%06d", randomOtp);
-
-            String otpKey = "verification:otp:" + transactionId;
-            redisTemplate.opsForValue().set(otpKey, otp, Duration.ofMinutes(OTP_EXPIRY_MINUTES));
+            // Only a keyed hash is kept in Redis. The code itself goes once, to notification-service, on its own topic.
+            String otp = otps.generate();
+            redisTemplate.opsForValue().set(OtpCodes.codeKey(transactionId), otps.hash(transactionId, otp), OtpCodes.TTL);
+            redisTemplate.opsForValue().set(OtpCodes.attemptsKey(transactionId), "0", OtpCodes.TTL);
 
             transaction.setStatus(TransactionStatus.PENDING_VERIFICATION);
             transactionRepository.save(transaction);
 
-            log.info("OTP generated for transaction: {} expires in {} minutes", transactionId, OTP_EXPIRY_MINUTES);
+            log.info("OTP generated for transaction: {} expires in {} minutes", transactionId, OtpCodes.TTL.toMinutes());
 
             Map<String, Object> otpEvent = new HashMap<>();
             otpEvent.put("transactionId", transactionId);
@@ -74,7 +72,7 @@ public class TransactionEventConsumer {
             otpEvent.put("otp", otp);
             otpEvent.put("amount", payload.get("amount"));
 
-            kafkaTemplate.send(TRANSACTION_OTP_GENERATED_TOPIC, transactionId, otpEvent);
+            kafkaTemplate.send(OtpTopicConfig.NOTIFICATION_OTP_TOPIC, transactionId, otpEvent);
 
         } catch (Exception e) {
             log.error("Error handling verification required: {}", e.getMessage(), e);

@@ -13,6 +13,7 @@ import org.elibanking.transactionservice.dto.TransactionRequest;
 import org.elibanking.transactionservice.entity.Transaction;
 import org.elibanking.transactionservice.entity.TransactionStatus;
 import org.elibanking.transactionservice.entity.TransactionType;
+import org.elibanking.transactionservice.exception.InvalidOtpException;
 import org.elibanking.transactionservice.exception.TransactionRejectedException;
 import org.elibanking.transactionservice.repository.TransactionRepository;
 import org.elibanking.transactionservice.security.Caller;
@@ -56,6 +57,9 @@ class TransferLedgerTest {
 
     @Autowired
     RedisTemplate<String, String> redis;
+
+    @Autowired
+    OtpCodes otps;
 
     @MockitoBean
     AccountService accountService;
@@ -145,9 +149,9 @@ class TransferLedgerTest {
         Transaction row = transactions.findById(id).orElseThrow();
         row.setStatus(TransactionStatus.PENDING_VERIFICATION);
         transactions.saveAndFlush(row);
-        redis.opsForValue().set("verification:otp:" + id, "123456");
+        armOtp(id, "123456");
 
-        transfers.verifyOTP(id, "000000", new Caller(null, null, null));
+        wrongOtpUntilFlagged(id);
 
         ArgumentCaptor<LedgerEntryRequest> posted = ArgumentCaptor.forClass(LedgerEntryRequest.class);
         verify(ledger, times(2)).post(posted.capture());
@@ -168,11 +172,11 @@ class TransferLedgerTest {
         Transaction row = transactions.findById(id).orElseThrow();
         row.setStatus(TransactionStatus.PENDING_VERIFICATION);
         transactions.saveAndFlush(row);
-        redis.opsForValue().set("verification:otp:" + id, "123456");
+        armOtp(id, "123456");
         // The wrong OTP publishes fraud.detected, and account-service blocks the sender. The refund runs after that.
         stubAccounts(sender, receiver, "BLOCKED");
 
-        transfers.verifyOTP(id, "000000", new Caller(null, null, null));
+        wrongOtpUntilFlagged(id);
 
         ArgumentCaptor<LedgerEntryRequest> posted = ArgumentCaptor.forClass(LedgerEntryRequest.class);
         verify(ledger, times(2)).post(posted.capture());
@@ -183,6 +187,19 @@ class TransferLedgerTest {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** Stores the code the way TransactionEventConsumer does: as a hash, with the attempt count at zero. */
+    private void armOtp(String id, String otp) {
+        redis.opsForValue().set(OtpCodes.codeKey(id), otps.hash(id, otp), OtpCodes.TTL);
+        redis.opsForValue().set(OtpCodes.attemptsKey(id), "0", OtpCodes.TTL);
+    }
+
+    /** Three wrong codes (wallet-plan D6): the first two are refused with a 400, and the third flags the transfer. */
+    private void wrongOtpUntilFlagged(String id) {
+        assertThrows(InvalidOtpException.class, () -> transfers.verifyOTP(id, "000000", new Caller(null, null, null)));
+        assertThrows(InvalidOtpException.class, () -> transfers.verifyOTP(id, "000000", new Caller(null, null, null)));
+        transfers.verifyOTP(id, "000000", new Caller(null, null, null));
+    }
 
     private static String randomAccount() {
         return String.format("%010d", ThreadLocalRandom.current().nextLong(1_000_000_000L));
