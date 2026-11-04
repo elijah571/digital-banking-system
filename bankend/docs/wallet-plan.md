@@ -565,7 +565,7 @@ The review's fixes and clean-ups are numbered 1–6 here, separately from the fi
 - `CardDepositPostings.recordFee`: posts `dep-{id}-fee`, DR `PAYMENT_FEES`, CR `PROVIDER_CLEARING:STRIPE:NGN`.
 - `StripeFees.toNgn`: the fee divided by the balance transaction's rate, HALF_EVEN to 2 decimals. The G1 sample (0.33 USD at 0.000710374) is ₦464.54. The HALF_EVEN ties are tested at 0.015, 0.025 and 0.035.
 - V3 adds `DEPOSIT_SUSPENSE:NGN` (LIABILITY) and `PAYMENT_FEES:NGN` (EXPENSE).
-- The suspense alert goes out as an outbox event, so it waits for V5.
+- The suspense alert is not wired yet. It should be an outbox row in the same transaction as the suspense entry. V5 now has the table (slice 2c), and wiring the row is part of the deposit flow in phase 5.
 
 **Fee measurement and the proposed `CARD_DEPOSIT_MIN`.** Seven test-mode charges on 2026-11-04, at the same rate (0.000710374 USD per NGN):
 
@@ -588,4 +588,5 @@ The review's fixes and clean-ups are numbered 1–6 here, separately from the fi
 **Progress.**
 - Phase 2, slice 2a (deposit postings, V3, the fee conversion, `docs/ledger.md`): committed as `b773bbc` (code) and `8f750a1` (docs). The suite was 35/35 green.
 - Phase 2, slice 2b (V4 opening-balance backfill, with its test): built. The backfill test runs the upgrade on a scratch database with the V1 schema and existing rows. It checks that every wallet mirrors its account and that the journal balances, and that a negative account stops the migration before any write. The suite is 37/37 green. The guard was first written in a form MySQL 9.7 rejects, and the test caught it before any data was touched.
-- Phase 2, still to do: V4 opening-balance backfill (with its test), V5 (`audit_log`, `outbox`, `processed_event`, `idempotency_record`), the reconciliation job and endpoint, the statement, admin credit and deduct, the internal API and resource server with service tokens, the `accounts.balance` mirror write, and the ArchUnit rule on who writes the ledger tables.
+- Phase 2, slice 2c: V5 (`audit_log` with append-only triggers, `outbox`, `processed_event`, `idempotency_record` with a lease). `AuditLogWriter` and `OutboxWriter` run only inside the business transaction (`MANDATORY`). `IdempotencyService` implements begin, complete and takeover. Tests: audit rows cannot be changed or deleted; an outbox row and its ledger entry commit or roll back together; the envelope is correct; the crash-recovery case from fix 2 moves money once. The suite is 46/46 green.
+- Phase 2, still to do: the outbox relay (publishes unsent rows to Kafka, with `@Scheduled`), the reconciliation job and endpoint, the statement, admin credit and deduct (with `Idempotency-Key`, through `IdempotencyService`), the internal API and resource server with service tokens, the `accounts.balance` mirror write, the ArchUnit rule on who writes the ledger tables, and the consumer side (`processed_event` dedupe) when the first consumer is built.
