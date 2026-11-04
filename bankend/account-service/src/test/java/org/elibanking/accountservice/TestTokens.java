@@ -42,6 +42,11 @@ public final class TestTokens {
         return sign(SERVICE_SECRET, SERVICE_ISSUER, audience, "transaction-service", "SERVICE", Duration.ofMinutes(5));
     }
 
+    /** A valid service token whose subject is the named service (for the allow-list tests). */
+    public static String serviceTokenAs(String subject) {
+        return sign(SERVICE_SECRET, SERVICE_ISSUER, AUDIENCE, subject, "SERVICE", Duration.ofMinutes(5));
+    }
+
     /** A valid service token with no subject: it has no actor, so account-service must refuse it. */
     public static String serviceTokenWithoutSubject() {
         return sign(SERVICE_SECRET, SERVICE_ISSUER, AUDIENCE, null, "SERVICE", Duration.ofMinutes(5));

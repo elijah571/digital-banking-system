@@ -29,17 +29,18 @@ class LegacyHeadersEnabledTest {
     int port;
 
     @Test
-    void theOldCallersGetThroughWithoutATokenAndTheRequestIsLogged(CapturedOutput output) {
-        // The account does not exist, so the answer is 404: the request got past the security check, which is the point.
-        assertEquals(404, put("/api/v1/accounts/" + ACCOUNT + "/deduct?amount=1"));
+    void theOldCallersAreLoggedAndRefusedByTheAllowList(CapturedOutput output) {
+        // The allow-list accepts only transaction-service's service token on this path (wallet-plan 8.25). A legacy call has
+        // no token, so it is refused with 403. The attempt is still logged, which is what the flag is for until it is removed.
+        assertEquals(403, put("/api/v1/accounts/" + ACCOUNT + "/deduct?amount=1"));
         assertTrue(output.getOut().contains("legacy header access: PUT /api/v1/accounts/" + ACCOUNT + "/deduct"),
                 "the legacy access must be logged with the caller's details");
     }
 
     @Test
-    void theBalanceAndTheGetByNumberGetThroughWithoutAToken() {
-        assertEquals(404, get("/api/v1/accounts/" + ACCOUNT + "/balance"));
-        assertEquals(404, get("/api/v1/accounts/" + ACCOUNT));
+    void theBalanceAndTheGetByNumberAreRefusedWithoutAToken() {
+        assertEquals(403, get("/api/v1/accounts/" + ACCOUNT + "/balance"));
+        assertEquals(403, get("/api/v1/accounts/" + ACCOUNT));
     }
 
     @Test
