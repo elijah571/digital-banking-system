@@ -19,6 +19,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -84,6 +88,55 @@ class OutboxRelayTest {
 
             List<ConsumerRecord<String, String>> delivered = pollFor(consumer, aggregate, 2);
             assertEquals(2, delivered.size(), "two events, each delivered once");
+            assertEquals(0L, jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM outbox WHERE aggregate_id = ? AND sent_at IS NULL", Long.class, aggregate));
+        }
+    }
+
+    /**
+     * The scheduled path and direct calls race on the same rows. Every event must still be delivered exactly once.
+     */
+    @Test
+    void concurrentPassesOnTheScheduledAndDirectPathsNeverDeliverAnEventTwice() throws Exception {
+        String topic = "relay.test." + UUID.randomUUID();
+        String aggregate = UUID.randomUUID().toString();
+        int events = 20;
+
+        try (KafkaConsumer<String, String> consumer = consumer()) {
+            consumer.subscribe(List.of(topic));
+            tx.executeWithoutResult(status -> {
+                for (int i = 0; i < events; i++) {
+                    outbox.append(topic, "TEST_EVENT", aggregate, null, "{\"n\":" + i + "}");
+                }
+            });
+
+            ExecutorService pool = Executors.newFixedThreadPool(8);
+            try {
+                List<Future<?>> passes = new ArrayList<>();
+                for (int thread = 0; thread < 8; thread++) {
+                    boolean scheduledPath = thread % 2 == 0;
+                    passes.add(pool.submit(() -> {
+                        for (int round = 0; round < 10; round++) {
+                            if (scheduledPath) {
+                                relay.relay();
+                            } else {
+                                relay.publishPending(3);
+                            }
+                        }
+                        return null;
+                    }));
+                }
+                for (Future<?> pass : passes) {
+                    pass.get(120, TimeUnit.SECONDS);
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+
+            List<ConsumerRecord<String, String>> delivered = pollFor(consumer, aggregate, events);
+            assertEquals(events, delivered.size(), "each event delivered exactly once");
+            assertEquals(events, delivered.stream().map(ConsumerRecord::value).distinct().count(),
+                    "no envelope was delivered twice");
             assertEquals(0L, jdbc.queryForObject(
                     "SELECT COUNT(*) FROM outbox WHERE aggregate_id = ? AND sent_at IS NULL", Long.class, aggregate));
         }

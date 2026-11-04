@@ -27,12 +27,6 @@ spring:
         format_sql: true
     database-platform: org.hibernate.dialect.MySQLDialect
 
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      timeout: 60000ms
-
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:

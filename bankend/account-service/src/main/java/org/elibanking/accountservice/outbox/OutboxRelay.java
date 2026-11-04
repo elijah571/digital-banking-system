@@ -7,6 +7,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -25,10 +26,12 @@ public class OutboxRelay {
 
     private final JdbcTemplate jdbc;
     private final KafkaTemplate<String, String> kafka;
+    private final TransactionTemplate tx;
 
-    public OutboxRelay(JdbcTemplate jdbc, KafkaTemplate<String, String> outboxKafkaTemplate) {
+    public OutboxRelay(JdbcTemplate jdbc, KafkaTemplate<String, String> outboxKafkaTemplate, TransactionTemplate tx) {
         this.jdbc = jdbc;
         this.kafka = outboxKafkaTemplate;
+        this.tx = tx;
     }
 
     /**
@@ -61,10 +64,16 @@ public class OutboxRelay {
         return published;
     }
 
+    /**
+     * The scheduled pass. It opens its own transaction explicitly. Calling {@link #publishPending} on {@code this} would skip
+     * the {@code @Transactional} proxy, so the row locks would be released right after the SELECT, and concurrent passes
+     * would then send the same rows. The test {@code concurrentPassesOnTheScheduledAndDirectPathsNeverDeliverAnEventTwice}
+     * reproduced that before this change.
+     */
     @Scheduled(fixedDelayString = "${outbox.relay.delay-ms:1000}")
     public void relay() {
         try {
-            publishPending(100);
+            tx.executeWithoutResult(status -> publishPending(100));
         } catch (RuntimeException e) {
             log.warn("outbox relay pass failed; unsent rows stay queued: {}", e.getMessage());
         }
