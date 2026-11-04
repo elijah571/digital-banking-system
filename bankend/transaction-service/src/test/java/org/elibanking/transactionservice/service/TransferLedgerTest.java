@@ -158,6 +158,30 @@ class TransferLedgerTest {
         assertEquals(TransactionStatus.FLAGGED, transactions.findById(id).orElseThrow().getStatus());
     }
 
+    @Test
+    void theReleaseIsPostedEvenWhenTheFraudEventHasAlreadyBlockedTheSender() {
+        String sender = randomAccount();
+        String receiver = randomAccount();
+        stubAccounts(sender, receiver, "ACTIVE");
+        when(ledger.post(any())).thenReturn(new LedgerClient.LedgerEntryResponse(1L, false));
+        String id = transfers.transfer(request(sender, receiver, "250.00"), new Caller(null, null, null)).getId();
+        Transaction row = transactions.findById(id).orElseThrow();
+        row.setStatus(TransactionStatus.PENDING_VERIFICATION);
+        transactions.saveAndFlush(row);
+        redis.opsForValue().set("verification:otp:" + id, "123456");
+        // The wrong OTP publishes fraud.detected, and account-service blocks the sender. The refund runs after that.
+        stubAccounts(sender, receiver, "BLOCKED");
+
+        transfers.verifyOTP(id, "000000", new Caller(null, null, null));
+
+        ArgumentCaptor<LedgerEntryRequest> posted = ArgumentCaptor.forClass(LedgerEntryRequest.class);
+        verify(ledger, times(2)).post(posted.capture());
+        LedgerEntryRequest release = posted.getAllValues().get(1);
+        assertEquals("tx-" + id + "-release", release.idempotencyKey(), "a blocked sender still gets the refund");
+        assertLine(release.lines().get(1), sender, null, "CREDIT", "250.00");
+        assertEquals(TransactionStatus.FLAGGED, transactions.findById(id).orElseThrow().getStatus());
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static String randomAccount() {
