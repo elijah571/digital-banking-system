@@ -58,6 +58,12 @@ account:
   service:
     url: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
 
+# Service tokens for calls to account-service (wallet-plan 3.7). The secret is shared with account-service and must be set.
+internal-auth:
+  jwt-secret: ${INTERNAL_JWT_SECRET:}
+  subject: fraud-detection-service
+  audience: account-service
+
 management:
   endpoints:
     web:

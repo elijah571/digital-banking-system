@@ -143,7 +143,10 @@ services:
     build:
       context: .
       dockerfile: fraud-detection-service/Dockerfile
-    environment: *app-env
+    environment:
+      <<: *app-env
+      # Signs this service's calls to account-service (wallet-plan 3.7). The same value as account-service's.
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
     depends_on:
       <<: *app-depends
       account-service:
