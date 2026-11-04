@@ -65,21 +65,26 @@ notification_logs() {
   else (cd "$ROOT_DIR" && docker compose logs --no-log-prefix notification-service 2>/dev/null); fi
 }
 
-# from_logs EMAIL REGEX -> newest match from the email logged for that address
-from_logs() {
-  local email=$1 regex=$2 v=""
-  for _ in $(seq 1 20); do
-    v=$(notification_logs | grep -A2 -F "to=$email" | grep -oP "$regex" | tail -1)
+# log_mark -> how many lines the notification log has now. Take a mark before an action, then read only what comes after it,
+# so a message from an earlier step can never be mistaken for the one this step caused.
+log_mark() { notification_logs | wc -l; }
+
+# link_after MARK EMAIL REGEX -> the newest match logged for EMAIL after line MARK. Waits up to 30 s, then fails.
+link_after() {
+  local mark=$1 email=$2 regex=$3 v=""
+  for _ in $(seq 1 30); do
+    v=$(notification_logs | tail -n "+$((mark + 1))" | grep -A2 -F "to=$email" | grep -oP "$regex" | tail -1)
     [[ -n "$v" ]] && { echo "$v"; return 0; }
     sleep 1
   done
   return 1
 }
 
-get_otp() {
-  local otp=""
-  for _ in $(seq 1 20); do
-    otp=$(notification_logs | grep -oP 'Your OTP is \K[0-9]{6}' | tail -1)
+# otp_after MARK -> the newest OTP logged after line MARK. Waits up to 30 s, then fails.
+otp_after() {
+  local mark=$1 otp=""
+  for _ in $(seq 1 30); do
+    otp=$(notification_logs | tail -n "+$((mark + 1))" | grep -oP 'Your OTP is \K[0-9]{6}' | tail -1)
     [[ -n "$otp" ]] && { echo "$otp"; return 0; }
     sleep 1
   done
@@ -99,9 +104,10 @@ wait_status() { # TX_ID WANTED TOKEN
 # signup NAME -> registers, verifies via emailed link, logs in; sets <NAME>_TOKEN, <NAME>_REFRESH, <NAME>_ID, <NAME>_EMAIL
 signup() {
   local name=$1 email; email="$(tr '[:upper:]' '[:lower:]' <<<"$1").$RUN_ID@test.com"
+  local mark; mark=$(log_mark)
   call POST /auth/register "{\"fullName\":\"$name Tester\",\"email\":\"$email\",\"password\":\"$PASSWORD\"}"
   check "POST /auth/register ($name)" 201 .emailVerified false
-  local token; token=$(from_logs "$email" 'verify-email\?token=\K[A-Za-z0-9_-]+')
+  local token; token=$(link_after "$mark" "$email" 'verify-email\?token=\K[A-Za-z0-9_-]+')
   STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$API/auth/verify-email?token=$token"); BODY=""
   check "GET  /auth/verify-email ($name, link from email)" 200
   call POST /auth/login "{\"email\":\"$email\",\"password\":\"$PASSWORD\"}"
@@ -131,8 +137,12 @@ call POST /auth/register "{\"fullName\":\"Dave\",\"email\":\"$E\",\"password\":\
 check "POST /auth/register duplicate email -> 409" 409
 call POST /auth/login "{\"email\":\"$E\",\"password\":\"$PASSWORD\"}"
 check "POST /auth/login before email verified -> 403" 403
+resend_mark=$(log_mark)
 call POST /auth/resend-verification "{\"email\":\"$E\"}"
 check "POST /auth/resend-verification" 200
+resend_token=$(link_after "$resend_mark" "$E" 'verify-email\?token=\K[A-Za-z0-9_-]+')
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$API/auth/verify-email?token=$resend_token"); BODY=""
+check "GET  /auth/verify-email (Dave, link from the resend)" 200
 STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$API/auth/verify-email?token=not-a-real-token"); BODY=""
 check "GET  /auth/verify-email bad token -> 400" 400
 
@@ -239,10 +249,11 @@ call GET "/accounts/$A/balance" "" "$Alice_TOKEN";            check "     sender
 call GET "/accounts/$B/balance" "" "$Bob_TOKEN";              check "     receiver credited" 200 ".==1500" true
 
 echo "== Transactions — suspicious transfer + OTP"
+otp_mark=$(log_mark)
 call POST /transactions "$(printf "$TX" "$A" "$B" 8500 large)" "$Alice_TOKEN"
 check "POST /transactions (95% of balance)" 201; T2=$(jq -r .id <<<"$BODY")
 wait_status "$T2" PENDING_VERIFICATION "$Alice_TOKEN"; check "     flagged -> PENDING_VERIFICATION" 200 .status PENDING_VERIFICATION
-if OTP=$(get_otp); then
+if OTP=$(otp_after "$otp_mark"); then
   call POST "/transactions/$T2/verify?otp=$OTP" "" "$Bob_TOKEN"; check "POST /transactions/{id}/verify by another user -> 403" 403
   call POST "/transactions/$T2/verify?otp=$OTP" "" "$Alice_TOKEN"; check "POST /transactions/{id}/verify (correct OTP)" 200 .status COMPLETED
   sleep 1
@@ -284,8 +295,9 @@ call POST /payments/webhook '{}' "" "Stripe-Signature: t=1,v1=bad";      check "
 echo "== Auth — forgot / reset / change password"
 call POST /auth/login "{\"email\":\"$Alice_EMAIL\",\"password\":\"$PASSWORD\"}"; Alice_REFRESH=$(jq -r .refreshToken <<<"$BODY")
 call POST /auth/forgot-password '{"email":"nobody-'$RUN_ID'@test.com"}';  check "POST /auth/forgot-password unknown email -> 200 (no enumeration)" 200
+reset_mark=$(log_mark)
 call POST /auth/forgot-password "{\"email\":\"$Alice_EMAIL\"}";            check "POST /auth/forgot-password" 200
-if RESET=$(from_logs "$Alice_EMAIL" 'Password reset token: \K[A-Za-z0-9_-]+'); then
+if RESET=$(link_after "$reset_mark" "$Alice_EMAIL" 'Password reset token: \K[A-Za-z0-9_-]+'); then
   call POST /auth/reset-password "{\"token\":\"$RESET\",\"newPassword\":\"weak\"}"; check "POST /auth/reset-password weak password -> 400" 400
   call POST /auth/reset-password "{\"token\":\"$RESET\",\"newPassword\":\"NewSecret456\"}"; check "POST /auth/reset-password" 200
   call POST /auth/reset-password "{\"token\":\"$RESET\",\"newPassword\":\"Other789xyz\"}"; check "POST /auth/reset-password token reused -> 400" 400
