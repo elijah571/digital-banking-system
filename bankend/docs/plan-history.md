@@ -269,3 +269,21 @@ Legacy headers stay on in this slice, so callers behave as before. The slice pre
 - **Product note.** A resend revokes the earlier verification links (`revokeAll`), so an older email's link now shows "Verification failed". That is by design. It is worth one line in the product copy.
 - **Release to a blocked sender** (`9839723`, no code change). transaction-service: the release is posted with the sender already BLOCKED. account-service: hold, block the account, release. The sender is refunded, TRANSFER_IN_FLIGHT returns to its starting balance, and reconciliation is clean. The current code blocks on the first wrong OTP, so the "third attempt" test belongs to 3c.5 (D6).
 - **Gate run on `9839723`**: 109 passed, 0 failed, out of 109. Reconciliation: clean. Teardown: clean. The dev volumes are unchanged, and the dev stack stayed stopped. The gate for 3c.5 is met.
+
+### 8.30 Slice 3c.5: hashed OTP, three attempts, notification.otp (2026-11-04)
+
+- **Built** (`22ffb19`). The code comes from `SecureRandom`. Redis holds `HMAC-SHA256(internal service secret, "otp|" + transactionId + "|" + code)` and never the code. The key is the existing `INTERNAL_JWT_SECRET`, so no new config was added. The decision to make: a keyed hash of a six-digit code is only useful if the key stays out of Redis, and the internal secret does. Say if you want a dedicated key.
+- **Attempts.** The first and second wrong codes get **400** (`Incorrect OTP. N attempts left`), and the transfer stays PENDING_VERIFICATION. The third flags it, refunds the sender and blocks the account, as before. The code and the count are both removed after any outcome.
+- **Events.** The code goes only on `notification.otp`, a new topic with one-hour retention (`OtpTopicConfig`). `transaction.otp.generated` gets no new events. Its notification-service listener stays for one release, and both listeners share one send path.
+- **Breaking** (README). A wrong OTP is no longer FLAGGED on the first attempt. The smoke test's wrong-OTP check became the three-attempt sequence, with the 400 messages checked.
+- **Tests.** transaction-service 25/25 with `OtpTest` (5): the stored value is a hash and is sent once on `notification.otp`; two wrong codes wait and the third flags, refunds and blocks; a correct code after two wrong ones completes; no code appears on any other topic or in any log line.
+- **Throwaway run on `22ffb19`**: 111 passed, 0 failed, 0 skipped. Reconciliation: clean. Teardown: clean. The dev volumes are unchanged. The skip count is zero, so the code really was read from `notification.otp`.
+
+### 8.31 Slice 3c.6: Idempotency-Key on transfers (2026-11-04)
+
+- **Built** (`ebb2390`). `POST /api/v1/transactions` requires `Idempotency-Key`. The record is `idempotency_record` (V4), with a lease, as in account-service. The transfer's id is written into the record in the same local transaction that saves the transfer. So a retry after a crash resumes the transfer the first attempt made, and makes no second one (`IdempotencyTest`, the crash case).
+- **Responses.** The same key and body gives the first result, with no money moved. The same key with a different body gives **422**. A repeat during the first attempt's lease gives **409**. A missing key gives **400**. A refusal is stored as a 422 and replayed as one. A failure before any transfer is saved releases the key at once.
+- **Not built, against 3.6:** the Redis fast path. The record is the only store, as in account-service. Redis is not on the correctness path, so this is an optimization left for later. Record it as a deliberate deviation until it is built.
+- **Breaking** (README). The header is required. The smoke test sends a key on every transfer and checks replay, a different body, and a missing key. The Postman transfer request sends one.
+- **Tests.** transaction-service 31/31 on a clean run. One earlier run had five `TransactionAuthTest` errors from a Kafka container that timed out at startup. The class passed 5/5 when run alone, and the full suite then passed 31/31.
+- **Throwaway run on `ebb2390`**: 114 passed, 0 failed, 0 skipped. Reconciliation: clean. Teardown: clean. The dev volumes are unchanged.
