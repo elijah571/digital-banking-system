@@ -64,7 +64,7 @@ Planned (later slices or phases):
 
 - The wallet is credited exactly the requested amount. Never more, never less.
 - Anything received that is not credited goes to `DEPOSIT_SUSPENSE:NGN`. That covers a surplus, and the whole amount
-  received on a shortfall. An admin resolves suspense later, by refund or reclassification. Each suspense entry raises an alert. The alert is not wired yet. It should be an outbox row written in the same transaction as the suspense entry. V5 has the outbox table, but `CardDepositPostings` doesn't write the row yet, and the relay that publishes it is still to be built.
+  received on a shortfall. An admin resolves suspense later, by refund or reclassification. Each suspense entry raises an alert. The alert is not wired yet. It should be an outbox row written in the same transaction as the suspense entry. V5 has the outbox table, and `OutboxRelay` publishes outbox rows to Kafka. `CardDepositPostings` doesn't write the alert row yet; that waits for the deposit flow in phase 5.
 - A shortfall is FAILED for the user, but what arrived is still booked to suspense.
 - The credit never waits for Stripe's fee or FX data. The fee is its own entry, computed from the balance transaction:
   `fee_NGN = fee_settlement / exchange_rate`, rounded HALF_EVEN to 2 decimals. Nothing is converted when the fee is already in NGN.
