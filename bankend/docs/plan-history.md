@@ -218,3 +218,14 @@ Legacy headers stay on in this slice, so callers behave as before. The slice pre
 **Not done.** No dev rebuild or deploy, per the rule that nothing deploys between phases 3 and 4. No live check. The dev flag stays `true`.
 
 **Next, slice 3b.** Set the dev flag to `false` and check that a call with no token gets 401. Then remove the legacy path and its tests. The old `deduct` and `credit` paths stay until transfers move onto the ledger (slice 3c), because transaction-service still uses them.
+
+### 8.25 Smoke on a throwaway stack, the D8 check, and slice 3c.1 (2026-11-04)
+
+- **Where the smoke test ran.** A throwaway compose project (`smoke`), built from a worktree at `de09a3f` with fresh volumes. The dev stack stayed stopped. After teardown with `down -v`, no `smoke_*` volumes were left, and the dev volumes `digital-banking-system_mysql_data` and `digital-banking-system_mysql_data_lts97` were still there. The smoke script reads verification links from the notification log: on the throwaway stack that log was read with `NOTIFICATION_LOG`, because the script's default `docker compose logs` reads the dev project.
+- **Result: 104 passed, 3 failed, 1 skipped.**
+  - 3 failed: admin credit, deduct and the insufficient-deduct check on accounts opened through the API. Each returned 404 "no wallet for account". See the finding below.
+  - 1 skipped: `POST /payments/create-order` returned 502, so the script skips it. The cause was not investigated (Stripe reachability or the key).
+- **Reconciliation on that stack: clean, 0 issues. This result says little.** Accounts opened through the API have no ledger wallet, so the checks never reach them. The smoke transfers moved their `accounts.balance` without a wallet to compare against, so the check cannot see them.
+- **Finding: accounts opened after the V4 backfill have no ledger wallet.** Nothing in account-service's main code creates a `ledger_account` row when an account is opened. The only creation is the one-time V4 backfill. Effects: admin credit and deduct return 404 for new accounts, and transfers on the ledger (3c.3) cannot settle to or from them. Section 3.4 already describes the opening entry `acct-{id}-opening` (D4), so the wallet-at-opening step is a gap in phase 2. Proposed slice, before 3c.3: create the wallet in the same transaction as the account row, set `accounts.ledger_account_id`, and post the D4 opening entry behind `ACCOUNT_OPENING_DEPOSIT_ENABLED`. Awaiting approval.
+- **D8 check: confirmed.** transaction-service and payment-service read identity from `X-User-*` headers, neither has a resource server, and ports 8082 and 8085 are published in dev. Slice 3c.2.
+- **Slice 3c.1 committed** (`3a587b9`): V2 adds `transactions.version`, `@Version` is on `Transaction`, and `TransactionVersionTest` checks that the second of two writers loses. transaction-service 6/6 green. No mutation check.
