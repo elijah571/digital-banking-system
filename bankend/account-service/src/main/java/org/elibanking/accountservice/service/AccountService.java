@@ -9,14 +9,18 @@ import org.elibanking.accountservice.exception.AccountAccessDeniedException;
 import org.elibanking.accountservice.exception.AccountAlreadyExistsException;
 import org.elibanking.accountservice.exception.AccountNotFoundException;
 import org.elibanking.accountservice.exception.AccountOperationException;
+import org.elibanking.accountservice.exception.InvalidOpeningDepositException;
+import org.elibanking.accountservice.ledger.LedgerPostingService;
 import org.elibanking.accountservice.entity.AccountStatus;
 import org.elibanking.accountservice.entity.AccountType;
 import org.elibanking.accountservice.repository.AccountRepository;
 import org.elibanking.accountservice.security.Caller;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.security.SecureRandom;
 import java.util.List;
 
@@ -26,7 +30,12 @@ import java.util.List;
 public class AccountService {
 
     private final AccountRepository accountRepository;
+    private final LedgerPostingService ledger;
     private static final SecureRandom secureRandom = new SecureRandom();
+
+    /** Opening deposits (wallet-plan 3.4, D4): on in dev, off in prod, where accounts open at 0 and are funded by a deposit. */
+    @Value("${account.opening-deposit.enabled:false}")
+    private boolean openingDepositEnabled;
 
     @Transactional
     public AccountResponse createAccount(CreateAccountRequest request, Caller caller) {
@@ -40,6 +49,15 @@ public class AccountService {
             throw new AccountAlreadyExistsException("Account already exists for this email: " + email);
         }
 
+        BigDecimal deposit = request.getInitialDeposit() == null ? BigDecimal.ZERO : request.getInitialDeposit();
+        if (deposit.signum() < 0 || deposit.stripTrailingZeros().scale() > 2) {
+            throw new InvalidOpeningDepositException("The opening deposit must be zero or positive, with at most 2 decimals");
+        }
+        if (deposit.signum() > 0 && !openingDepositEnabled) {
+            throw new InvalidOpeningDepositException(
+                    "An opening deposit is not accepted: accounts open at 0 and are funded by a deposit");
+        }
+
         Account account = new Account();
         account.setAccountHolderName(request.getAccountHolderName());
         account.setAccountNumber(generateAccountNumber());
@@ -48,14 +66,18 @@ public class AccountService {
         account.setPhone(request.getPhone());
         account.setAccountType(request.getAccountType());
         account.setAccountStatus(AccountStatus.ACTIVE);
-        account.setBalance(request.getInitialDeposit());
+        account.setBalance(BigDecimal.ZERO);
         account.setDailyTransactionLimit(
                 request.getAccountType() == AccountType.SAVINGS
                         ? new BigDecimal("100000")
                         : new BigDecimal("5000000")
         );
 
-        Account savedAccount = accountRepository.save(account);
+        // Flushed first, so the wallet can link to the row. The ledger sets the balance: the opening entry, if there is a
+        // deposit, moves it into the wallet, and accounts.balance mirrors the wallet in the same transaction.
+        Account savedAccount = accountRepository.saveAndFlush(account);
+        ledger.openAccount(savedAccount.getId(), "NGN", deposit);
+        savedAccount.setBalance(deposit.setScale(2, RoundingMode.UNNECESSARY));
         log.info("Account created: {}", savedAccount.getAccountNumber());
         return mapToResponse(savedAccount);
     }

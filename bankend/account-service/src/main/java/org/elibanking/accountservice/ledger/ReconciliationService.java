@@ -73,6 +73,13 @@ public class ReconciliationService {
                     + " does not match its wallet " + row.get("wallet_balance"));
         }
 
+        // Every account has a wallet (wallet-plan 3.4). An account without one cannot take admin adjustments or ledger
+        // transfers, and the checks above never see it, so this check is what keeps the report from being blind to it.
+        Long withoutWallet = jdbc.queryForObject("SELECT COUNT(*) FROM accounts WHERE ledger_account_id IS NULL", Long.class);
+        if (withoutWallet != null && withoutWallet > 0) {
+            issues.add(withoutWallet + " accounts have no ledger wallet");
+        }
+
         return new ReconciliationReport(issues);
     }
 }

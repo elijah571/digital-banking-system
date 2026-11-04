@@ -48,6 +48,26 @@ class ReconciliationTest {
     }
 
     @Test
+    void anAccountWithoutAWalletIsReported() {
+        String account = UUID.randomUUID().toString();
+        String phone = "081" + String.format("%08d", Math.abs(account.hashCode()) % 100_000_000);
+        jdbc.update("""
+                INSERT INTO accounts (id, account_holder_name, account_number, account_status, account_type, balance,
+                                      created_at, daily_transaction_limit, email, phone, updated_at)
+                VALUES (?, 'No Wallet', ?, 'ACTIVE', 'SAVINGS', 0.00, NOW(6), 100000.00, ?, ?, NOW(6))
+                """, account, String.format("%010d", Math.abs(account.hashCode()) % 1_000_000_000L),
+                account + "@example.test", phone);
+        try {
+            List<String> issues = reconciliation.check().issues();
+            assertTrue(issues.stream().anyMatch(i -> i.endsWith("accounts have no ledger wallet")),
+                    () -> "the missing wallet must be reported: " + issues);
+        } finally {
+            jdbc.update("DELETE FROM accounts WHERE id = ?", account);
+        }
+        assertTrue(reconciliation.check().clean(), () -> "issues: " + reconciliation.check().issues());
+    }
+
+    @Test
     void aChangedCachedBalanceIsReported() {
         long wallet = wallet();
         fund(wallet, "10.00");

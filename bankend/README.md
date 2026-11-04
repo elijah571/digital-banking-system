@@ -135,6 +135,7 @@ Still to do before real users:
 One line per breaking change, newest first. Each change adds its line in the same commit as the change.
 
 - **Admin credit and deduct moved to `/api/v1/admin/accounts/{n}/credit` and `…/deduct`** (`b8b4e0e`). They take `amount`, `reason` and an `Idempotency-Key` header, with an ADMIN token. The old `PUT /api/v1/accounts/{n}/credit` and `…/deduct` no longer accept admin or user tokens. Only transaction-service may call them, and they are removed in phase 3, slice 3c.
+- **Opening an account creates its wallet, and `initialDeposit` goes through the ledger** (phase 3, wallet-at-opening). `POST /api/v1/accounts` with a non-zero `initialDeposit` gets 400 unless `ACCOUNT_OPENING_DEPOSIT_ENABLED` is true, which is the dev setting. Prod leaves it off, so accounts open at 0 and are funded by a deposit. A zero or omitted deposit is accepted.
 - **transaction-service and payment-service require a user token on every `/api` route** (phase 3, slice 3c.2, D8). Their `X-User-*` headers no longer identify anyone. Calls through the gateway are unchanged, because the gateway forwards the `Authorization` header. A direct call to port 8082 or 8085 now needs `Authorization: Bearer <user token>`.
 - **The legacy `X-User-*` header path is removed from account-service** (`8b8155f`). Headers no longer identify anyone there. `GET /api/v1/accounts/{n}`, `…/balance`, `PUT …/deduct` and `PUT …/credit` need a token.
 

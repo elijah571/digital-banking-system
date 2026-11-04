@@ -10,11 +10,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.support.EncodedResource;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.testcontainers.mysql.MySQLContainer;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
@@ -147,6 +151,52 @@ class OpeningBalanceBackfillTest {
     }
 
     /** A row in the V1 shape: the columns that existed before the ledger. */
+    /** V7 on a database where accounts were opened after V4 and have no wallet, then a second run of V7. */
+    @Test
+    void accountsWithoutAWalletGetOneFromV7AndASecondRunChangesNothing() throws SQLException {
+        String database = createDatabase();
+        try {
+            String url = urlFor(database);
+            migrateTo(url, "4");
+            JdbcTemplate db = new JdbcTemplate(new DriverManagerDataSource(url, ADMIN_USER, rootPassword()));
+            String funded = insertAccount(db, "250.50");   // opened after V4: no wallet
+            String empty = insertAccount(db, "0.00");      // opened after V4: no wallet, no money
+            migrateToLatest(url);
+
+            assertEquals(0L, count(db, "SELECT COUNT(*) FROM accounts WHERE ledger_account_id IS NULL"),
+                    "every account has a wallet after V7");
+            BigDecimal walletOfFunded = db.queryForObject(
+                    "SELECT la.balance FROM accounts a JOIN ledger_account la ON la.id = a.ledger_account_id WHERE a.id = ?",
+                    BigDecimal.class, funded);
+            assertEquals(0, new BigDecimal("250.50").compareTo(walletOfFunded), "the wallet holds the balance");
+            assertEquals(1L, db.queryForObject("SELECT COUNT(*) FROM journal_entry WHERE idempotency_key = ?",
+                    Long.class, "backfill-" + funded), "one opening entry for the funded account");
+            assertEquals(0L, db.queryForObject("SELECT COUNT(*) FROM journal_entry WHERE idempotency_key = ?",
+                    Long.class, "backfill-" + empty), "no opening entry for an empty account");
+            BigDecimal equity = db.queryForObject(
+                    "SELECT balance FROM ledger_account WHERE code = 'OPENING_BALANCE_EQUITY:NGN'", BigDecimal.class);
+            assertEquals(0, new BigDecimal("-250.50").compareTo(equity), "equity holds the negative of what was credited");
+
+            long entriesBefore = count(db, "SELECT COUNT(*) FROM journal_entry");
+            long linesBefore = count(db, "SELECT COUNT(*) FROM journal_line");
+            executeScript(url, "db/migration/V7__repair_orphan_wallets.sql");
+            assertEquals(entriesBefore, count(db, "SELECT COUNT(*) FROM journal_entry"), "a second run writes no entry");
+            assertEquals(linesBefore, count(db, "SELECT COUNT(*) FROM journal_line"), "a second run writes no line");
+            assertEquals(0, new BigDecimal("-250.50").compareTo(db.queryForObject(
+                    "SELECT balance FROM ledger_account WHERE code = 'OPENING_BALANCE_EQUITY:NGN'", BigDecimal.class)),
+                    "a second run does not move the equity account");
+        } finally {
+            dropDatabase(database);
+        }
+    }
+
+    /** Runs a migration file again on one database, as a second application would. */
+    private void executeScript(String url, String resource) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(url, ADMIN_USER, rootPassword())) {
+            ScriptUtils.executeSqlScript(connection, new EncodedResource(new ClassPathResource(resource)));
+        }
+    }
+
     private String insertAccount(JdbcTemplate db, String balance) {
         String id = UUID.randomUUID().toString();
         String accountNumber = String.format("%010d", ThreadLocalRandom.current().nextLong(1_000_000_000L));

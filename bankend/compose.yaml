@@ -104,6 +104,8 @@ services:
       dockerfile: account-service/Dockerfile
     environment:
       <<: *app-env
+      # Opening deposits (wallet-plan 3.4, D4): on in dev. Prod leaves it off, so accounts open at 0.
+      ACCOUNT_OPENING_DEPOSIT_ENABLED: "true"
       # Both are required (compose stops if they are missing). Same JWT_SECRET as auth-service; INTERNAL_JWT_SECRET is for service tokens.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}

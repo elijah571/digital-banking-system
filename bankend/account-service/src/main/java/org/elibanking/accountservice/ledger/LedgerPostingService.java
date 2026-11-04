@@ -288,6 +288,37 @@ public class LedgerPostingService {
         jdbc.batchUpdate("UPDATE ledger_account SET balance = ?, version = version + 1 WHERE id = ?", updates);
     }
 
+    /**
+     * Opens the wallet of an account that has just been saved (wallet-plan 3.4). The wallet row, the link
+     * accounts.ledger_account_id, and, for a positive deposit, the opening entry DR OPENING_BALANCE_EQUITY, CR wallet
+     * (key acct-{id}-opening) all happen in the caller's transaction, so an account never exists without its wallet. The
+     * posting also brings accounts.balance to the deposit, which is the expand mirror.
+     */
+    @Transactional
+    public void openAccount(String accountId, String currency, BigDecimal initialDeposit) {
+        KeyHolder keys = new GeneratedKeyHolder();
+        jdbc.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement(
+                    "INSERT INTO ledger_account (owner_type, owner_ref, type, currency, balance, version)"
+                            + " VALUES ('USER', ?, 'LIABILITY', ?, 0, 0)",
+                    Statement.RETURN_GENERATED_KEYS);
+            ps.setString(1, accountId);
+            ps.setString(2, currency);
+            return ps;
+        }, keys);
+        long wallet = Objects.requireNonNull(keys.getKey(), "no generated id for ledger_account").longValue();
+        jdbc.update("UPDATE accounts SET ledger_account_id = ? WHERE id = ?", wallet, accountId);
+
+        if (initialDeposit != null && initialDeposit.signum() > 0) {
+            long equity = jdbc.queryForObject("SELECT id FROM ledger_account WHERE code = ?", Long.class,
+                    "OPENING_BALANCE_EQUITY:" + currency);
+            Money amount = Money.of(initialDeposit, currency);
+            post(PostingRequest.of("OPENING_BALANCE", "acct-" + accountId + "-opening", List.of(
+                    new PostingLine(equity, Side.DEBIT, amount),
+                    new PostingLine(wallet, Side.CREDIT, amount))));
+        }
+    }
+
     // ---------------------------------------------------------------- types
 
     enum OwnerType {

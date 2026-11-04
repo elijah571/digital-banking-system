@@ -56,6 +56,11 @@ management:
       exposure:
         include: "*"
 
+# Opening deposits (wallet-plan 3.4, D4). Dev turns this on in compose. Prod leaves it off: accounts open at 0.
+account:
+  opening-deposit:
+    enabled: ${ACCOUNT_OPENING_DEPOSIT_ENABLED:false}
+
 # Authentication (wallet-plan 3.7). There is no legacy header path: every route needs a verified token.
 auth:
   # Same secret and issuer as auth-service (user tokens, HS256).
