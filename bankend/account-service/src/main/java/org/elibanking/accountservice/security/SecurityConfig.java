@@ -1,7 +1,6 @@
 package org.elibanking.accountservice.security;
 
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -10,7 +9,6 @@ import org.springframework.security.authorization.AuthorizationManagers;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
@@ -36,8 +34,7 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http,
-                                    AuthenticationManagerResolver<HttpServletRequest> bearerTokens,
-                                    @Value("${account.legacy-headers.enabled:false}") boolean legacyHeadersEnabled)
+                                    AuthenticationManagerResolver<HttpServletRequest> bearerTokens)
             throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
@@ -67,8 +64,7 @@ public class SecurityConfig {
                                         CallerAllowList.FRAUD, CallerAllowList.PAYMENT)))
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
-                .oauth2ResourceServer(oauth -> oauth.authenticationManagerResolver(bearerTokens))
-                .addFilterBefore(new LegacyHeaderFilter(legacyHeadersEnabled), BearerTokenAuthenticationFilter.class);
+                .oauth2ResourceServer(oauth -> oauth.authenticationManagerResolver(bearerTokens));
         return http.build();
     }
 }

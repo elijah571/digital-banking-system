@@ -56,13 +56,7 @@ management:
       exposure:
         include: "*"
 
-# Authentication (wallet-plan 3.7, 8.18, 8.19)
-account:
-  legacy-headers:
-    # Dev only. Lets the old callers (deduct, credit, balance, GET /{accountNumber}) call without a token.
-    # Off by default. Startup fails if this is true under the prod profile. Removed in phase 3.
-    enabled: ${ACCOUNT_LEGACY_HEADERS_ENABLED:false}
-
+# Authentication (wallet-plan 3.7). There is no legacy header path: every route needs a verified token.
 auth:
   # Same secret and issuer as auth-service (user tokens, HS256).
   jwt-secret: ${JWT_SECRET:}

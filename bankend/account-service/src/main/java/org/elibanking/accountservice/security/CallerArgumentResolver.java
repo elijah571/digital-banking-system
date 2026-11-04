@@ -2,6 +2,7 @@ package org.elibanking.accountservice.security;
 
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.MethodParameter;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -14,8 +15,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import java.util.List;
 
 /**
- * Lets controllers declare a {@link Caller} parameter. With a verified token the caller comes from the token, so a
- * client cannot forge X-User-* headers. Only the legacy internal path (no token) still reads the headers.
+ * Lets controllers declare a {@link Caller} parameter. The caller comes from the verified token, so a client cannot forge
+ * identity with headers. Every route needs a token (SecurityConfig), so a request without one never gets here.
  */
 @Configuration
 public class CallerArgumentResolver implements HandlerMethodArgumentResolver, WebMvcConfigurer {
@@ -36,17 +37,12 @@ public class CallerArgumentResolver implements HandlerMethodArgumentResolver, We
             }
             return new Caller(jwt.getToken().getSubject(), jwt.getToken().getClaimAsString("email"), role);
         }
-        return new Caller(blankToNull(request.getHeader(Caller.USER_ID)),
-                blankToNull(request.getHeader(Caller.USER_EMAIL)),
-                blankToNull(request.getHeader(Caller.USER_ROLE)));
+        // Fail closed. Headers are not identity, and no other authentication reaches a controller.
+        throw new AccessDeniedException("no verified token");
     }
 
     @Override
     public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
         resolvers.add(this);
-    }
-
-    private static String blankToNull(String s) {
-        return s == null || s.isBlank() ? null : s;
     }
 }

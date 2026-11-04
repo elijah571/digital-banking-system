@@ -11,7 +11,7 @@ import org.springframework.web.client.RestClient;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-/** The legacy path is off (the default). Every endpoint needs a token. */
+/** Every endpoint needs a verified token. There is no legacy header path (removed in phase 3, wallet-plan 8.18). */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
 class ApiSecurityTest {
@@ -29,11 +29,18 @@ class ApiSecurityTest {
     }
 
     @Test
-    void theOldEndpointsNeedATokenWhenTheLegacyFlagIsOff() {
+    void theOldEndpointsNeedAToken() {
         assertEquals(401, get("/api/v1/accounts/" + ACCOUNT + "/balance", null));
         assertEquals(401, get("/api/v1/accounts/" + ACCOUNT, null));
         assertEquals(401, put("/api/v1/accounts/" + ACCOUNT + "/deduct?amount=1", null));
         assertEquals(401, put("/api/v1/accounts/" + ACCOUNT + "/credit?amount=1", null));
+    }
+
+    @Test
+    void identityHeadersAloneAreNeverIdentity() {
+        assertEquals(401, getWithHeaders("/api/v1/accounts/me", "X-User-Id", "user-1", "X-User-Role", "ADMIN"),
+                "the X-User-* headers from the removed legacy path grant nothing");
+        assertEquals(401, getWithHeaders("/api/v1/accounts/" + ACCOUNT + "/balance", "X-User-Role", "ADMIN"));
     }
 
     @Test
@@ -83,6 +90,14 @@ class ApiSecurityTest {
         return client.get().uri(path).headers(h -> {
             if (bearer != null) {
                 h.setBearerAuth(bearer);
+            }
+        }).exchange((request, response) -> response.getStatusCode().value());
+    }
+
+    private int getWithHeaders(String path, String... headers) {
+        return client.get().uri(path).headers(h -> {
+            for (int i = 0; i < headers.length; i += 2) {
+                h.set(headers[i], headers[i + 1]);
             }
         }).exchange((request, response) -> response.getStatusCode().value());
     }

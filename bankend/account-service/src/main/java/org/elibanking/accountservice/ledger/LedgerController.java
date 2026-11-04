@@ -17,8 +17,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * The internal ledger API (wallet-plan 3.2). Service tokens only: {@code /internal/v1/**} is restricted to the SERVICE role,
- * and the legacy path never reaches it (8.18). The gateway does not route {@code /internal}.
+ * The internal ledger API (wallet-plan 3.2). Service tokens only, and each route accepts only the services named in
+ * {@link org.elibanking.accountservice.security.CallerAllowList} (wallet-plan 3.7). The gateway does not route {@code /internal}.
  *
  * <p>Every new entry writes its audit row in the same transaction ({@link ServicePostings}). The actor is the token's
  * {@code sub}, and the correlation id is {@code X-Request-Id}: taken from the request, or generated when it is missing.

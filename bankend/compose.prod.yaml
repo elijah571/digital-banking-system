@@ -44,8 +44,6 @@ services:
     ports: !reset []
     environment:
       <<: *prod-app-env
-      # The legacy internal path is dev-only (wallet-plan 8.19). Off here, and the prod profile refuses to start with it on.
-      ACCOUNT_LEGACY_HEADERS_ENABLED: "false"
     mem_limit: 768m
   transaction-service:
     <<: *prod
