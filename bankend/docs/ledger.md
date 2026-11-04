@@ -35,8 +35,8 @@ A customer wallet is a LIABILITY: a deposit (CR wallet) increases it.
    accounts are settled later.
 5. **Reversal.** A reversal posts the opposite lines and sets `reverses_entry_id`. A second reversal is a conflict (409).
 6. **Reconciliation identity.** Each cached balance equals the signed sum of its lines, and debits equal credits per
-   currency across the journal. The test suite checks both after every scenario. A scheduled job and an admin endpoint
-   come later in phase 2.
+   currency across the journal. The test suite checks both after every scenario. The hourly job (`ReconciliationJob`) is
+   in place. The admin endpoint waits for the decision in wallet-plan 8.18.
 
 ## Entries
 
