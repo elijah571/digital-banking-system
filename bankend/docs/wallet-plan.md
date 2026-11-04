@@ -9,7 +9,7 @@ Scope change 2026-11-04: **section 8 approved 2026-11-04.** D26 and D27 are appr
 |---|---|---|
 | 1. Foundations | built | `7eb6f60` |
 | 2. Ledger core (account-service) | built, complete 2026-11-04 | `59bbc5d` |
-| 3. Transfers onto the ledger | in progress. Built: gateway routes, audit on internal postings, callers send service tokens, allow-lists, legacy path removed. 3c.1 is in progress (section 5) | `8b8155f` |
+| 3. Transfers onto the ledger | in progress. Built: gateway routes, audit on internal postings, callers send service tokens, allow-lists, legacy path removed. 3c.1 is done; 3c.2 (D8) is next (section 5) | `8b8155f` |
 | 4. wallet-service and PIN | not started | — |
 | 5. Deposits | not started (after phase 4) | — |
 | 6. Withdrawals and the outbound pipeline | not started | — |
@@ -276,8 +276,8 @@ Each service that publishes (account, wallet, payment, transaction) gets an `out
 
 1. **Foundations.** Testcontainers base in every service (existing `contextLoads` moves to it). Flyway V1 baselines. `validate` + `open-in-view=false`. Multi-stage Dockerfiles, healthchecks, pinned images. Shared lib skeleton (D1). ArchUnit money rule. CI `ci.yml`.
 2. **Ledger core (account-service).** Money, ledger tables and triggers, posting with locks, reversals, reconciliation, statement, backfill and its test, audit, outbox, idempotency, resource server with SERVICE tokens, admin credit/deduct with reason. ADR `0001-locking.md` and `ledger.md`. Concurrency tests (50 parallel, opposite transfers).
-3. **Transfers onto the ledger.** transaction-service changes from section 4. Part one is built: the callers (transaction, payment, fraud) send service tokens; the allow-lists are in (3.7); the gateway routes `/api/v1/admin/**`; the admin paths replace the old admin use, in the smoke test and Postman; the dev flag `ACCOUNT_LEGACY_HEADERS_ENABLED` is removed, with the legacy path (3b). Part two, **3c**, has eight slices, each ending green and committed. 3c.1 is in progress:
-   - **3c.1** transaction-service's Flyway V1 baseline has been in place since phase 1, and it baselines existing databases at version 1. This slice adds V2 (`version BIGINT NOT NULL DEFAULT 0`, expand-only), `@Version` on `Transaction`, and a concurrency test: two verifies race and one wins (section 4).
+3. **Transfers onto the ledger.** transaction-service changes from section 4. Part one is built: the callers (transaction, payment, fraud) send service tokens; the allow-lists are in (3.7); the gateway routes `/api/v1/admin/**`; the admin paths replace the old admin use, in the smoke test and Postman; the dev flag `ACCOUNT_LEGACY_HEADERS_ENABLED` is removed, with the legacy path (3b). Part two, **3c**, has eight slices, each ending green and committed. 3c.1 is done:
+   - **3c.1** transaction-service's Flyway V1 baseline has been in place since phase 1, and it baselines existing databases at version 1. This slice adds V2 (`version BIGINT NOT NULL DEFAULT 0`, expand-only), `@Version` on `Transaction`, and a concurrency test: two verifies race and one wins (section 4). Built: transaction-service 6/6 green.
    - **3c.2 D8 (approved 2026-11-04).** transaction-service and payment-service validate user JWTs themselves: resource servers with the same `JWT_SECRET` as the gateway and auth-service. `X-User-*` headers are never identity. Tests: a forged `X-User-Id` with no token → 401; user A's token on user B's account → 403; the normal path through the gateway still works.
    - **3c.3** Hold, settle and release through the internal ledger API, with the keys in 3.4 (`tx-{id}-hold|settle|release`). transaction-service stops calling deduct and credit. The `transaction.completed` credit consumer is removed in the same slice, and so are the old `deduct` and `credit` endpoints, which have no other caller. Tests: a transfer completes; insufficient funds fails with no ledger residue; a replayed settle moves money once.
    - **3c.4** The outbox row `transaction.initiated` is written before the hold, and a recovery job drives rows stuck between states. Test: a crash after initiate and before hold ends with exactly one hold.
@@ -342,7 +342,7 @@ The **recommended** option is the default. If you say "go" without comments, I'l
 
 ## 8. Scope change (2026-11-04): external transfers, bank deposits, withdrawal to own bank
 
-**Status: approved 2026-11-04.** Phase 2 is built. Phase 3 is in progress: 3a and 3b are built, and 3c.1 is in progress (section 5, and the status table at the top). Transfers, the PIN, deposits and withdrawals are not built. Gate G1 has run (8.8). Gate G2 is open. Decisions are in 8.13.
+**Status: approved 2026-11-04.** Phase 2 is built. Phase 3 is in progress: 3a and 3b are built, and 3c.1 is done (section 5, and the status table at the top). Transfers, the PIN, deposits and withdrawals are not built. Gate G1 has run (8.8). Gate G2 is open. Decisions are in 8.13.
 
 ### 8.1 What changed and what didn't
 

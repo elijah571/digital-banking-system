@@ -53,4 +53,11 @@ public class Transaction {
 
 
     private LocalDateTime completedAt;
+
+    /**
+     * Optimistic lock (wallet-plan section 4, slice 3c.1). Two writers that read the same version cannot both save, which
+     * fixes the verify race: a second verify of the same transfer fails instead of completing it twice.
+     */
+    @Version
+    private Long version;
 }
