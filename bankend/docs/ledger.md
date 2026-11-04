@@ -1,7 +1,7 @@
 # Ledger
 
 Status: phase 2 in progress. Source of truth for the design: [wallet-plan.md](wallet-plan.md) sections 3.2 and 3.4.
-Owner: account-service (`ledger` package). Only `LedgerPostingService` writes `ledger_account.balance` and `journal_*`.
+Owner: account-service (`ledger` package). Only `LedgerPostingService` writes `ledger_account.balance` and `journal_*`. The ArchUnit test `LedgerWriteArchitectureTest` fails the build if any other class writes through `JdbcTemplate`. `accounts.balance` mirrors its wallet in the same transaction (expand, wallet-plan 3.2).
 
 ## Model
 
