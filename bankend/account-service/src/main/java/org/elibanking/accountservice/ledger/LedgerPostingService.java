@@ -275,8 +275,15 @@ public class LedgerPostingService {
     private void applyBalances(Map<Long, BigDecimal> deltas, Map<Long, LockedAccount> accounts) {
         List<Object[]> updates = new ArrayList<>();
         for (Map.Entry<Long, BigDecimal> delta : deltas.entrySet()) {
-            BigDecimal newBalance = accounts.get(delta.getKey()).balance().add(delta.getValue());
+            LockedAccount account = accounts.get(delta.getKey());
+            BigDecimal newBalance = account.balance().add(delta.getValue());
             updates.add(new Object[] {newBalance, delta.getKey()});
+            if (account.ownerType() == OwnerType.USER) {
+                // Expand (3.2): accounts.balance mirrors its wallet in the same transaction, so the old code and the
+                // README keep working until the old balance paths are removed. accounts.balance is DECIMAL(15,2) (D12).
+                jdbc.update("UPDATE accounts SET balance = ? WHERE ledger_account_id = ?",
+                        newBalance.setScale(2, RoundingMode.UNNECESSARY), delta.getKey());
+            }
         }
         jdbc.batchUpdate("UPDATE ledger_account SET balance = ?, version = version + 1 WHERE id = ?", updates);
     }

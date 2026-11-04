@@ -19,6 +19,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -94,6 +95,21 @@ class LedgerPostingServiceTest {
 
         assertThrows(IdempotencyConflictException.class, () -> transfer(a, b, "31.00", key));
         assertEquals(0, cmp(balance(a), "70.00"));
+        assertReconciles();
+    }
+
+    @Test
+    void linkedAccountBalanceIsMirroredInTheSameTransaction() {
+        long a = wallet();
+        long b = wallet();
+        String accountId = linkedAccount(b);
+        fund(a, "100.00");
+
+        transfer(a, b, "30.00", key());
+
+        BigDecimal mirrored = jdbc.queryForObject(
+                "SELECT balance FROM accounts WHERE id = ?", BigDecimal.class, accountId);
+        assertEquals(0, mirrored.compareTo(new BigDecimal("30.00")), "accounts.balance follows its wallet");
         assertReconciles();
     }
 
@@ -311,6 +327,20 @@ class LedgerPostingServiceTest {
 
     private long systemAccount(String code) {
         return jdbc.queryForObject("SELECT id FROM ledger_account WHERE code = ?", Long.class, code);
+    }
+
+    /** An accounts row in the shape the app writes, linked to a wallet. */
+    private String linkedAccount(long walletId) {
+        String id = UUID.randomUUID().toString();
+        String number = String.format("%010d", ThreadLocalRandom.current().nextLong(1_000_000_000L));
+        String phone = "081" + String.format("%08d", ThreadLocalRandom.current().nextLong(100_000_000L));
+        jdbc.update("""
+                INSERT INTO accounts (id, account_holder_name, account_number, account_status, account_type, balance,
+                                      created_at, daily_transaction_limit, email, phone, updated_at, currency,
+                                      ledger_account_id)
+                VALUES (?, 'Mirror Test', ?, 'ACTIVE', 'SAVINGS', 0.00, NOW(6), 100000.00, ?, ?, NOW(6), 'NGN', ?)
+                """, id, number, id + "@example.test", phone, walletId);
+        return id;
     }
 
     private BigDecimal balance(long ledgerAccountId) {
