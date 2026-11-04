@@ -84,7 +84,7 @@ services:
 
   # Not used by any service yet — start with: docker compose --profile neo4j up -d
   neo4j:
-    image: neo4j:latest
+    image: neo4j:2026.10.1   # pinned to the version latest resolved to (was :latest)
     container_name: neo4j
     profiles: ["neo4j"]
     environment:

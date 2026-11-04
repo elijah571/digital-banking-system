@@ -10,7 +10,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate   # no JPA entities here (Redis-only state); validate keeps the rule "never update"
     show-sql: ${SHOW_SQL:false}
     properties:
       hibernate:
