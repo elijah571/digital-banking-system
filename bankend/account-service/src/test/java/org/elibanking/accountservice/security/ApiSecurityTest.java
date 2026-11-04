@@ -76,8 +76,8 @@ class ApiSecurityTest {
     @Test
     void aUserCannotListAllAccountsOrUseTheAdminDeduct() {
         assertEquals(403, get("/api/v1/accounts", TestTokens.userToken("user-1", "USER")));
-        assertEquals(403, put("/api/v1/accounts/" + ACCOUNT + "/deduct?amount=1",
-                TestTokens.userToken("user-1", "USER")));
+        assertEquals(404, put("/api/v1/accounts/" + ACCOUNT + "/deduct?amount=1",
+                TestTokens.userToken("user-1", "USER")), "the old path is gone (3c.3)");
         assertEquals(200, get("/api/v1/accounts", TestTokens.userToken("admin-1", "ADMIN")));
     }
 

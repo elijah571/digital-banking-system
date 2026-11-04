@@ -4,7 +4,10 @@ import org.elibanking.transactionservice.exception.TransactionNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.elibanking.transactionservice.client.AccountInfo;
+import feign.FeignException;
 import org.elibanking.transactionservice.client.AccountService;
+import org.elibanking.transactionservice.client.LedgerClient;
+import org.elibanking.transactionservice.exception.TransactionRejectedException;
 import org.elibanking.transactionservice.exception.TransactionAccessDeniedException;
 import org.elibanking.transactionservice.security.Caller;
 import org.elibanking.transactionservice.dto.TransactionRequest;
@@ -18,6 +21,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -34,9 +38,12 @@ public class TransactionalService {
     private static final String TRANSACTION_COMPLETED_TOPIC = "transaction.completed";
     private static final String TRANSACTION_REFUNDED_TOPIC = "transaction.refunded";
     private static final String FRAUD_DETECTED_TOPIC = "fraud.detected";
+    /** Where a transfer's money waits between the hold and the settle or release (wallet-plan 3.4). */
+    private static final String IN_FLIGHT = "TRANSFER_IN_FLIGHT:NGN";
 
     private final TransactionRepository transactionRepository;
     private final AccountService accountService;
+    private final LedgerClient ledger;
     private final KafkaTemplate<String, Object> kafkaTemplate; // Fixed: removed duplicate declaration
     private final RedisTemplate<String, String> redisTemplate;
 
@@ -45,19 +52,17 @@ public class TransactionalService {
         if (request.getSenderAccountNumber().equals(request.getReceiverAccountNumber())) {
             throw new IllegalArgumentException("Sender and receiver accounts must be different");
         }
-        // Everyone — admins included — can only send money from accounts they own.
-        if (!caller.isInternal()) {
-            AccountInfo sender = accountService.getAccount(request.getSenderAccountNumber());
-            if (!caller.userId().equals(sender.ownerId())) {
-                throw new TransactionAccessDeniedException("You can only transfer from your own accounts");
-            }
+        if (request.getAmount().stripTrailingZeros().scale() > 2) {
+            throw new IllegalArgumentException("Amount must have at most 2 decimal places");
         }
-
-        // Deduct balance from sender via Feign client
-        accountService.deductBalance(
-                request.getSenderAccountNumber(),
-                request.getAmount()
-        );
+        AccountInfo sender = accountService.getAccount(request.getSenderAccountNumber());
+        // Everyone — admins included — can only send money from accounts they own.
+        if (!caller.isInternal() && !caller.userId().equals(sender.ownerId())) {
+            throw new TransactionAccessDeniedException("You can only transfer from your own accounts");
+        }
+        AccountInfo receiver = accountService.getAccount(request.getReceiverAccountNumber());
+        requireActive(sender, "sender");
+        requireActive(receiver, "receiver");
 
         Transaction transaction = new Transaction();
         transaction.setSenderAccountNumber(request.getSenderAccountNumber());
@@ -69,8 +74,22 @@ public class TransactionalService {
         transaction.setDescription(request.getDescription());
         transaction.setReferenceNumber(UUID.randomUUID().toString());
 
+        // The row exists before any money moves, so a held amount always has a transaction that explains it.
         Transaction savedTransaction = transactionRepository.save(transaction);
         log.info("Transaction saved: {}", savedTransaction.getId());
+
+        // Hold the amount: sender to TRANSFER_IN_FLIGHT. A refused hold (insufficient funds) fails the transfer, and the row
+        // says why. Nothing has moved, so there is nothing to give back.
+        try {
+            ledger.post(entry("TRANSFER_HOLD", savedTransaction, "tx-" + savedTransaction.getId() + "-hold",
+                    account(savedTransaction.getSenderAccountNumber(), "DEBIT", savedTransaction.getAmount()),
+                    system(IN_FLIGHT, "CREDIT", savedTransaction.getAmount())));
+        } catch (FeignException e) {
+            savedTransaction.setStatus(TransactionStatus.FAILED);
+            savedTransaction.setFailureReason("Hold refused by account-service (" + e.status() + ")");
+            transactionRepository.save(savedTransaction);
+            throw e;
+        }
 
         TransactionInitiatedEvent event = new TransactionInitiatedEvent(
                 savedTransaction.getId(),
@@ -159,10 +178,10 @@ public class TransactionalService {
         log.info("Compensation - refunding sender: {} amount: {}",
                 transaction.getSenderAccountNumber(), transaction.getAmount());
 
-        accountService.creditBalance(
-                transaction.getSenderAccountNumber(),
-                transaction.getAmount()
-        );
+        // The held amount goes back to the sender. The key makes a repeat a no-op.
+        ledger.post(entry("TRANSFER_RELEASE", transaction, "tx-" + transaction.getId() + "-release",
+                system(IN_FLIGHT, "DEBIT", transaction.getAmount()),
+                account(transaction.getSenderAccountNumber(), "CREDIT", transaction.getAmount())));
 
         transaction.setStatus(TransactionStatus.FLAGGED);
         transaction.setFailureReason(reason + " | Refunded at " + LocalDateTime.now());
@@ -191,6 +210,11 @@ public class TransactionalService {
     }
 
     private void completeTransaction(Transaction transaction) {
+        // The receiver is credited from the amount held in TRANSFER_IN_FLIGHT. The key makes a repeat a no-op, and the callers
+        // only settle a PROCESSING or PENDING_VERIFICATION transfer, so a completed one is never settled twice.
+        ledger.post(entry("TRANSFER_SETTLE", transaction, "tx-" + transaction.getId() + "-settle",
+                system(IN_FLIGHT, "DEBIT", transaction.getAmount()),
+                account(transaction.getReceiverAccountNumber(), "CREDIT", transaction.getAmount())));
         transaction.setStatus(TransactionStatus.COMPLETED);
         transaction.setCompletedAt(LocalDateTime.now());
         transactionRepository.save(transaction);
@@ -220,6 +244,30 @@ public class TransactionalService {
 
         // Fixed: Clean fraud check should complete or progress the transaction, not refund it
         completeTransaction(transaction);
+    }
+
+    private void requireActive(AccountInfo account, String role) {
+        if (!"ACTIVE".equals(account.status())) {
+            throw new TransactionRejectedException("The " + role + " account is not active");
+        }
+    }
+
+    private static LedgerClient.LedgerEntryRequest entry(String type, Transaction transaction, String key,
+                                                         LedgerClient.LedgerLine... lines) {
+        return new LedgerClient.LedgerEntryRequest(type, key, transaction.getReferenceNumber(),
+                transaction.getId(), "transaction-service", List.of(lines));
+    }
+
+    private static LedgerClient.LedgerLine account(String accountNumber, String side, BigDecimal amount) {
+        return new LedgerClient.LedgerLine(accountNumber, null, side, money(amount), "NGN");
+    }
+
+    private static LedgerClient.LedgerLine system(String code, String side, BigDecimal amount) {
+        return new LedgerClient.LedgerLine(null, code, side, money(amount), "NGN");
+    }
+
+    private static String money(BigDecimal amount) {
+        return amount.setScale(2).toPlainString();
     }
 
     private TransactionResponse mapToResponse(Transaction transaction) {

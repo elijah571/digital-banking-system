@@ -19,7 +19,6 @@ import org.springframework.security.web.SecurityFilterChain;
  *   <li>{@code POST /internal/v1/ledger/entries} and {@code …/reverse}: transaction-service and wallet-service;</li>
  *   <li>other {@code GET /internal/v1/ledger/**} reads: those two, and fraud-detection-service and payment-service;</li>
  *   <li>any other {@code /internal/v1/**} path: denied;</li>
- *   <li>{@code PUT …/deduct} and {@code …/credit} (removed in 3c): transaction-service only;</li>
  *   <li>{@code GET /api/v1/accounts/{n}} and {@code …/balance}: users (ownership is checked in the controller), and the
  *       services that read accounts;</li>
  *   <li>{@code GET /api/v1/accounts} (all accounts): ADMIN;</li>
@@ -54,9 +53,6 @@ public class SecurityConfig {
                                 CallerAllowList.FRAUD, CallerAllowList.PAYMENT))
                         .requestMatchers("/internal/v1/**").denyAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/accounts").hasRole("ADMIN")
-                        // The old deduct and credit paths (removed in 3c): transaction-service only.
-                        .requestMatchers(HttpMethod.PUT, "/api/v1/accounts/*/deduct", "/api/v1/accounts/*/credit")
-                        .access(CallerAllowList.only(CallerAllowList.TRANSACTION))
                         // Account reads: users (the controller checks ownership) and the services that read accounts.
                         .requestMatchers(HttpMethod.GET, "/api/v1/accounts/*", "/api/v1/accounts/*/balance")
                         .access(AuthorizationManagers.anyOf(CallerAllowList.users(),

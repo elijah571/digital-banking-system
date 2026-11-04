@@ -103,46 +103,4 @@ public class AccountController {
         accountService.blockAccount(accountNumber);
         return ResponseEntity.ok("Account blocked successfully");
     }
-
-    /**
-     * SAGA STEP 1: Deduct Balance
-     * Called by Transaction service when transfer is initiated
-     */
-    @PutMapping("/{accountNumber}/deduct")
-    @Operation(summary = "Deduct from balance (ADMIN / internal saga step 1)",
-            description = "Called by transaction-service when a transfer starts. Fails if the account is not ACTIVE "
-                    + "or has insufficient funds.")
-    @ApiResponse(responseCode = "200", description = "Balance deducted")
-    @ApiResponse(responseCode = "404", description = "Account not found",
-            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    @ApiResponse(responseCode = "422", description = "Insufficient funds, or account not active",
-            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    public ResponseEntity<String> deductBalance(
-            @Parameter(description = "10-digit account number", example = "3693612260") @PathVariable String accountNumber,
-            @Parameter(description = "Amount to deduct", example = "1000") @RequestParam BigDecimal amount
-    ) {
-        accountService.deductBalance(accountNumber, amount);
-        return ResponseEntity.ok("Balance deducted successfully");
-    }
-
-    /**
-     * SAGA STEP 4: Compensating transaction endpoint
-     * Called by Transaction service in two scenarios:
-     * 1. Fraud detected --> refund sender
-     * 2. Transaction completed --> credit receiver
-     */
-    @PutMapping("/{accountNumber}/credit")
-    @Operation(summary = "Credit balance (ADMIN / internal refund)",
-            description = "Called by transaction-service to refund the sender when a transfer is cancelled "
-                    + "(OTP expired or wrong). Receivers are credited via the `transaction.completed` Kafka event.")
-    @ApiResponse(responseCode = "200", description = "Balance credited")
-    @ApiResponse(responseCode = "404", description = "Account not found",
-            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    public ResponseEntity<String> creditBalance(
-            @Parameter(description = "10-digit account number", example = "3693612260") @PathVariable String accountNumber,
-            @Parameter(description = "Amount to credit", example = "1000") @RequestParam BigDecimal amount
-    ) {
-        accountService.creditBalance(accountNumber, amount);
-        return ResponseEntity.ok("Balance credited successfully");
-    }
 }

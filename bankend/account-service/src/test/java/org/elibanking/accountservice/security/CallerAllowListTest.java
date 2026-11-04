@@ -77,17 +77,15 @@ class CallerAllowListTest {
     }
 
     @Test
-    void onlyTransactionMayUseTheOldDeductAndCredit() {
-        assertEquals(404, put("/api/v1/accounts/" + UNKNOWN + "/deduct?amount=1.00",
-                TestTokens.serviceTokenAs(CallerAllowList.TRANSACTION)), "authorized; the account does not exist");
-        assertEquals(404, put("/api/v1/accounts/" + UNKNOWN + "/credit?amount=1.00",
-                TestTokens.serviceTokenAs(CallerAllowList.TRANSACTION)), "authorized; the account does not exist");
-
-        for (String service : List.of(CallerAllowList.PAYMENT, CallerAllowList.FRAUD, CallerAllowList.WALLET)) {
-            assertEquals(403, put("/api/v1/accounts/" + UNKNOWN + "/deduct?amount=1.00",
-                    TestTokens.serviceTokenAs(service)), service);
+    void theOldDeductAndCreditPathsAreGone() {
+        for (String service : List.of(CallerAllowList.TRANSACTION, CallerAllowList.PAYMENT, CallerAllowList.FRAUD,
+                CallerAllowList.WALLET)) {
+            assertEquals(404, put("/api/v1/accounts/" + UNKNOWN + "/deduct?amount=1.00", TestTokens.serviceTokenAs(service)),
+                    service + ": removed in 3c.3, so there is no path to refuse");
+            assertEquals(404, put("/api/v1/accounts/" + UNKNOWN + "/credit?amount=1.00", TestTokens.serviceTokenAs(service)),
+                    service);
         }
-        assertEquals(403, put("/api/v1/accounts/" + UNKNOWN + "/deduct?amount=1.00",
+        assertEquals(404, put("/api/v1/accounts/" + UNKNOWN + "/deduct?amount=1.00",
                 TestTokens.userToken("admin-1", "ADMIN")), "an admin uses /api/v1/admin/accounts/{n}/deduct instead");
     }
 

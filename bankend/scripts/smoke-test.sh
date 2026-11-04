@@ -212,8 +212,8 @@ check "GET  /accounts/{n} with spoofed X-User-Id header -> 403" 403
 call GET "/accounts/0000000000" "" "$ADMIN_TOKEN";         check "GET  /accounts/{n} unknown -> 404" 404
 
 echo "== Accounts — admin operations"
-call PUT "/accounts/$B/credit?amount=100" "" "$Alice_TOKEN";  check "PUT  /accounts/{n}/credit as USER -> 403" 403
-call PUT "/accounts/$B/credit?amount=100" "" "$ADMIN_TOKEN";  check "PUT  /accounts/{n}/credit (old path) as ADMIN -> 403" 403
+call PUT "/accounts/$B/credit?amount=100" "" "$Alice_TOKEN";  check "PUT  /accounts/{n}/credit (removed in 3c.3) as USER -> 404" 404
+call PUT "/accounts/$B/credit?amount=100" "" "$ADMIN_TOKEN";  check "PUT  /accounts/{n}/credit (removed in 3c.3) as ADMIN -> 404" 404
 call PUT "/admin/accounts/$B/credit?amount=100&reason=smoke" "" "$ADMIN_TOKEN" "Idempotency-Key: smoke-credit-$RUN_ID"; check "PUT  /admin/accounts/{n}/credit as ADMIN" 201
 call PUT "/admin/accounts/$B/deduct?amount=100&reason=smoke" "" "$ADMIN_TOKEN" "Idempotency-Key: smoke-deduct-$RUN_ID"; check "PUT  /admin/accounts/{n}/deduct as ADMIN" 201
 call PUT "/admin/accounts/$B/deduct?amount=999999&reason=smoke" "" "$ADMIN_TOKEN" "Idempotency-Key: smoke-overdraw-$RUN_ID"; check "PUT  /admin/accounts/{n}/deduct insufficient -> 422" 422

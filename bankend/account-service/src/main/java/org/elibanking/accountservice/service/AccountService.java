@@ -126,38 +126,6 @@ public class AccountService {
         log.info("Account blocked successfully: {}", accountNumber);
     }
 
-    @Transactional
-    public void deductBalance(String accountNumber, BigDecimal amount) {
-        log.info("Deducting balance from account: {}", accountNumber);
-        Account account = accountRepository.findByAccountNumber(accountNumber)
-                .orElseThrow(() -> new AccountNotFoundException("Account not found: " + accountNumber));
-
-        if (account.getAccountStatus() != AccountStatus.ACTIVE) {
-            throw new AccountOperationException("Account is not active: " + accountNumber);
-        }
-        if (account.getBalance().compareTo(amount) < 0) {
-            throw new AccountOperationException("Insufficient funds for account " + accountNumber);
-        }
-
-        // Fix: Actually subtract and save the updated balance
-        account.setBalance(account.getBalance().subtract(amount));
-        accountRepository.save(account);
-        log.info("Balance deducted successfully from account: {}", accountNumber);
-    }
-
-    @Transactional
-    public void creditBalance(String accountNumber, BigDecimal amount) {
-        log.info("Crediting {} to account: {}", amount, accountNumber);
-        Account account = accountRepository.findByAccountNumber(accountNumber)
-                .orElseThrow(() -> new AccountNotFoundException("Account not found: " + accountNumber));
-
-        account.setBalance(account.getBalance().add(amount));
-        // Fix: Save the updated balance to the database
-        accountRepository.save(account);
-        log.info("Balance credited successfully to account: {}", accountNumber);
-    }
-
-    // Generates a random number between 1_000_000_000L and 9_999_999_999L (always 10 digits)
     private String generateAccountNumber() {
         String accountNumber;
         do {

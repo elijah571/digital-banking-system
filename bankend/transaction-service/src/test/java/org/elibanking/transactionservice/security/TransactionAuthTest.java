@@ -3,6 +3,7 @@ package org.elibanking.transactionservice.security;
 import org.elibanking.transactionservice.TestcontainersConfiguration;
 import org.elibanking.transactionservice.client.AccountInfo;
 import org.elibanking.transactionservice.client.AccountService;
+import org.elibanking.transactionservice.client.LedgerClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -43,6 +44,9 @@ class TransactionAuthTest {
     @MockitoBean
     AccountService accountService;
 
+    @MockitoBean
+    LedgerClient ledger;
+
     @Test
     void aForgedUserIdHeaderWithNoTokenIsRefused() throws Exception {
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY)
@@ -58,7 +62,7 @@ class TransactionAuthTest {
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY)
                         .header("Authorization", "Bearer " + UserTokens.of("user-a", "USER")))
                 .andExpect(status().isForbidden());
-        verify(accountService, never()).deductBalance(anyString(), any());
+        verify(ledger, never()).post(any());
     }
 
     @Test
@@ -68,17 +72,19 @@ class TransactionAuthTest {
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY)
                         .header("Authorization", "Bearer " + UserTokens.of("admin-1", "ADMIN")))
                 .andExpect(status().isForbidden());
-        verify(accountService, never()).deductBalance(anyString(), any());
+        verify(ledger, never()).post(any());
     }
 
     @Test
     void theOwnerCanTransferFromTheirOwnAccount() throws Exception {
         when(accountService.getAccount(SENDER)).thenReturn(new AccountInfo(SENDER, "user-a", "ACTIVE"));
+        when(accountService.getAccount("1000000002")).thenReturn(new AccountInfo("1000000002", "user-b", "ACTIVE"));
+        when(ledger.post(any())).thenReturn(new LedgerClient.LedgerEntryResponse(1L, false));
 
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY)
                         .header("Authorization", "Bearer " + UserTokens.of("user-a", "USER")))
                 .andExpect(status().isCreated());
-        verify(accountService).deductBalance(eq(SENDER), any());
+        verify(ledger).post(any());
     }
 
     @Test
