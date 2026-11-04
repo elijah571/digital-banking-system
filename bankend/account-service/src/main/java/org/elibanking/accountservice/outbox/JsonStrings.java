@@ -1,12 +1,12 @@
 package org.elibanking.accountservice.outbox;
 
 /** Quotes a string as a JSON string literal. Only what JSON requires is escaped. */
-final class JsonStrings {
+public final class JsonStrings {
 
     private JsonStrings() {
     }
 
-    static String quote(String value) {
+    public static String quote(String value) {
         StringBuilder out = new StringBuilder(value.length() + 2).append('"');
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
