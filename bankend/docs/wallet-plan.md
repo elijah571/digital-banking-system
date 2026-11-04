@@ -659,11 +659,7 @@ The dev stack's gateway is healthy. An unauthenticated call to the legacy balanc
 5. **Replays keep their status.** A replayed admin adjustment returns the stored response with its original status (201). The ledger's own replay returns 200 (3.6). Both follow the spec.
 6. **Stored replays are JSON-normalised.** MySQL rewrites the stored JSON, so a replayed body differs from the first answer in whitespace only. It's semantically identical. A `TEXT` column would keep the bytes, but that would need a V6 migration for a cosmetic difference, so I didn't add one.
 
-**Not yet done (carried forward).**
-- Gateway routes for `/api/v1/admin/**` (section 4). Admins can't reach the new admin endpoints through the gateway until they're added.
-- Deploy: the dev container runs the 3b build. The 3c and 3d code isn't deployed, and it has no migrations, so a rebuild is safe whenever you want it.
-- The phase 3 checklist (above), including D3 for the legacy endpoints and the `transaction.completed` consumer.
-- The reconciliation endpoint and statement are not yet on the gateway (see first item).
+**Carried forward.** Gateway routes for `/api/v1/admin/**`: done 2026-11-04, see 8.22. Dev deploy: done 2026-11-04, see 8.22. Still open: the phase 3 checklist (above), including D3 for the legacy endpoints and the `transaction.completed` consumer.
 
 ### 8.21 Follow-up: the receipt review (decision 3 of 8.19)
 
@@ -691,3 +687,12 @@ Not yet wired: the deposit flow (phase 5) calls `quarantine` when a receipt's cu
 **Carry-forward.** When D7's `/api/v1/admin/audit` is built, it needs its own gateway route placed before `/api/v1/admin/**`, because that wildcard currently sends it to account-service.
 
 **Not started.** Any transaction-service edit waits for approval. The uncommitted `TransactionalService.java` diff is still in the working tree and is untouched.
+
+**Evidence (2026-11-04).**
+- **Gateway tests:** 7 of 7 green. Removing the admin security rule makes the two 403 tests fail, and the rule was then restored.
+- **Dev rebuild:** account-service and api-gateway rebuilt from the committed sources. Flyway history on dev is now V1 to V6, and V6 (`receipt_review`) is applied. All seven JVM containers and the three infrastructure containers are healthy, with zero restarts and no OOM kills.
+- **Live checks through the gateway:** a login as the dev admin, then:
+  - reconciliation without a token: 401; with the admin token: 200, `clean: true`, no issues;
+  - statement with the admin token: 200, with the opening balance and the running balance;
+  - statement without a token: 401; a bad token: 401.
+- **Memory:** the dev stack is 2.24 GiB across 10 containers, measured after the restart. The seven JVMs are capped at 3.9 GiB combined. The host has about 0.9 GB available and 3.2 GB of its 4 GB swap in use. Before the caps, the first sample was 1.67 GiB; the difference is the JVM heaps growing after the restart.
