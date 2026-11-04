@@ -44,6 +44,7 @@ Built now:
 
 | Flow | Entry | Key |
 |---|---|---|
+| Opening-balance backfill (V4), once per existing account with a positive balance | DR OPENING_BALANCE_EQUITY:NGN, CR wallet | `backfill-{accountId}` |
 | Card deposit, credit | DR PROVIDER_CLEARING:STRIPE:NGN, CR wallet. The requested amount only. | `dep-{id}-credit` |
 | Card deposit, surplus or shortfall | DR PROVIDER_CLEARING:STRIPE:NGN, CR DEPOSIT_SUSPENSE:NGN. Whatever arrived and was not credited. | `dep-{id}-suspense` |
 | Card deposit, Stripe fee | DR PAYMENT_FEES:NGN, CR PROVIDER_CLEARING:STRIPE:NGN. Posted when the balance transaction is known. | `dep-{id}-fee` |
@@ -53,7 +54,6 @@ Planned (later slices or phases):
 
 | Flow | Entry | Phase |
 |---|---|---|
-| Opening-balance backfill | DR OPENING_BALANCE_EQUITY, CR wallet | 2 (V4) |
 | Account opened with `initialDeposit` | DR OPENING_BALANCE_EQUITY, CR wallet | 2 |
 | Admin credit / deduct | DR ADJUSTMENT_EQUITY / CR ADJUSTMENT_EQUITY, reason required | 2 |
 | Transfer hold / settle / release | 3.4 | 3 |

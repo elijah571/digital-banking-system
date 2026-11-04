@@ -586,5 +586,6 @@ The review's fixes and clean-ups are numbered 1–6 here, separately from the fi
 **Open point (not decided).** A receipt in another currency can't be booked, because the ledger is NGN-only and we create every PaymentIntent in NGN. Proposal: reject it and alert. If it ever happens, add a `DEPOSIT_SUSPENSE:{currency}` seed. Confirm, or tell me what you prefer.
 
 **Progress.**
-- Phase 2, slice 2a (deposit postings, V3, the fee conversion, `docs/ledger.md`): built, and the account-service suite is 35/35 green. Not committed yet at the time of writing.
+- Phase 2, slice 2a (deposit postings, V3, the fee conversion, `docs/ledger.md`): committed as `b773bbc` (code) and `8f750a1` (docs). The suite was 35/35 green.
+- Phase 2, slice 2b (V4 opening-balance backfill, with its test): built. The backfill test runs the upgrade on a scratch database with the V1 schema and existing rows. It checks that every wallet mirrors its account and that the journal balances, and that a negative account stops the migration before any write. The suite is 37/37 green. The guard was first written in a form MySQL 9.7 rejects, and the test caught it before any data was touched.
 - Phase 2, still to do: V4 opening-balance backfill (with its test), V5 (`audit_log`, `outbox`, `processed_event`, `idempotency_record`), the reconciliation job and endpoint, the statement, admin credit and deduct, the internal API and resource server with service tokens, the `accounts.balance` mirror write, and the ArchUnit rule on who writes the ledger tables.
