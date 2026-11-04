@@ -159,8 +159,13 @@ echo "== Auth — register / verify / login"
 E="dave.$RUN_ID@test.com"
 call POST /auth/register "{\"fullName\":\"Dave\",\"email\":\"$E\",\"password\":\"short\"}"
 check "POST /auth/register weak password -> 400" 400
+dave_mark=$(log_mark)
 call POST /auth/register "{\"fullName\":\"Dave\",\"email\":\"$E\",\"password\":\"$PASSWORD\"}"
 check "POST /auth/register" 201
+# Wait for the first email before the resend starts. The notification log can lag the register by several seconds. If the
+# first email arrived after the resend's mark, the resend's lookup would take its superseded link, and verify would reject it.
+link_after "$dave_mark" "$E" 'verify-email\?token=\K[A-Za-z0-9_-]+' > /dev/null \
+  || { red "FAIL  Dave's first verification email never reached the log"; FAIL=$((FAIL+1)); }
 call POST /auth/register "{\"fullName\":\"Dave\",\"email\":\"$E\",\"password\":\"$PASSWORD\"}"
 check "POST /auth/register duplicate email -> 409" 409
 call POST /auth/login "{\"email\":\"$E\",\"password\":\"$PASSWORD\"}"
