@@ -231,7 +231,7 @@ public class LedgerPostingService {
             LockedAccount account = accounts.get(delta.getKey());
             if (account.ownerType() == OwnerType.USER
                     && account.balance().add(delta.getValue()).signum() < 0) {
-                throw new InsufficientFundsException("insufficient funds on ledger account " + account.id());
+                throw new InsufficientFundsException("Insufficient funds on ledger account " + account.id());
             }
         }
     }
