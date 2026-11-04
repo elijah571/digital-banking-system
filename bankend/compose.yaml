@@ -102,7 +102,14 @@ services:
     build:
       context: .
       dockerfile: account-service/Dockerfile
-    environment: *app-env
+    environment:
+      <<: *app-env
+      # Both are required (compose stops if they are missing). Same JWT_SECRET as auth-service; INTERNAL_JWT_SECRET is for service tokens.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
+      # Dev only (wallet-plan 8.18): transaction-service, fraud-detection and payment-service still call the old endpoints without a
+      # token until phase 3 removes this flag. The prod overlay sets it to false.
+      ACCOUNT_LEGACY_HEADERS_ENABLED: "true"
     depends_on: *app-depends
     ports:
       - "8081:8081"

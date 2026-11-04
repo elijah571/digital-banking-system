@@ -8,6 +8,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 import org.springframework.test.context.DynamicPropertyRegistrar;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.mysql.MySQLContainer;
 
@@ -17,21 +18,37 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Real MySQL, Kafka in Docker for integration tests (same versions as compose.yaml). */
+/**
+ * Real MySQL and Kafka in Docker for integration tests (same versions as compose.yaml).
+ *
+ * <p>One MySQL and one Kafka serve the whole test JVM. Every Spring context reuses them. Starting a fresh pair per context
+ * overloaded a loaded host, and the containers timed out during startup. Testcontainers removes them when the JVM exits.
+ */
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
+
+    // MySQL 9.7 and Kafka can take longer than the default wait on a loaded host; a timeout here is not a test failure.
+    private static final MySQLContainer MYSQL = TestImages.mysql().withStartupTimeout(Duration.ofMinutes(3));
+    private static final KafkaContainer KAFKA = TestImages.kafka().withStartupTimeout(Duration.ofMinutes(3));
 
     @Bean
     @ServiceConnection
     MySQLContainer mysqlContainer() {
-        // MySQL 9.7 on a loaded host can take longer than the default wait; a timeout here is not a test failure.
-        return TestImages.mysql().withStartupTimeout(Duration.ofMinutes(3));
+        startOnce(MYSQL);
+        return MYSQL;
     }
 
     @Bean
     @ServiceConnection
     KafkaContainer kafkaContainer() {
-        return TestImages.kafka();
+        startOnce(KAFKA);
+        return KAFKA;
+    }
+
+    private static synchronized void startOnce(GenericContainer<?> container) {
+        if (!container.isRunning()) {
+            container.start();
+        }
     }
 
     /**
@@ -41,7 +58,12 @@ public class TestcontainersConfiguration {
      */
     @Bean
     DynamicPropertyRegistrar kafkaBootstrapFromContainer(KafkaContainer kafka) {
-        return registry -> registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+        return registry -> {
+            registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+            // Test secrets for the two token kinds (TestTokens mints with the same values).
+            registry.add("auth.jwt-secret", () -> TestTokens.USER_SECRET);
+            registry.add("internal-auth.jwt-secret", () -> TestTokens.SERVICE_SECRET);
+        };
     }
 
     /**

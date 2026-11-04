@@ -17,6 +17,7 @@ x-prod: &prod
       max-file: "3"
 
 x-prod-app-env: &prod-app-env
+  SPRING_PROFILES_ACTIVE: prod
   SPRINGDOC_API_DOCS_ENABLED: "false"
   SPRINGDOC_SWAGGER_UI_ENABLED: "false"
   MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info"
@@ -41,7 +42,10 @@ services:
   account-service:
     <<: *prod
     ports: !reset []
-    environment: *prod-app-env
+    environment:
+      <<: *prod-app-env
+      # The legacy internal path is dev-only (wallet-plan 8.19). Off here, and the prod profile refuses to start with it on.
+      ACCOUNT_LEGACY_HEADERS_ENABLED: "false"
     mem_limit: 768m
   transaction-service:
     <<: *prod
