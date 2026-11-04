@@ -1,7 +1,7 @@
 # Wallet plan: deposits, withdrawals, double-entry ledger
 
 Status: **approved 2026-11-03** with the changes in section 0. All other decisions use the recommended option.
-Scope change 2026-11-04: **section 8 approved 2026-11-04 with the review changes in 8.16.** Phases 1–4 are being built. Phase 5 waits for D26 and D27 (8.8, 8.16).
+Scope change 2026-11-04: **section 8 approved 2026-11-04 with the review changes in 8.16.** Phase 1 is committed. Phase 2 is in progress. D26 and D27 were approved as changed in the second review (8.17), so phase 5 starts when phase 2 is done.
 Date: 2026-11-03 (scope change 2026-11-04)
 
 Contents: 0. Approved changes · 1. What exists today · 2. Bugs found while reading · 3. Design · 4. Changes per service ·
@@ -145,7 +145,9 @@ accounts      + ledger_account_id BIGINT NULL UNIQUE, + currency CHAR(3) NOT NUL
 | Transfer rejected, OTP wrong or expired, or failure | DR TRANSFER_IN_FLIGHT, CR sender wallet (`tx-{id}-release`) |
 | Admin credit (reason required) | DR ADJUSTMENT_EQUITY (adjustment), CR wallet (`adm-{uuid}` from Idempotency-Key) |
 | Admin deduct (reason required) | DR wallet, CR ADJUSTMENT_EQUITY (`adm-…`). See D5 |
-| Deposit succeeded (webhook) | DR PROVIDER_CLEARING:STRIPE:NGN, CR wallet (`dep-{id}-credit`) |
+| Deposit succeeded (webhook): credit | DR PROVIDER_CLEARING:STRIPE:NGN, CR wallet. The requested amount only (`dep-{id}-credit`) |
+| Deposit: anything received but not credited (a surplus, or the whole amount on a shortfall or mismatch) | DR PROVIDER_CLEARING:STRIPE:NGN, CR DEPOSIT_SUSPENSE:NGN (`dep-{id}-suspense`). Alert. D26 |
+| Deposit: Stripe fee, when the balance transaction is known | DR PAYMENT_FEES:NGN, CR PROVIDER_CLEARING:STRIPE:NGN (`dep-{id}-fee`). Never on the credit path. D27 |
 | Outbound payout hold (withdrawal or external transfer, see 8.3) | DR wallet (amount + fee), CR PAYOUT_PAYABLE (amount), CR FEE_REVENUE (fee, only if fee > 0) (`out-{id}-hold`) |
 | Outbound payout settled (provider confirms success) | DR PAYOUT_PAYABLE, CR PROVIDER_CLEARING:{provider}:{currency} (`out-{id}-settle`) |
 | Outbound payout failed, rejected, cancelled or expired before settle | DR PAYOUT_PAYABLE (amount), DR FEE_REVENUE (fee, if any), CR wallet (amount + fee) (`out-{id}-release`) |
@@ -164,8 +166,8 @@ Tables: `deposit`, `outbound_payout` (each with `@Version`; holds withdrawals an
 1. `POST /api/v1/wallet/deposits` with an `Idempotency-Key` checks that the account is ACTIVE and owned by the caller, then inserts a PENDING deposit.
 2. wallet-service calls payment-service at `POST /internal/v1/payments/intents` with a SERVICE token and the depositId as metadata. payment-service returns the client secret.
 3. Stripe calls payment-service's webhook. payment-service verifies the signature and writes an outbox row `payment.intent.succeeded` / `payment.intent.failed` containing the Stripe event id, depositId, amount and currency.
-4. wallet-service consumes it, deduplicating through `processed_event(stripe event id)`. It checks that the amount and currency match, posts the ledger entry `dep-{id}-credit`, marks the deposit COMPLETED and writes the outbox row `wallet.deposit.completed`.
-5. A mismatch → FAILED + an audit row + an alert, and no credit.
+4. wallet-service consumes it, deduplicating through `processed_event(stripe event id)`. It checks that the amount and currency match, credits the requested amount (`dep-{id}-credit`), books anything else that arrived to suspense (`dep-{id}-suspense`, D26), marks the deposit COMPLETED and writes the outbox row `wallet.deposit.completed`.
+5. A shortfall → FAILED for the user, with an audit row and an alert. What arrived goes to suspense and nothing is credited (D26). A surplus → COMPLETED, with the surplus to suspense.
 6. An expiry job (default 24 h) cancels the PaymentIntent at Stripe first. It only marks the deposit EXPIRED if Stripe confirms the cancel, so a late success can't hit an EXPIRED deposit.
 
 **Withdrawals.** The spec's steps, made safe across two databases:
@@ -231,7 +233,7 @@ Each service that publishes (account, wallet, payment, transaction) gets an `out
 
 | Service | Changes |
 |---|---|
-| **account-service** | Flyway V1 baseline; V2 ledger tables, triggers and system accounts; V3 opening-balance backfill; V4 `audit_log`/`outbox`/`processed_event`/`idempotency_record`. `Money`, `LedgerPostingService`, internal ledger API (post, get by key, reverse, account info), statement, reconciliation job and endpoint, admin credit/deduct with reason, resource server, outbox relay. `accounts.balance` is still written in the same transaction (expand) so the old version and the README keep working. Remove the `transaction.completed` credit consumer, because the receiver is now credited by `tx-{id}-settle`. |
+| **account-service** | Flyway V1 baseline; V2 ledger tables, triggers and NGN system accounts; V3 deposit system accounts (`DEPOSIT_SUSPENSE`, `PAYMENT_FEES`, D26 and D27); V4 opening-balance backfill; V5 `audit_log`/`outbox`/`processed_event`/`idempotency_record`. `Money`, `LedgerPostingService`, internal ledger API (post, get by key, reverse, account info), statement, reconciliation job and endpoint, admin credit/deduct with reason, resource server, outbox relay. `accounts.balance` is still written in the same transaction (expand) so the old version and the README keep working. Remove the `transaction.completed` credit consumer, because the receiver is now credited by `tx-{id}-settle`. |
 | **transaction-service** | Flyway. The saga moves to ledger hold/settle/release. The `Transaction` row and an outbox `transaction.initiated` are written **before** the hold, and a recovery job drives stuck rows. `@Version` on `Transaction` (fixes the verify race). Hashed OTP, `SecureRandom`. OTP events only on `notification.otp`, never on transfer topics (D6). `Idempotency-Key` on `POST /transactions`. SERVICE token for account calls. PIN required whenever `TRANSFER_PIN_REQUIRED=true` (D2, review fix 1). |
 | **fraud-detection-service** | New internal `POST /internal/v1/fraud/check` (SERVICE token), with the same rules plus a withdrawal profile. SERVICE token for the balance read. Kafka path unchanged. |
 | **payment-service** | Flyway. Internal `POST /internal/v1/payments/intents` (depositId and currency in metadata). The webhook writes outbox events with the Stripe event id, deduplicates through `processed_event`, and no longer swallows errors (it returns 500 so Stripe retries). The old `/create-order` keeps working (D9). It also owns every provider adapter, the Paystack webhook and the payout and virtual-account APIs (8.2). |
@@ -248,7 +250,7 @@ Each service that publishes (account, wallet, payment, transaction) gets an `out
 2. **Ledger core (account-service).** Money, ledger tables and triggers, posting with locks, reversals, reconciliation, statement, backfill and its test, audit, outbox, idempotency, resource server with SERVICE tokens, admin credit/deduct with reason. ADR `0001-locking.md` and `ledger.md`. Concurrency tests (50 parallel, opposite transfers).
 3. **Transfers onto the ledger.** transaction-service changes from section 4. Update the smoke test and Postman. All 107 existing checks still pass, adapted only where the contract was deliberately changed (Idempotency-Key, reason), and each change is listed in the commit.
 4. **wallet-service and PIN.** `threat-model-pin.md` **first**, then PIN, the auth verify-password endpoint, OTP, lockout, log-masking test.
-5. **Deposits.** payment-service internal intent, webhook outbox, wallet consumer, expiry, tests (replay, bad signature, mismatch). The smoke test signs webhook payloads itself with `STRIPE_WEBHOOK_SECRET` via openssl, so no Stripe CLI is needed. **Starts only after D26 and D27 are answered** (8.8, 8.16). The wallet is credited the requested amount, never more and never less (review fix 3).
+5. **Deposits.** payment-service internal intent, webhook outbox, wallet consumer, expiry, tests (replay, bad signature, mismatch). The smoke test signs webhook payloads itself with `STRIPE_WEBHOOK_SECRET` via openssl, so no Stripe CLI is needed. **Starts after phase 2 is done.** D26 and D27 are approved (8.17). The ledger side is in phase 2 (`CardDepositPostings`). The wallet is credited the requested amount, never more and never less (review fix 3).
 6. **Withdrawals and the outbound pipeline.** State machine (with REVERSED), limits, fraud endpoint, gate, maker-checker, expiry, recovery, and the `PayoutProvider` interface with its simulator, which lives in payment-service (8.2, 8.3). The pipeline is built for both types from the start (`type = WITHDRAWAL` now), so 6b adds a type and does not add a second pipeline. All transition and concurrency tests.
 6b. **External transfers.** Bank list, name enquiry, routing in transaction-service, `EXTERNAL_TRANSFER` on the phase-6 pipeline, Paystack adapter (recipient, transfer, verify by reference), signed webhooks for transfer.success / transfer.failed / transfer.reversed with dedupe and matching, reversal entries. `docs/deploy.md` is created here with every variable so far. Smoke test: external transfer and withdrawal on the simulator, plus a sandbox run for the happy path only (8.7). Needs your Paystack test secret key in `.env` (gitignored).
 6c. **Inbound bank transfers.** `POST /api/v1/wallet/virtual-account`, Paystack dedicated account (customer, then assign, async webhook), `charge.success` with channel `dedicated_nuban` → outbox → wallet credits once, the dev-only simulator, and a smoke test for a deposit by bank transfer on the simulator. Starts after gate G2 (8.8). If G2 fails, 6c ships with the simulator only and the Paystack adapter waits.
@@ -424,7 +426,7 @@ Stripe is unchanged.
   - **Settles in USD.** Balance transaction `txn_3UY2IA4SPWwG6i3U0bVXGz8d`: gross 71 USD cents, fee 33 (1 currency conversion, 32 processing), net 38, exchange rate 0.000710374 NGN→USD, status pending. The processing fee is a fixed 32 cents, so on a small deposit it takes most of the value. This is D27.
   - **`ng_card` rejected.** Stripe answered `payment method type "ng_card" is invalid` and asked us to activate it in the dashboard. So the Nigerian card path, where Stripe's NGN page says a merchant-of-record adds VAT, isn't enabled on our account.
   - **Account state.** Country US, default currency usd, `charges_enabled: false`, `payouts_enabled: false`. Test charges worked. Live charges won't until Stripe onboarding is finished.
-  - **Amount rule (review fix 3, proposed).** Credit exactly the requested amount, never more and never less. Credit only if `amount_received` ≥ the requested amount. Anything above it (VAT or any other add-on) is not credited; what happens to it is D26. `amount_received` below the requested amount → FAILED, no credit, alert. **Phase 5 doesn't start until you answer D26 and D27.**
+  - **Amount rule (review fix 3, proposed).** Credit exactly the requested amount, never more and never less. Credit only if `amount_received` ≥ the requested amount. Anything above it (VAT or any other add-on) is not credited; what happens to it is D26. `amount_received` below the requested amount → FAILED, no credit, alert. **Phase 5 starts after phase 2. D26 and D27 are approved (8.17).**
   - Stripe's NGN page says naira payments go through a merchant-of-record partner and include VAT for Nigerian buyers. That path is `ng_card`, which isn't enabled here, so the amount rule above must still cover it before it's enabled.
 - **G2, before 6c: Paystack virtual accounts.** A search reports that the business must be enabled for the feature (by emailing Paystack support), that creating a customer needs the customer's consent, and that test mode uses `test-bank` as the preferred bank. I couldn't confirm any of this for our account. **Test:** create a customer and assign a dedicated account on our test key. Passes → 6c ships with Paystack. Fails → 6c ships with the simulator only, and the Paystack adapter waits.
 
@@ -462,6 +464,7 @@ Each variable goes into `.env.example` and into `docs/deploy.md` in the phase th
 | `OUTBOUND_FEE` | wallet | `0.00` | Flat NGN, both types. |
 | `LEDGER_CURRENCIES` | account | `NGN` | Section 4 said `USD`. |
 | `TRANSFER_PIN_REQUIRED` | transaction | `true` | D2, unchanged. |
+| `CARD_DEPOSIT_MIN` | wallet | `20000` (proposed, not yet approved, 8.17) | Minimum card deposit in NGN. At ₦20,000 the measured Stripe fee is 5.98% (8.17). Stripe itself refuses amounts under about ₦705 (50 US cents). |
 
 Still in section 4: `INTERNAL_JWT_SECRET`, `PIN_PEPPER`, `WITHDRAWAL_*`, `DEPOSIT_EXPIRY`, and the `STRIPE_*` keys. The `PAYOUT_SIM_*` placeholder in section 4 is replaced by the two `PAYOUT_SIM_*` variables above.
 
@@ -484,7 +487,7 @@ Still in section 4: `INTERNAL_JWT_SECRET`, `PIN_PEPPER`, `WITHDRAWAL_*`, `DEPOSI
 
 ### 8.13 Decisions needed
 
-Status after the review (2026-11-04): D20–D25 approved as recommended. D21 extends fix 5. D18 is changed by review fix 1. D19 is approved as a label only (review fix 4). D26 and D27 are new and open.
+Status after the review (2026-11-04): D20–D25 approved as recommended. D21 extends fix 5. D18 is changed by review fix 1. D19 is approved as a label only (review fix 4). D26 and D27 were approved as changed in the second review (8.17).
 
 
 | # | Question | Recommendation |
@@ -497,8 +500,8 @@ Status after the review (2026-11-04): D20–D25 approved as recommended. D21 ext
 | **D23** | Field names. The existing body uses `senderAccountNumber`, `receiverAccountNumber`, `description` and `type`. The spec's body uses `accountNumber` and `narration`, and has no sender. | Keep the existing names on `POST /api/v1/transactions`, and add `bankCode`, `pin` and `nameEnquiryRef`. The withdrawal endpoint uses the same names. This replaces D11's "accountNumber in the body" for these endpoints. |
 | **D24** | DVA customer creation needs phone, name and email. auth stores no phone. | Add an optional `phone` to the profile. Virtual accounts require it (6c). This is a small auth change. |
 | **D25** | The spec says to credit only from a verified webhook. | Also call Paystack's transaction verify before crediting, and check status and amount. Recommended. |
-| **D26** | Stripe surplus. If Stripe charges more than the requested amount (VAT or a merchant-of-record add-on), where does the surplus go? It isn't credited either way (review fix 3). | Keep it out of the wallet and out of the ledger in v1. Log it, alert on it, and reconcile against Stripe's payout report. A liability account comes later, once we know how it's remitted. This isn't reachable on the card path G1 tested, because `ng_card` isn't enabled. |
-| **D27** | Stripe settles in USD. G1 showed a fixed 32-cent processing fee plus 1 cent of conversion on a 71-cent charge. The ledger is in NGN. How are Stripe's fees and the NGN↔USD difference booked, and where does the rate come from? | Book Stripe's fees as an EXPENSE (a new seed, `PAYMENT_FEES`). Record the USD settlement against `PROVIDER_CLEARING:STRIPE:NGN` at the rate on the balance transaction. Reconciling that to the bank statement stays out of scope, as before. Needs your OK. |
+| **D26 (changed, approved 2026-11-04)** | Stripe surplus, and money received that is not credited. | Money we receive is never left off the ledger. The wallet is credited exactly the requested amount. Anything received that is not credited (a surplus, or the whole amount on a shortfall or mismatch) is booked DR `PROVIDER_CLEARING:STRIPE:NGN`, CR `DEPOSIT_SUSPENSE` (a new LIABILITY seed). It raises an alert, and an admin resolves it later (refund or reclassify). A shortfall FAILs the deposit for the user, and what arrived still goes to suspense. |
+| **D27 (approved with limits, 2026-11-04)** | Stripe's USD settlement, fees and FX. | The wallet credit never waits for fee or FX data. The fee is its own entry, `dep-{id}-fee`: DR `PAYMENT_FEES` (EXPENSE), CR `PROVIDER_CLEARING:STRIPE:NGN`. It's converted at the balance transaction's rate (HALF_EVEN, 2 decimals) and posted when the balance transaction is available (a job or an event). USD settlement and FX gains and losses are out of scope, documented in `ledger.md`. `CARD_DEPOSIT_MIN` is added as config (8.10, proposed in 8.17). |
 
 ### 8.14 Risks added
 
@@ -543,6 +546,45 @@ The review's fixes and clean-ups are numbered 1–6 here, separately from the fi
 
 **Progress.**
 - Phase 1: done and committed.
-- Phase 2, slice 1 (the posting core), is built and green. It is not committed, because the phase isn't finished. It includes `V2__ledger_core.sql`, `LedgerPostingService` (post and reverse), the ledger exceptions, `docs/adr/0001-locking.md`, and 14 tests: idempotency, funds rules, reversal, append-only triggers, and 50-way concurrency. The account-service suite runs 18 tests, all green on MySQL 9.7.4.
+- Phase 2, slice 1 (the posting core), is built and green. It was committed as `01015df` at your request. The phase isn't finished. It includes `V2__ledger_core.sql`, `LedgerPostingService` (post and reverse), the ledger exceptions, `docs/adr/0001-locking.md`, and 14 tests: idempotency, funds rules, reversal, append-only triggers, and 50-way concurrency. The account-service suite runs 18 tests, all green on MySQL 9.7.4.
 - Phase 2, still to do: V3 backfill (with its test), V4 (audit, outbox, processed_event, idempotency_record), the internal API and resource server with service tokens, admin credit and deduct, statement, reconciliation job and endpoint, `ledger.md`, the `accounts.balance` mirror write (expand), and the ArchUnit rule restricting who writes the ledger tables.
-- Phases 3, 4: not started. Phase 5: waits for D26 and D27. 6b and 6c: not started.
+- Phases 3, 4: not started. Phase 5: starts after phase 2 (D26 and D27 are approved, 8.17). 6b and 6c: not started.
+
+### 8.17 Second review (2026-11-04): commits, D26, D27, CARD_DEPOSIT_MIN
+
+**Approved.**
+- The idempotency check runs under the account locks, with the UNIQUE key as the backstop (ADR 0001).
+- `outbound_daily_usage` (8.3) and the new MySQL volume name are approved. The old 26.10 volume, `digital-banking-system_mysql_data`, is deleted by the user after phase 2 is committed.
+- Commits: `51bf69a` (MySQL 9.7.4 pin), `9d2cc15` (plan), `01015df` (ledger slice 1). From now on, one commit per green slice.
+- **D26 (changed):** money received is never left off the ledger. Details in 8.13 and `docs/ledger.md`.
+- **D27 (approved with limits):** the fee is its own entry, posted outside the credit path. Details in 8.13 and `docs/ledger.md`.
+
+**D26 and D27 in the ledger (slice 2a, built).**
+- `DepositSettlement`: the credit is the requested amount, and only if the full amount arrived. Everything else received goes to suspense. A shortfall is `FAILED`.
+- `CardDepositPostings.settle`: posts `dep-{id}-credit` and `dep-{id}-suspense` in one transaction. A replay changes nothing. A replay that changes the requested amount is a conflict, and writes nothing.
+- `CardDepositPostings.recordFee`: posts `dep-{id}-fee`, DR `PAYMENT_FEES`, CR `PROVIDER_CLEARING:STRIPE:NGN`.
+- `StripeFees.toNgn`: the fee divided by the balance transaction's rate, HALF_EVEN to 2 decimals. The G1 sample (0.33 USD at 0.000710374) is ₦464.54. The HALF_EVEN ties are tested at 0.015, 0.025 and 0.035.
+- V3 adds `DEPOSIT_SUSPENSE:NGN` (LIABILITY) and `PAYMENT_FEES:NGN` (EXPENSE).
+- The suspense alert goes out as an outbox event, so it waits for V5.
+
+**Fee measurement and the proposed `CARD_DEPOSIT_MIN`.** Seven test-mode charges on 2026-11-04, at the same rate (0.000710374 USD per NGN):
+
+| Amount (NGN) | Gross (USD ¢) | Stripe fee (USD ¢) | Fee (NGN) | Fee as % of amount |
+|---:|---:|---:|---:|---:|
+| 1,000 | 71 | 33 | 464.54 | 46.45% |
+| 2,000 | 142 | 35 | 492.70 | 24.64% |
+| 5,000 | 355 | 44 | 619.39 | 12.39% |
+| 10,000 | 710 | 58 | 816.47 | 8.16% |
+| **20,000** | 1,421 | 85 | 1,196.55 | **5.98%** |
+| 50,000 | 3,552 | 169 | 2,379.03 | 4.76% |
+| 100,000 | 7,104 | 307 | 4,321.67 | 4.32% |
+
+- The fee fits 30 US cents plus 3.9% of the USD amount, which is about ₦422 fixed plus 3.9%. The fixed part is what makes small deposits expensive.
+- Stripe refuses amounts below 50 US cents. That's about ₦704 at this rate. A ₦500 charge was refused.
+- **Proposal:** `CARD_DEPOSIT_MIN = 20000`. The fee is then 5.98%, about ₦1,197. ₦10,000 would be 8.16%. The fee is ours, because the wallet is credited exactly the requested amount. Caveats: these are test-mode charges, seven samples, and live pricing may differ. Check on a live account before go-live.
+
+**Open point (not decided).** A receipt in another currency can't be booked, because the ledger is NGN-only and we create every PaymentIntent in NGN. Proposal: reject it and alert. If it ever happens, add a `DEPOSIT_SUSPENSE:{currency}` seed. Confirm, or tell me what you prefer.
+
+**Progress.**
+- Phase 2, slice 2a (deposit postings, V3, the fee conversion, `docs/ledger.md`): built, and the account-service suite is 35/35 green. Not committed yet at the time of writing.
+- Phase 2, still to do: V4 opening-balance backfill (with its test), V5 (`audit_log`, `outbox`, `processed_event`, `idempotency_record`), the reconciliation job and endpoint, the statement, admin credit and deduct, the internal API and resource server with service tokens, the `accounts.balance` mirror write, and the ArchUnit rule on who writes the ledger tables.
