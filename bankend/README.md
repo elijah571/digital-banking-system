@@ -130,6 +130,13 @@ Still to do before real users:
 - Set a strong `MYSQL_ROOT_PASSWORD` **before the first start** (MySQL only reads it when the volume is created).
 - Point the Stripe dashboard webhook at `https://<your-domain>/api/v1/payments/webhook`.
 
+## Breaking changes
+
+One line per breaking change, newest first. Each change adds its line in the same commit as the change.
+
+- **Admin credit and deduct moved to `/api/v1/admin/accounts/{n}/credit` and `…/deduct`** (`b8b4e0e`). They take `amount`, `reason` and an `Idempotency-Key` header, with an ADMIN token. The old `PUT /api/v1/accounts/{n}/credit` and `…/deduct` no longer accept admin or user tokens. Only transaction-service may call them, and they are removed in phase 3, slice 3c.
+- **The legacy `X-User-*` header path is removed from account-service** (`8b8155f`). Headers no longer identify anyone there. `GET /api/v1/accounts/{n}`, `…/balance`, `PUT …/deduct` and `PUT …/credit` need a token.
+
 ## Error responses
 
 Errors use standard `application/problem+json` bodies, e.g.
