@@ -18,9 +18,16 @@
     <properties>
         <java.version>25</java.version>
         <archunit.version>1.5.1</archunit.version>
+        <nimbus.version>10.9.1</nimbus.version>
     </properties>
 
     <dependencies>
+        <!-- Signs the service tokens that calling services send to account-service (wallet-plan 3.7) -->
+        <dependency>
+            <groupId>com.nimbusds</groupId>
+            <artifactId>nimbus-jose-jwt</artifactId>
+            <version>${nimbus.version}</version>
+        </dependency>
         <!-- Optional: only services that run the ArchUnit / Testcontainers helpers (in test scope) pull these in -->
         <dependency>
             <groupId>com.tngtech.archunit</groupId>

@@ -714,3 +714,24 @@ Built before phase 3 uses the internal API, as ordered.
 - Full account-service suite: **103 tests, 0 failures, BUILD SUCCESS** on MySQL 9.7.4 and Kafka via Testcontainers. The dev stack was stopped for the run.
 
 **Not done.** No mutation check yet: I have not confirmed that the rollback test fails if the audit write runs in its own transaction. No dev deploy: the change is on the branch only. The dev stack is still stopped.
+
+### 8.24 Phase 3, slice 3a: the callers send service tokens (2026-11-04)
+
+Legacy headers stay on in this slice, so callers behave as before. The slice prepares their removal.
+
+- **`libs/banking-common` `ServiceTokens`** (new). Mints the HS256 service token from 3.7: `iss=elibanking-internal`, `role=SERVICE`, `sub` = the calling service, `aud` = the service being called. It lasts 5 minutes and is reused until a minute before it expires. Both callers use this one class (D1).
+- **transaction-service.** A Feign interceptor adds `Authorization: Bearer` to every account-service call, with `sub = transaction-service`.
+- **payment-service.** `AccountClient` sends the same header with `sub = payment-service`.
+- **Compose.** Both callers get `INTERNAL_JWT_SECRET`, the same value account-service uses, and compose stops without it. Each service also refuses to start without it.
+- **Dependency scope.** `banking-common` moves from test scope to compile scope in transaction-service and payment-service, because main code uses it now. Payment-service has no `RestClient.Builder` bean, so `AccountClient` builds its own client; a package-private constructor takes a builder for the test.
+
+**Tests.**
+- `banking-common`: 14 green, including 3 new `ServiceTokensTest` cases. They check the claims and the signature, reuse and renewal, and the refusals (short secret, blank or long subject, blank audience).
+- transaction-service: 5 green, including the new `AccountServiceAuthTest`.
+- payment-service: 5 green, including the new `AccountClientTest`. A mock server checks that the header verifies with the shared secret and carries the right `sub` and `aud`.
+- account-service: 25 green across `ServiceTokenContractTest` (new), `ApiSecurityTest` and `LedgerApiTest`. A token from the shared library gets 404 (accepted, unknown account). A token for another audience, or signed with another secret, gets 401.
+- `docker compose -f compose.yaml -f compose.prod.yaml config -q` exits 0. The quiet form prints nothing, so no values are shown.
+
+**Not done.** No dev rebuild or deploy, per the rule that nothing deploys between phases 3 and 4. No live check. The dev flag stays `true`.
+
+**Next, slice 3b.** Set the dev flag to `false` and check that a call with no token gets 401. Then remove the legacy path and its tests. The old `deduct` and `credit` paths stay until transfers move onto the ledger (slice 3c), because transaction-service still uses them.
