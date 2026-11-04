@@ -1,6 +1,6 @@
 # Ledger
 
-Status: phase 2 in progress. Source of truth for the design: [wallet-plan.md](wallet-plan.md) sections 3.2 and 3.4.
+Status: phase 2 complete (2026-11-04, wallet-plan 8.20). Phase 3 is next. Source of truth for the design: [wallet-plan.md](wallet-plan.md) sections 3.2 and 3.4.
 Owner: account-service (`ledger` package). Only `LedgerPostingService` writes `ledger_account.balance` and `journal_*`. The ArchUnit test `LedgerWriteArchitectureTest` fails the build if any other class writes through `JdbcTemplate`. `accounts.balance` mirrors its wallet in the same transaction (expand, wallet-plan 3.2).
 
 ## Model
@@ -36,7 +36,7 @@ A customer wallet is a LIABILITY: a deposit (CR wallet) increases it.
 5. **Reversal.** A reversal posts the opposite lines and sets `reverses_entry_id`. A second reversal is a conflict (409).
 6. **Reconciliation identity.** Each cached balance equals the signed sum of its lines, and debits equal credits per
    currency across the journal. The test suite checks both after every scenario. The hourly job (`ReconciliationJob`) is
-   in place. The admin endpoint waits for the decision in wallet-plan 8.18.
+   in place. The admin endpoint is built: `GET /api/v1/admin/ledger/reconciliation`.
 
 ## Entries
 

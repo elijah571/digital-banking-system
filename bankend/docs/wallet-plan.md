@@ -1,7 +1,7 @@
 # Wallet plan: deposits, withdrawals, double-entry ledger
 
 Status: **approved 2026-11-03** with the changes in section 0. All other decisions use the recommended option.
-Scope change 2026-11-04: **section 8 approved 2026-11-04 with the review changes in 8.16.** Phase 1 is committed. Phase 2 is in progress. D26 and D27 were approved as changed in the second review (8.17), so phase 5 starts when phase 2 is done.
+Scope change 2026-11-04: **section 8 approved 2026-11-04 with the review changes in 8.16 and 8.19.** Phases 1 and 2 are built and committed (phase 2 completed 2026-11-04, see 8.20). Phase 3 has started with its gateway slice (8.22). D26 and D27 are approved (8.17) and no longer block phase 5, which comes after phase 4.
 Date: 2026-11-03 (scope change 2026-11-04)
 
 Contents: 0. Approved changes · 1. What exists today · 2. Bugs found while reading · 3. Design · 4. Changes per service ·
@@ -47,7 +47,7 @@ Contents: 0. Approved changes · 1. What exists today · 2. Bugs found while rea
 
 | Service | DB | Money-relevant facts |
 |---|---|---|
-| account-service 8081 | `account_db.accounts` (17 rows) | `balance DECIMAL(15,2)` changed in place by `PUT /{n}/deduct?amount=` and `/credit?amount=`. There's no ledger, no currency, no `@Version` and no row lock: it does a read-modify-write under REPEATABLE READ, so two parallel deducts can both pass the funds check. Kafka consumers: `transaction.completed` credits the receiver, `fraud.detected` blocks the account. Accounts are addressed by a 10-digit `accountNumber`; `id` is a UUID. `dailyTransactionLimit` is stored but never enforced. |
+| account-service 8081 | `account_db.accounts` (23 rows on 2026-11-04) | `balance DECIMAL(15,2)` changed in place by `PUT /{n}/deduct?amount=` and `/credit?amount=`. There's no ledger, no currency, no `@Version` and no row lock: it does a read-modify-write under REPEATABLE READ, so two parallel deducts can both pass the funds check. Kafka consumers: `transaction.completed` credits the receiver, `fraud.detected` blocks the account. Accounts are addressed by a 10-digit `accountNumber`; `id` is a UUID. `dailyTransactionLimit` is stored but never enforced. |
 | transaction-service 8082 | `transaction_db.transactions` | The saga works like this: a Feign `deduct` runs, then a `transactions` row is saved, then `transaction.initiated` is published. Fraud sends back `fraud.check.clean` or `transaction.verification.required`. The OTP goes into Redis **in plaintext**, is generated with `java.util.Random`, and is put **in the Kafka payload**. If the OTP is right, `transaction.completed` is published and account-service credits the receiver. A wrong OTP (on the first try) publishes `fraud.detected`, Feign `credit` refunds the sender, and the status becomes FLAGGED. An expired OTP refunds the sender. |
 | fraud-detection-service 8084 | `fraud_detection_db` (empty) | Stateless rules (velocity, 5× running average, > 90 % of balance). Its state lives **only in Redis**. It reads the balance through an unauthenticated `GET /accounts/{n}/balance`. Kafka only; it has no HTTP API. |
 | payment-service 8085 | `payment_db.payments` | Creates a Stripe PaymentIntent (hard-coded USD). The webhook verifies the signature and publishes `payment.completed`/`payment.failed`. **Nothing consumes `payment.completed`**, so a Stripe payment never reaches a balance. |
@@ -109,14 +109,13 @@ accounts      + ledger_account_id BIGINT NULL UNIQUE, + currency CHAR(3) NOT NUL
   A customer wallet is a LIABILITY, so a deposit (CR wallet) increases it.
 - `BEFORE UPDATE`/`BEFORE DELETE` triggers on `journal_entry` and `journal_line` run `SIGNAL SQLSTATE '45000'`.
 - One posting runs as one DB transaction:
-  1. validate that debits = credits for every currency;
-  2. check the idempotency key (if it already exists, return the original entry and post nothing);
-  3. `SELECT … FOR UPDATE` the ledger accounts **in ascending id order**;
-  4. check the status and funds rules;
-  5. insert the lines;
-  6. update the cached balances;
-  7. write the audit row;
-  8. write the outbox row `ledger.entry.posted`.
+  1. validate: every line amount is greater than 0, each line's currency matches its account, and debits = credits for every currency;
+  2. `SELECT … FOR UPDATE` the ledger accounts **in ascending id order**;
+  3. check the idempotency key **under those locks**: if it already exists, return the original entry and post nothing, or report a conflict if the content differs. The check moved after the lock from the order first written here. ADR 0001 gives the reason, and the UNIQUE key on `idempotency_key` is the backstop;
+  4. check the reversal rule (an entry is reversed once) and the status and funds rules (customer wallets never go below zero; SYSTEM accounts may);
+  5. insert the entry and its lines;
+  6. update the cached balances, and, while the expand phase lasts, `accounts.balance` of linked accounts;
+  7. the audit row and the outbox row are written by the caller in the same transaction (`AuditLogWriter`, `OutboxWriter`), not by the posting itself. Built so far: admin adjustments write their audit row. **Not built:** the generic `ledger.entry.posted` outbox event. No consumer needs it before phase 5, so it waits.
 - System accounts are created per currency (`PROVIDER_CLEARING:STRIPE:NGN` …) by a Flyway seed for every configured currency.
 - Reversal: an entry with the opposite lines and `reverses_entry_id` pointing at the original. The UNIQUE constraint means an entry can only be reversed once.
 - **Hot-row note.** `PROVIDER_CLEARING:STRIPE:NGN`, `PAYOUT_PAYABLE` and `TRANSFER_IN_FLIGHT` take part in many entries, so they'd serialise everything through one row lock.
@@ -250,7 +249,7 @@ Each service that publishes (account, wallet, payment, transaction) gets an `out
 2. **Ledger core (account-service).** Money, ledger tables and triggers, posting with locks, reversals, reconciliation, statement, backfill and its test, audit, outbox, idempotency, resource server with SERVICE tokens, admin credit/deduct with reason. ADR `0001-locking.md` and `ledger.md`. Concurrency tests (50 parallel, opposite transfers).
 3. **Transfers onto the ledger.** transaction-service changes from section 4. **Checklist from 8.18 and 8.19:** remove `ACCOUNT_LEGACY_HEADERS_ENABLED` and the legacy path from account-service; move transaction-service, fraud-detection and payment-service to service tokens (`sub` = their service name); set the flag to `false` in the dev compose file. Also: remove the `transaction.completed` credit consumer (section 4); move the legacy endpoints to money strings (D3) together with their callers; add gateway routes for `/api/v1/admin/**` (section 4). Update the smoke test and Postman. All 107 existing checks still pass, adapted only where the contract was deliberately changed (Idempotency-Key, reason), and each change is listed in the commit.
 4. **wallet-service and PIN.** `threat-model-pin.md` **first**, then PIN, the auth verify-password endpoint, OTP, lockout, log-masking test.
-5. **Deposits.** payment-service internal intent, webhook outbox, wallet consumer, expiry, tests (replay, bad signature, mismatch). The smoke test signs webhook payloads itself with `STRIPE_WEBHOOK_SECRET` via openssl, so no Stripe CLI is needed. **Starts after phase 2 is done.** D26 and D27 are approved (8.17). The ledger side is in phase 2 (`CardDepositPostings`). The wallet is credited the requested amount, never more and never less (review fix 3).
+5. **Deposits.** payment-service internal intent, webhook outbox, wallet consumer, expiry, tests (replay, bad signature, mismatch). The smoke test signs webhook payloads itself with `STRIPE_WEBHOOK_SECRET` via openssl, so no Stripe CLI is needed. **Starts after phase 4.** D26 and D27 are approved (8.17). The ledger side is built in phase 2 (`CardDepositPostings`). The wallet is credited the requested amount, never more and never less (review fix 3).
 6. **Withdrawals and the outbound pipeline.** State machine (with REVERSED), limits, fraud endpoint, gate, maker-checker, expiry, recovery, and the `PayoutProvider` interface with its simulator, which lives in payment-service (8.2, 8.3). The pipeline is built for both types from the start (`type = WITHDRAWAL` now), so 6b adds a type and does not add a second pipeline. All transition and concurrency tests.
 6b. **External transfers.** Bank list, name enquiry, routing in transaction-service, `EXTERNAL_TRANSFER` on the phase-6 pipeline, Paystack adapter (recipient, transfer, verify by reference), signed webhooks for transfer.success / transfer.failed / transfer.reversed with dedupe and matching, reversal entries. `docs/deploy.md` is created here with every variable so far. Smoke test: external transfer and withdrawal on the simulator, plus a sandbox run for the happy path only (8.7). Needs your Paystack test secret key in `.env` (gitignored).
 6c. **Inbound bank transfers.** `POST /api/v1/wallet/virtual-account`, Paystack dedicated account (customer, then assign, async webhook), `charge.success` with channel `dedicated_nuban` → outbox → wallet credits once, the dev-only simulator, and a smoke test for a deposit by bank transfer on the simulator. Starts after gate G2 (8.8). If G2 fails, 6c ships with the simulator only and the Paystack adapter waits.
@@ -295,14 +294,14 @@ The **recommended** option is the default. If you say "go" without comments, I'l
 - **Lock timeout:** `innodb_lock_wait_timeout` is 50 s by default. It gets set to 5 s per connection through Hikari `connection-init-sql`. A timeout → 503 with retry advice; the client retries with the same Idempotency-Key.
 - **Build time:** Testcontainers MySQL, Kafka and Redis in every service. CI uses a cached Maven repo and reuses containers per JVM.
 - **Breaking API changes** (D2, D3, D5, the Idempotency-Key requirement). They're listed in the README under "Breaking changes", with the Postman collection and smoke test updated in the same commits.
-- **Existing dev data:** 17 accounts are backfilled. The backfill test runs against a copy of today's schema with seeded rows.
+- **Existing dev data:** 23 accounts (2026-11-04) are backfilled by V4. The backfill test runs against a copy of the V1 schema with seeded rows.
 - **Scope:** this is weeks of normal engineering. I'll keep each phase shippable, so stopping after any phase leaves a working, better system.
 
 ---
 
 ## 8. Scope change (2026-11-04): external transfers, bank deposits, withdrawal to own bank
 
-**Status: proposed, awaiting your approval. Nothing here is built.** Gates G1 and G2 need your provider accounts (8.8). Decisions are in 8.13.
+**Status: approved 2026-11-04 (review changes in 8.16, 8.17 and 8.19).** Phase 2 is built. Phase 3 has started (8.22). Transfers, the PIN, deposits and withdrawals are not built. Gate G1 has run (8.8). Gate G2 is open. Decisions are in 8.13, 8.17 and 8.19.
 
 ### 8.1 What changed and what didn't
 
@@ -426,7 +425,7 @@ Stripe is unchanged.
   - **Settles in USD.** Balance transaction `txn_3UY2IA4SPWwG6i3U0bVXGz8d`: gross 71 USD cents, fee 33 (1 currency conversion, 32 processing), net 38, exchange rate 0.000710374 NGN→USD, status pending. The processing fee is a fixed 32 cents, so on a small deposit it takes most of the value. This is D27.
   - **`ng_card` rejected.** Stripe answered `payment method type "ng_card" is invalid` and asked us to activate it in the dashboard. So the Nigerian card path, where Stripe's NGN page says a merchant-of-record adds VAT, isn't enabled on our account.
   - **Account state.** Country US, default currency usd, `charges_enabled: false`, `payouts_enabled: false`. Test charges worked. Live charges won't until Stripe onboarding is finished.
-  - **Amount rule (review fix 3, proposed).** Credit exactly the requested amount, never more and never less. Credit only if `amount_received` ≥ the requested amount. Anything above it (VAT or any other add-on) is not credited; what happens to it is D26. `amount_received` below the requested amount → FAILED, no credit, alert. **Phase 5 starts after phase 2. D26 and D27 are approved (8.17).**
+  - **Amount rule (review fix 3, proposed).** Credit exactly the requested amount, never more and never less. Credit only if `amount_received` ≥ the requested amount. Anything above it (VAT or any other add-on) is not credited; what happens to it is D26. `amount_received` below the requested amount → FAILED, no credit, alert. **Phase 5 starts after phase 4. D26 and D27 are approved (8.17).**
   - Stripe's NGN page says naira payments go through a merchant-of-record partner and include VAT for Nigerian buyers. That path is `ng_card`, which isn't enabled here, so the amount rule above must still cover it before it's enabled.
 - **G2, before 6c: Paystack virtual accounts.** A search reports that the business must be enabled for the feature (by emailing Paystack support), that creating a customer needs the customer's consent, and that test mode uses `test-bank` as the preferred bank. I couldn't confirm any of this for our account. **Test:** create a customer and assign a dedicated account on our test key. Passes → 6c ships with Paystack. Fails → 6c ships with the simulator only, and the Paystack adapter waits.
 
@@ -483,7 +482,7 @@ Still in section 4: `INTERNAL_JWT_SECRET`, `PIN_PEPPER`, `WITHDRAWAL_*`, `DEPOSI
 
 - Phase 6 builds the generic pipeline (8.3). 6b adds the external type on top of it. 6c adds inbound transfers.
 - G1 gates phase 5. G2 gates 6c.
-- **From you:** a Paystack test secret key in `.env` before 6b (gitignored, never in code or docs). The Stripe test key is already in `.env`, and G1 has run. Your answers to **D26 and D27** are needed before phase 5.
+- **From you:** a Paystack test secret key in `.env` before 6b (gitignored, never in code or docs). The Stripe test key is already in `.env`, and G1 has run. **D26 and D27 are approved (8.17), so they no longer block phase 5.**
 
 ### 8.13 Decisions needed
 
@@ -522,14 +521,14 @@ Status after the review (2026-11-04): D20–D25 approved as recommended. D21 ext
 
 ### 8.16 Review of 2026-11-04: approval, fixes, and progress
 
-**Approval.** Section 8 is approved with the changes below. D20, D21, D22, D23, D24 and D25 are approved as recommended. D19 is approved as a label only (review fix 4). D18 is changed (review fix 1). Phases 1–4 are being built. Phase 5 waits for D26 and D27, and G1's numbers are in 8.8.
+**Approval.** Section 8 is approved with the changes below. D20, D21, D22, D23, D24 and D25 are approved as recommended. D19 is approved as a label only (review fix 4). D18 is changed (review fix 1). Phases 1 and 2 are built. Phase 5 comes after phase 4. D26 and D27 are approved (8.17), so they no longer block it. G1's numbers are in 8.8.
 
 The review's fixes and clean-ups are numbered 1–6 here, separately from the fixes 1–5 in section 0.
 
 **Review fixes**
-1. **PIN bypass (changes D18).** Every transfer path requires the PIN when `TRANSFER_PIN_REQUIRED=true`. The ref is optional on the own-bank path and required for another bank (8.5, 8.13). Tests: no `bankCode` and no PIN → 400; no `bankCode` and a wrong PIN → 403, and the failure counts toward the lockout. Built in phase 3 (transaction-service), not yet.
+1. **PIN bypass (changes D18).** Every transfer path requires the PIN when `TRANSFER_PIN_REQUIRED=true`. The ref is optional on the own-bank path and required for another bank (8.5, 8.13). Tests: no `bankCode` and no PIN → 400; no `bankCode` and a wrong PIN → 403, and the failure counts toward the lockout. Sequencing (8.22): phase 3 adds the `pin` field and the wallet call behind `TRANSFER_PIN_REQUIRED`, which defaults to `false`. Phase 4 builds the PIN, flips the flag to `true`, and adds the tests above. Nothing is built yet.
 2. **Payout webhooks are triggers, not the truth.** On any `payment.payout.*` event, wallet calls `getStatus(key)` and acts on the answer. payment-service returns 200 once the outbox row is written, and 500 only if that write fails. New transition: `PROCESSING → REVERSED` posts the release entry only, with no settle, and gives back the daily usage (8.3). Tests: reversed with no success before it; success arriving after recovery already settled; the same event twice. Built in phase 6b, not yet.
-3. **Stripe NGN amount rule (G1).** The wallet is credited exactly the requested amount, never more and never less. VAT or any merchant-of-record add-on is not credited. G1 has run, and its numbers are in 8.8. Phase 5 waits for D26 (surplus) and D27 (fees and USD settlement).
+3. **Stripe NGN amount rule (G1).** The wallet is credited exactly the requested amount, never more and never less. VAT or any merchant-of-record add-on is not credited. G1 has run, and its numbers are in 8.8. D26 (surplus) and D27 (fees and USD settlement) are approved (8.17). Phase 5 comes after phase 4.
 4. **D19 is a label, not a control.** It stays as written, and nothing more is built on it (8.3, 8.13).
 
 **Clean-ups**
@@ -548,7 +547,7 @@ The review's fixes and clean-ups are numbered 1–6 here, separately from the fi
 - Phase 1: done and committed.
 - Phase 2, slice 1 (the posting core), is built and green. It was committed as `01015df` at your request. The phase isn't finished. It includes `V2__ledger_core.sql`, `LedgerPostingService` (post and reverse), the ledger exceptions, `docs/adr/0001-locking.md`, and 14 tests: idempotency, funds rules, reversal, append-only triggers, and 50-way concurrency. The account-service suite runs 18 tests, all green on MySQL 9.7.4.
 - Phase 2, still to do: V3 backfill (with its test), V4 (audit, outbox, processed_event, idempotency_record), the internal API and resource server with service tokens, admin credit and deduct, statement, reconciliation job and endpoint, `ledger.md`, the `accounts.balance` mirror write (expand), and the ArchUnit rule restricting who writes the ledger tables.
-- Phases 3, 4: not started. Phase 5: starts after phase 2 (D26 and D27 are approved, 8.17). 6b and 6c: not started.
+- Phase 3: first slice (gateway routes, 8.22) in progress; transaction-service waits for approval. Phase 4: not started. Phase 5: starts after phase 4 (D26 and D27 are approved, 8.17). 6b and 6c: not started.
 
 ### 8.17 Second review (2026-11-04): commits, D26, D27, CARD_DEPOSIT_MIN
 
@@ -601,7 +600,7 @@ The review's fixes and clean-ups are numbered 1–6 here, separately from the fi
 
 **Options.**
 - **A. Switch in phase 3.** Phase 2 ends with the header trust still in place. Callers move to tokens and the resource server switches on in phase 3. The gap stays open for the length of phase 2.
-- **B. Dual mode in phase 2 (recommended).** account-service accepts a SERVICE token, and it also accepts the legacy headers only while `ACCOUNT_LEGACY_HEADER_TRUST=true`. That flag is `true` in dev and in the compose stack until phase 3, and `false` in prod from day one. Phase 3 moves the callers to tokens and sets the flag to `false`. A test checks that with the flag off, a direct call with no token gets 401.
+- **B. Dual mode in phase 2 (recommended).** account-service accepts a SERVICE token, and it also accepts the legacy headers only while `ACCOUNT_LEGACY_HEADERS_ENABLED=true`. That flag is `true` in dev and in the compose stack until phase 3, and `false` in prod from day one. Phase 3 moves the callers to tokens and sets the flag to `false`. A test checks that with the flag off, a direct call with no token gets 401.
 - **C. Move the caller change into phase 2.** transaction-service, fraud and payment switch to SERVICE tokens first, then account-service requires them. This mixes two phases in one commit series.
 
 **What I'd do.** B. It keeps every phase green, and it closes the gap at the end of phase 3, not at the end of phase 6. A still leaves the gap open, and C changes the phase boundaries you approved.
@@ -671,3 +670,24 @@ The dev stack's gateway is healthy. An unauthenticated call to the legacy balanc
 Built after 8.20. `V6__receipt_review.sql` adds `receipt_review`, in account_db next to the ledger, shaped like `unmatched_inbound`. `ReceiptReview.quarantine` keeps the full receipt, with status `OPEN` and a unique key on (source, provider reference, reason). It also writes the alert `ledger.receipt.quarantined` to the outbox, in the same transaction. Nothing is posted to the ledger. A repeat of the same receipt is recorded once and alerted once. The suite is 96/96 green.
 
 Not yet wired: the deposit flow (phase 5) calls `quarantine` when a receipt's currency does not match its intent. The admin resolution (refund or reclassify) is not built yet.
+
+### 8.22 Phase 3: order, notes, and the first slice (2026-11-04)
+
+**Stale lines fixed** (no design change): the status lines at the top and in section 8; the account count (23, not 17) in sections 1 and 7; the phase-5 wording in 8.8, 8.12, 8.16 and section 5 (phase 5 comes after phase 4, D26 and D27 are approved); the name `ACCOUNT_LEGACY_HEADERS_ENABLED` in 8.18; the idempotency check in 3.2 (under the locks, ADR 0001); and the posting steps 7 and 8 in 3.2, which now say the caller writes the audit and outbox rows. The generic `ledger.entry.posted` event is recorded as not built. `docs/ledger.md` has the same status and endpoint corrections.
+
+**Correction to an earlier note.** I wrote "phase 5 starts after phase 2". That was wrong: section 5 orders phases 3 and 4 before phase 5, and phase 5 now starts after phase 4.
+
+**Order problem (review fix 1 and phase 4).** Review fix 1 needs the PIN on every transfer, but PIN verification lives in wallet-service, which is phase 4. Decided:
+- Phase 3 adds the `pin` field and the call to wallet's PIN verify behind `TRANSFER_PIN_REQUIRED`, which defaults to `false`. No temporary PIN store goes into transaction-service.
+- Phase 4 builds the PIN, flips the default to `true`, and adds the review-fix-1 tests: no `bankCode` and no PIN gives 400; no `bankCode` and a wrong PIN gives 403 and counts toward the lockout.
+- Startup must fail under the `prod` profile if `TRANSFER_PIN_REQUIRED` is `false`.
+
+**What that means for deploys.** Once transaction-service's phase-3 code lands, a `prod` start of that service fails until the PIN flag is `true`, which is phase 4. Phases 3 and 4 therefore ship to prod together. Until then, phase 3 runs on dev only.
+
+**Memory (review item).** Dev containers get `mem_limit` values that match prod. Each Dockerfile's `-XX:MaxRAMPercentage=75` then sizes the JVM heap to 75% of that limit. Tests keep sharing one MySQL and one Kafka per JVM.
+
+**First slice: gateway routes.** `/api/v1/admin/**` had no gateway route, so admin endpoints were unreachable through the gateway. This slice adds the route to account-service and requires ADMIN for the path in the gateway's security chain. The statement route already existed under `/api/v1/accounts/**`, and this slice adds tests for it. Tests: USER gets 403 on admin paths, ADMIN gets 200, a forged `X-User-Role` header does not elevate, and unauthenticated calls get 401.
+
+**Carry-forward.** When D7's `/api/v1/admin/audit` is built, it needs its own gateway route placed before `/api/v1/admin/**`, because that wildcard currently sends it to account-service.
+
+**Not started.** Any transaction-service edit waits for approval. The uncommitted `TransactionalService.java` diff is still in the working tree and is untouched.
