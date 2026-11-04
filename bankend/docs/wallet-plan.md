@@ -248,7 +248,7 @@ Each service that publishes (account, wallet, payment, transaction) gets an `out
 
 1. **Foundations.** Testcontainers base in every service (existing `contextLoads` moves to it). Flyway V1 baselines. `validate` + `open-in-view=false`. Multi-stage Dockerfiles, healthchecks, pinned images. Shared lib skeleton (D1). ArchUnit money rule. CI `ci.yml`.
 2. **Ledger core (account-service).** Money, ledger tables and triggers, posting with locks, reversals, reconciliation, statement, backfill and its test, audit, outbox, idempotency, resource server with SERVICE tokens, admin credit/deduct with reason. ADR `0001-locking.md` and `ledger.md`. Concurrency tests (50 parallel, opposite transfers).
-3. **Transfers onto the ledger.** transaction-service changes from section 4. **Checklist from 8.18 and 8.19:** remove `ACCOUNT_LEGACY_HEADERS_ENABLED` and the legacy path from account-service; move transaction-service, fraud-detection and payment-service to service tokens (`sub` = their service name); set the flag to `false` in the dev compose file. Update the smoke test and Postman. All 107 existing checks still pass, adapted only where the contract was deliberately changed (Idempotency-Key, reason), and each change is listed in the commit.
+3. **Transfers onto the ledger.** transaction-service changes from section 4. **Checklist from 8.18 and 8.19:** remove `ACCOUNT_LEGACY_HEADERS_ENABLED` and the legacy path from account-service; move transaction-service, fraud-detection and payment-service to service tokens (`sub` = their service name); set the flag to `false` in the dev compose file. Also: remove the `transaction.completed` credit consumer (section 4); move the legacy endpoints to money strings (D3) together with their callers; add gateway routes for `/api/v1/admin/**` (section 4). Update the smoke test and Postman. All 107 existing checks still pass, adapted only where the contract was deliberately changed (Idempotency-Key, reason), and each change is listed in the commit.
 4. **wallet-service and PIN.** `threat-model-pin.md` **first**, then PIN, the auth verify-password endpoint, OTP, lockout, log-masking test.
 5. **Deposits.** payment-service internal intent, webhook outbox, wallet consumer, expiry, tests (replay, bad signature, mismatch). The smoke test signs webhook payloads itself with `STRIPE_WEBHOOK_SECRET` via openssl, so no Stripe CLI is needed. **Starts after phase 2 is done.** D26 and D27 are approved (8.17). The ledger side is in phase 2 (`CardDepositPostings`). The wallet is credited the requested amount, never more and never less (review fix 3).
 6. **Withdrawals and the outbound pipeline.** State machine (with REVERSED), limits, fraud endpoint, gate, maker-checker, expiry, recovery, and the `PayoutProvider` interface with its simulator, which lives in payment-service (8.2, 8.3). The pipeline is built for both types from the start (`type = WITHDRAWAL` now), so 6b adds a type and does not add a second pipeline. All transition and concurrency tests.
@@ -630,3 +630,38 @@ The review's fixes and clean-ups are numbered 1–6 here, separately from the fi
 **A second bug, found by the same test run.** The scheduled relay called `publishPending()` on itself, which bypasses the `@Transactional` proxy. The row locks were released after each SELECT, so concurrent passes sent the same rows: 85 deliveries for 20 events in the new concurrency test. The relay's scheduled pass now opens its own transaction. The concurrency test reproduces the failure on the old code and passes on the new code.
 
 The account-service suite is 60/60 green on MySQL 9.7.4.
+
+### 8.20 Phase 2: complete (2026-11-04), the dev rebuild, and what carries forward
+
+**Built and committed** (`01015df` to `cd41b79`): the posting core, the deposit settlement and fee entries (D26, D27), the backfill (V4), audit, outbox and idempotency (V5), the balance mirror and writer rule, the relay, reconciliation (service, hourly job, endpoint), the internal ledger API, the statement, admin credit and deduct, and the resource server with service tokens and the dev-only legacy path (8.18, 8.19). The account-service suite is 94/94 green on MySQL 9.7.4.
+
+**Dev rebuild (your item 5).** I took a fresh dump to `~/backups/mysql/` before migrating (`digital-banking-mysql-9.7.4-2026-11-04-pre-v2-v5.sql`, counts in `pre-v2-v5-counts.txt`). V2 to V5 applied on the dev database, and the account-service container is healthy. Reconciliation on the 23 accounts, read-only, against the same checks as `ReconciliationService`:
+
+| Check | Result |
+|---|---|
+| Accounts linked to a wallet | 23 of 23 |
+| `accounts.balance` = wallet balance | 23 of 23 match (0 mismatches) |
+| Total of `accounts.balance` | 98000.00 |
+| Total of wallet balances | 98000.0000 |
+| Opening-balance equity | -98000.0000 (one opening entry per account, 23 entries) |
+| Journal lines: debits = credits | 23 debit lines and 23 credit lines, both 98000.0000 |
+| Cached balance vs. signed lines | 0 mismatches |
+| Currencies with unbalanced journals | 0 |
+
+The dev stack's gateway is healthy. An unauthenticated call to the legacy balance returns 200 and is logged. The internal ledger path and the account list return 401 without a token.
+
+**A caveat that matters now.** The old transfer saga still changes `accounts.balance` directly through deduct and credit, without a ledger entry. From now on, any transfer on the dev stack will move `accounts.balance` away from the wallet, and the hourly reconciliation job will alert. That is expected until phase 3 moves transfers onto the ledger. Until then, keep smoke-test traffic off the dev stack if the alerts are a problem.
+
+**Decisions I took, to confirm:**
+1. **Legacy set.** The fourth endpoint, `GET /api/v1/accounts/{accountNumber}`, is in the legacy set (8.19).
+2. **New endpoints take user tokens.** "Service tokens only" applies to the internal ledger API. The statement, reconciliation and admin adjustments take user tokens, ADMIN or owner. The gateway forwards user tokens, so this is the only reading that works.
+3. **Admin paths.** D5 wrote `PUT /api/v1/accounts/{n}/credit?amount=&reason=`. The new admin credit and deduct are at `PUT /api/v1/admin/accounts/{n}/credit` and `…/deduct`, and the old paths stay unchanged for the old callers until phase 3. Confirm, or tell me to reuse the old paths when phase 3 removes them.
+4. **Statement paging.** Keyset on the line id, as section 3.2 says. D14 asked for `page`, `size` and `totalElements`. The statement returns `nextAfterLineId` and no total count, since counting lines is expensive.
+5. **Replays keep their status.** A replayed admin adjustment returns the stored response with its original status (201). The ledger's own replay returns 200 (3.6). Both follow the spec.
+6. **Stored replays are JSON-normalised.** MySQL rewrites the stored JSON, so a replayed body differs from the first answer in whitespace only. It's semantically identical. A `TEXT` column would keep the bytes, but that would need a V6 migration for a cosmetic difference, so I didn't add one.
+
+**Not yet done (carried forward).**
+- Gateway routes for `/api/v1/admin/**` (section 4). Admins can't reach the new admin endpoints through the gateway until they're added.
+- Deploy: the dev container runs the 3b build. The 3c and 3d code isn't deployed, and it has no migrations, so a rebuild is safe whenever you want it.
+- The phase 3 checklist (above), including D3 for the legacy endpoints and the `transaction.completed` consumer.
+- The reconciliation endpoint and statement are not yet on the gateway (see first item).

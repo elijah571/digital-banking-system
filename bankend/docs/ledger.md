@@ -49,13 +49,14 @@ Built now:
 | Card deposit, surplus or shortfall | DR PROVIDER_CLEARING:STRIPE:NGN, CR DEPOSIT_SUSPENSE:NGN. Whatever arrived and was not credited. | `dep-{id}-suspense` |
 | Card deposit, Stripe fee | DR PAYMENT_FEES:NGN, CR PROVIDER_CLEARING:STRIPE:NGN. Posted when the balance transaction is known. | `dep-{id}-fee` |
 | Reversal of any entry | The opposite lines, `reverses_entry_id` set | caller's key |
+| Admin credit | DR ADJUSTMENT_EQUITY:NGN, CR wallet. Reason and `Idempotency-Key` required. | `adm-{Idempotency-Key}` |
+| Admin deduct | DR wallet, CR ADJUSTMENT_EQUITY:NGN. Cannot take the wallet below zero. | `adm-{Idempotency-Key}` |
 
 Planned (later slices or phases):
 
 | Flow | Entry | Phase |
 |---|---|---|
 | Account opened with `initialDeposit` | DR OPENING_BALANCE_EQUITY, CR wallet | 2 |
-| Admin credit / deduct | DR ADJUSTMENT_EQUITY / CR ADJUSTMENT_EQUITY, reason required | 2 |
 | Transfer hold / settle / release | 3.4 | 3 |
 | Outbound payout hold / settle / release / reversal | 3.4, D20, D21 | 6 |
 | Inbound bank transfer | DR PROVIDER_CLEARING:PAYSTACK:NGN, CR wallet (`in-{providerReference}`) | 6c |
@@ -86,3 +87,28 @@ The fee entry above is the only FX conversion the ledger does. Any settlement-le
 `outbound_daily_usage` is a wallet-level counter, not a ledger account. It counts withdrawals and external transfers
 per day. When a payout is rejected, cancelled, expired, failed or reversed, the amount is subtracted in the same transaction
 as the state change (fix 5 and D21). The ledger has no part in it.
+
+## Endpoints (phase 2)
+
+All of these are in account-service. Money is a string at the currency's scale (`"95.00"` for NGN). The database keeps four decimals.
+
+| Route | Who | What |
+|---|---|---|
+| `POST /internal/v1/ledger/entries` | service token only | post an entry. Lines name a wallet by `accountNumber`, or a system account by code. 201 when new, 200 on a replay. |
+| `POST /internal/v1/ledger/entries/{id}/reverse` | service token only | reverse an entry, once |
+| `GET /internal/v1/ledger/entries/by-key/{key}`, `GET /internal/v1/ledger/entries/{id}` | service token only | read an entry with its lines |
+| `GET /internal/v1/ledger/accounts/{accountNumber}` | service token only | currency and balance |
+| `GET /api/v1/accounts/{accountNumber}/statement?afterLineId=&size=` | the owner or ADMIN | one page of lines with a running balance. Keyset on the line id; pass `nextAfterLineId` back as `afterLineId`. `size` is 1 to 200. |
+| `GET /api/v1/admin/ledger/reconciliation` | ADMIN | the reconciliation checks, as `{clean, issues}` |
+| `PUT /api/v1/admin/accounts/{n}/credit?amount=&reason=` and `…/deduct…` | ADMIN, with an `Idempotency-Key` header | an admin adjustment. Replays return the stored response. |
+
+The legacy endpoints (`PUT …/deduct`, `PUT …/credit`, `GET …/balance`, `GET /{accountNumber}`) still exist for the old callers. They are dev-only and go in phase 3 (wallet-plan 8.18, 8.19).
+
+## Who writes what
+
+- `LedgerPostingService`: the ledger tables and the wallet mirror.
+- `AuditLogWriter`: `audit_log`. `OutboxWriter`: new outbox rows. `OutboxRelay`: the sent state of outbox rows.
+- `IdempotencyService`: `idempotency_record`.
+- `LedgerReader`, `ReconciliationService`: read-only.
+
+`LedgerWriteArchitectureTest` fails the build if any other class writes through `JdbcTemplate`.
