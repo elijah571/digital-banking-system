@@ -115,7 +115,7 @@ accounts      + ledger_account_id BIGINT NULL UNIQUE, + currency CHAR(3) NOT NUL
   4. check the reversal rule (an entry is reversed once) and the status and funds rules (customer wallets never go below zero; SYSTEM accounts may);
   5. insert the entry and its lines;
   6. update the cached balances, and, while the expand phase lasts, `accounts.balance` of linked accounts;
-  7. the audit row and the outbox row are written by the caller in the same transaction (`AuditLogWriter`, `OutboxWriter`), not by the posting itself. Built so far: admin adjustments write their audit row. **Not built:** the generic `ledger.entry.posted` outbox event. No consumer needs it before phase 5, so it waits.
+  7. the audit row and the outbox row are written by the caller in the same transaction (`AuditLogWriter`, `OutboxWriter`), not by the posting itself. Built so far: admin adjustments and the internal posting API (`ServicePostings`, 8.23) write their audit rows; a replay writes none. **Not built:** the generic `ledger.entry.posted` outbox event. No consumer needs it before phase 5, so it waits.
 - System accounts are created per currency (`PROVIDER_CLEARING:STRIPE:NGN` …) by a Flyway seed for every configured currency.
 - Reversal: an entry with the opposite lines and `reverses_entry_id` pointing at the original. The UNIQUE constraint means an entry can only be reversed once.
 - **Hot-row note.** `PROVIDER_CLEARING:STRIPE:NGN`, `PAYOUT_PAYABLE` and `TRANSFER_IN_FLIGHT` take part in many entries, so they'd serialise everything through one row lock.
@@ -696,3 +696,21 @@ Not yet wired: the deposit flow (phase 5) calls `quarantine` when a receipt's cu
   - statement with the admin token: 200, with the opening balance and the running balance;
   - statement without a token: 401; a bad token: 401.
 - **Memory:** the dev stack is 2.24 GiB across 10 containers, measured after the restart. The seven JVMs are capped at 3.9 GiB combined. The host has about 0.9 GB available and 3.2 GB of its 4 GB swap in use. Before the caps, the first sample was 1.67 GiB; the difference is the JVM heaps growing after the restart.
+
+### 8.23 Audit on internal ledger postings (2026-11-04)
+
+Built before phase 3 uses the internal API, as ordered.
+
+- **`ServicePostings`** (new). `post` and `reverse` write one audit row in the same transaction as the posting. Action `LEDGER_ENTRY_POSTED` or `LEDGER_ENTRY_REVERSED`; entity `JOURNAL_ENTRY` with the entry id; actor = the service token's `sub`; correlation = `X-Request-Id`. The details hold type, reference, createdBy and correlationId, or `reverses` for a reversal.
+- **No double rows.** A replay writes nothing. Admin adjustments do not pass through `ServicePostings`: `AdminAdjustments` keeps its own `ADMIN_CREDIT` or `ADMIN_DEDUCT` row.
+- **`X-Request-Id`.** The request's value is used when it has 1 to 100 visible ASCII characters, which matches `audit_log.correlation_id`. It is generated when absent, and echoed in the response. **Gateway generation (3.9) is not built.** It belongs to phase 7, with `X-Request-Id` end to end. Until then, a caller that wants a trace id must send one.
+- **Token gate.** A service token needs a non-blank `sub` of at most 100 characters, because `audit_log.actor` is VARCHAR(100). Otherwise the token gets 401.
+- **Not built:** `ledger.entry.posted` stays not built (3.2, step 7).
+
+**Tests.**
+- `LedgerApiTest`: 14 (4 new). One audit row with the token subject and the request id; a replay adds no row; a reversal is audited against the entry it reverses; a missing request id is generated and an oversized one gets 400 with nothing moved; a token with no subject gets 401.
+- `ServicePostingsTest` (new, 3): both commit together; both roll back when the caller fails afterwards; and the posting rolls back when the audit write fails. The last case uses a real MySQL error: an actor of 101 characters fails the insert after the entry is written.
+- `AdminLedgerApiTest`: one assertion added. An admin credit has no posting audit row of its own.
+- Full account-service suite: **103 tests, 0 failures, BUILD SUCCESS** on MySQL 9.7.4 and Kafka via Testcontainers. The dev stack was stopped for the run.
+
+**Not done.** No mutation check yet: I have not confirmed that the rollback test fails if the audit write runs in its own transaction. No dev deploy: the change is on the branch only. The dev stack is still stopped.

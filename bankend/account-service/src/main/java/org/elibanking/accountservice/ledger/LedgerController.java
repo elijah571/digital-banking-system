@@ -3,44 +3,63 @@ package org.elibanking.accountservice.ledger;
 import org.elibanking.common.money.Money;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * The internal ledger API (wallet-plan 3.2). Service tokens only: {@code /internal/v1/**} is restricted to the SERVICE role,
  * and the legacy path never reaches it (8.18). The gateway does not route {@code /internal}.
+ *
+ * <p>Every new entry writes its audit row in the same transaction ({@link ServicePostings}). The actor is the token's
+ * {@code sub}, and the correlation id is {@code X-Request-Id}: taken from the request, or generated when it is missing.
  */
 @RestController
 @RequestMapping("/internal/v1/ledger")
 public class LedgerController {
 
-    private final LedgerPostingService ledger;
+    static final String REQUEST_ID = "X-Request-Id";
+    private static final int REQUEST_ID_MAX_LENGTH = 100;
+
+    private final ServicePostings postings;
     private final LedgerReader reader;
 
-    public LedgerController(LedgerPostingService ledger, LedgerReader reader) {
-        this.ledger = ledger;
+    public LedgerController(ServicePostings postings, LedgerReader reader) {
+        this.postings = postings;
         this.reader = reader;
     }
 
     /** 201 when the entry is new, 200 when the idempotency key had already been posted (nothing new written). */
     @PostMapping("/entries")
-    public ResponseEntity<LedgerApi.PostResponse> post(@RequestBody LedgerApi.PostEntryRequest request) {
+    public ResponseEntity<LedgerApi.PostResponse> post(@RequestBody LedgerApi.PostEntryRequest request,
+                                                       @AuthenticationPrincipal Jwt caller,
+                                                       @RequestHeader(name = REQUEST_ID, required = false) String header) {
+        String requestId = requestId(header);
         List<PostingLine> lines = request.lines().stream().map(this::line).toList();
-        PostingResult result = ledger.post(new PostingRequest(request.type(), request.idempotencyKey(),
-                request.reference(), request.correlationId(), request.createdBy(), lines, null));
-        return respond(result);
+        PostingResult result = postings.post(new PostingRequest(request.type(), request.idempotencyKey(),
+                request.reference(), request.correlationId(), request.createdBy(), lines, null),
+                caller.getSubject(), requestId);
+        return respond(result, requestId);
     }
 
     @PostMapping("/entries/{entryId}/reverse")
     public ResponseEntity<LedgerApi.PostResponse> reverse(@PathVariable long entryId,
-                                                          @RequestBody LedgerApi.ReverseRequest request) {
-        return respond(ledger.reverse(entryId, request.idempotencyKey(), request.createdBy()));
+                                                          @RequestBody LedgerApi.ReverseRequest request,
+                                                          @AuthenticationPrincipal Jwt caller,
+                                                          @RequestHeader(name = REQUEST_ID, required = false) String header) {
+        String requestId = requestId(header);
+        PostingResult result = postings.reverse(entryId, request.idempotencyKey(), request.createdBy(),
+                caller.getSubject(), requestId);
+        return respond(result, requestId);
     }
 
     @GetMapping("/entries/by-key/{idempotencyKey}")
@@ -87,8 +106,22 @@ public class LedgerController {
         }
     }
 
-    private static ResponseEntity<LedgerApi.PostResponse> respond(PostingResult result) {
+    /** The caller's X-Request-Id, or a new one when it is missing. It is the audit row's correlation id (at most 100). */
+    static String requestId(String header) {
+        if (header == null || header.isBlank()) {
+            return UUID.randomUUID().toString();
+        }
+        boolean visibleAscii = header.chars().allMatch(c -> c > 0x20 && c < 0x7f);
+        if (!visibleAscii || header.length() > REQUEST_ID_MAX_LENGTH) {
+            throw new InvalidPostingException("X-Request-Id must be 1 to " + REQUEST_ID_MAX_LENGTH
+                    + " visible ASCII characters");
+        }
+        return header;
+    }
+
+    private static ResponseEntity<LedgerApi.PostResponse> respond(PostingResult result, String requestId) {
         HttpStatus status = result.replayed() ? HttpStatus.OK : HttpStatus.CREATED;
-        return ResponseEntity.status(status).body(new LedgerApi.PostResponse(result.entryId(), result.replayed()));
+        return ResponseEntity.status(status).header(REQUEST_ID, requestId)
+                .body(new LedgerApi.PostResponse(result.entryId(), result.replayed()));
     }
 }

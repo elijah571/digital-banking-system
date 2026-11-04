@@ -94,8 +94,8 @@ All of these are in account-service. Money is a string at the currency's scale (
 
 | Route | Who | What |
 |---|---|---|
-| `POST /internal/v1/ledger/entries` | service token only | post an entry. Lines name a wallet by `accountNumber`, or a system account by code. 201 when new, 200 on a replay. |
-| `POST /internal/v1/ledger/entries/{id}/reverse` | service token only | reverse an entry, once |
+| `POST /internal/v1/ledger/entries` | service token only | post an entry. Lines name a wallet by `accountNumber`, or a system account by code. 201 when new, 200 on a replay. A new entry writes a `LEDGER_ENTRY_POSTED` audit row in the same transaction: actor = the token's `sub`, correlation = `X-Request-Id`, entity = the entry id. A replay writes no row. |
+| `POST /internal/v1/ledger/entries/{id}/reverse` | service token only | reverse an entry, once. Audited as `LEDGER_ENTRY_REVERSED` the same way, with `reverses` in the details. |
 | `GET /internal/v1/ledger/entries/by-key/{key}`, `GET /internal/v1/ledger/entries/{id}` | service token only | read an entry with its lines |
 | `GET /internal/v1/ledger/accounts/{accountNumber}` | service token only | currency and balance |
 | `GET /api/v1/accounts/{accountNumber}/statement?afterLineId=&size=` | the owner or ADMIN | one page of lines with a running balance. Keyset on the line id; pass `nextAfterLineId` back as `afterLineId`. `size` is 1 to 200. |
@@ -107,7 +107,8 @@ The legacy endpoints (`PUT …/deduct`, `PUT …/credit`, `GET …/balance`, `GE
 ## Who writes what
 
 - `LedgerPostingService`: the ledger tables and the wallet mirror.
-- `AuditLogWriter`: `audit_log`. `OutboxWriter`: new outbox rows. `OutboxRelay`: the sent state of outbox rows.
+- `AuditLogWriter`: `audit_log`, called by `ServicePostings` (internal postings) and `AdminAdjustments` (admin credit and deduct). Each caller's row is in the same transaction as its posting, and the two never write a second row for the same posting.
+- `OutboxWriter`: new outbox rows. `OutboxRelay`: the sent state of outbox rows.
 - `IdempotencyService`: `idempotency_record`.
 - `LedgerReader`, `ReconciliationService`: read-only.
 

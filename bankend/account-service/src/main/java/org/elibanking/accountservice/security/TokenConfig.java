@@ -87,7 +87,10 @@ class TokenConfig {
                 JwtValidators.createDefaultWithIssuer(issuer),
                 new JwtClaimValidator<List<String>>(JwtClaimNames.AUD,
                         aud -> aud != null && aud.contains(audience)),
-                new JwtClaimValidator<String>("role", "SERVICE"::equals));
+                new JwtClaimValidator<String>("role", "SERVICE"::equals),
+                // The subject is the audit actor (wallet-plan 3.9); audit_log.actor is VARCHAR(100).
+                new JwtClaimValidator<String>(JwtClaimNames.SUB,
+                        sub -> sub != null && !sub.isBlank() && sub.length() <= 100));
     }
 
     /** {@code "role": "ADMIN"} becomes the authority {@code ROLE_ADMIN}, as in the gateway. */

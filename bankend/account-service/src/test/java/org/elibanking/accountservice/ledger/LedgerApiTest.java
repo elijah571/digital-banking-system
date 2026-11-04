@@ -16,12 +16,14 @@ import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** The internal ledger API, over HTTP, with a real service token. Each answer is checked against the database. */
@@ -176,9 +178,90 @@ class LedgerApiTest {
                 TestTokens.userToken("user-1", "ADMIN")).status());
     }
 
+    @Test
+    void aPostingWritesOneAuditRowWithTheTokenSubjectAndTheRequestId() {
+        String a = wallet("100.00");
+        String b = wallet("0.00");
+        String requestId = "req-" + UUID.randomUUID();
+        LedgerApi.PostEntryRequest request = entry(key(), account(a, "DEBIT", "30.00"), account(b, "CREDIT", "30.00"));
+
+        Response first = post("/internal/v1/ledger/entries", request, service, requestId);
+        assertEquals(201, first.status());
+        long entryId = entryId(first.body());
+        assertEquals(requestId, first.requestId(), "the response echoes X-Request-Id");
+
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT actor, action, correlation_id FROM audit_log WHERE entity_type = 'JOURNAL_ENTRY' AND entity_id = ?",
+                String.valueOf(entryId));
+        assertEquals("transaction-service", row.get("actor"), "the actor is the service token's subject");
+        assertEquals("LEDGER_ENTRY_POSTED", row.get("action"));
+        assertEquals(requestId, row.get("correlation_id"));
+
+        Response replay = post("/internal/v1/ledger/entries", request, service, requestId);
+        assertEquals(200, replay.status());
+        assertEquals(1L, auditRowsFor(entryId), "a replay writes no second audit row");
+    }
+
+    @Test
+    void aReversalIsAuditedAgainstTheEntryItReverses() {
+        String a = wallet("100.00");
+        String b = wallet("0.00");
+        long entryId = entryId(post(entry(key(), account(a, "DEBIT", "30.00"), account(b, "CREDIT", "30.00")), service).body());
+        String requestId = "req-" + UUID.randomUUID();
+
+        Response reversal = post("/internal/v1/ledger/entries/" + entryId + "/reverse",
+                new LedgerApi.ReverseRequest(key(), "test"), service, requestId);
+        assertEquals(201, reversal.status());
+
+        Map<String, Object> row = jdbc.queryForMap("""
+                SELECT action, actor, correlation_id,
+                       JSON_UNQUOTE(JSON_EXTRACT(details, '$.reverses')) AS reverses
+                FROM audit_log WHERE entity_type = 'JOURNAL_ENTRY' AND entity_id = ?
+                """, String.valueOf(entryId(reversal.body())));
+        assertEquals("LEDGER_ENTRY_REVERSED", row.get("action"));
+        assertEquals("transaction-service", row.get("actor"));
+        assertEquals(requestId, row.get("correlation_id"));
+        assertEquals(String.valueOf(entryId), row.get("reverses"));
+    }
+
+    @Test
+    void aMissingRequestIdIsGeneratedAndAnInvalidOneIsRejectedWithNothingMoved() {
+        String a = wallet("100.00");
+        String b = wallet("0.00");
+
+        Response generated = post("/internal/v1/ledger/entries",
+                entry(key(), account(a, "DEBIT", "1.00"), account(b, "CREDIT", "1.00")), service, null);
+        assertEquals(201, generated.status());
+        assertNotNull(generated.requestId(), "a generated X-Request-Id is returned");
+        assertEquals(generated.requestId(), jdbc.queryForObject(
+                "SELECT correlation_id FROM audit_log WHERE entity_type = 'JOURNAL_ENTRY' AND entity_id = ?",
+                String.class, String.valueOf(entryId(generated.body()))), "the audit row carries the generated id");
+
+        Response rejected = post("/internal/v1/ledger/entries",
+                entry(key(), account(a, "DEBIT", "1.00"), account(b, "CREDIT", "1.00")), service, "x".repeat(101));
+        assertEquals(400, rejected.status(), "more than 100 characters is not a valid X-Request-Id");
+        assertEquals("99.00", balance(a), "the rejected request moved nothing");
+    }
+
+    @Test
+    void aServiceTokenWithoutASubjectCannotPost() {
+        String a = wallet("100.00");
+        String b = wallet("0.00");
+
+        assertEquals(401, post(entry(key(), account(a, "DEBIT", "1.00"), account(b, "CREDIT", "1.00")),
+                TestTokens.serviceTokenWithoutSubject()).status(), "the subject is the audit actor, so it is required");
+        assertEquals("100.00", balance(a));
+    }
+
     // ------------------------------------------------------------------ helpers
 
-    record Response(int status, String body) {
+    record Response(int status, String body, String requestId) {
+    }
+
+    private long auditRowsFor(long entryId) {
+        return jdbc.queryForObject(
+                "SELECT COUNT(*) FROM audit_log WHERE entity_type = 'JOURNAL_ENTRY' AND entity_id = ?",
+                Long.class, String.valueOf(entryId));
     }
 
     private Response post(LedgerApi.PostEntryRequest request, String bearer) {
@@ -186,14 +269,23 @@ class LedgerApiTest {
     }
 
     private Response post(String path, Object body, String bearer) {
+        return post(path, body, bearer, null);
+    }
+
+    private Response post(String path, Object body, String bearer, String requestId) {
         ResponseEntity<String> entity = client.post().uri(path)
-                .headers(h -> h.setBearerAuth(bearer))
+                .headers(h -> {
+                    h.setBearerAuth(bearer);
+                    if (requestId != null) {
+                        h.set(LedgerController.REQUEST_ID, requestId);
+                    }
+                })
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(body)
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, (req, res) -> { })
                 .toEntity(String.class);
-        return new Response(entity.getStatusCode().value(), entity.getBody());
+        return response(entity);
     }
 
     private Response get(String path, String bearer) {
@@ -202,7 +294,12 @@ class LedgerApiTest {
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, (req, res) -> { })
                 .toEntity(String.class);
-        return new Response(entity.getStatusCode().value(), entity.getBody());
+        return response(entity);
+    }
+
+    private static Response response(ResponseEntity<String> entity) {
+        return new Response(entity.getStatusCode().value(), entity.getBody(),
+                entity.getHeaders().getFirst(LedgerController.REQUEST_ID));
     }
 
     private String balance(String accountNumber) {

@@ -138,6 +138,10 @@ class AdminLedgerApiTest {
         assertEquals(1L, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM audit_log WHERE entity_id = ? AND action = 'ADMIN_CREDIT' AND correlation_id = ?",
                 Long.class, account, key), "one audit row, from the first attempt only");
+        assertEquals(0L, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM audit_log WHERE entity_type = 'JOURNAL_ENTRY' AND entity_id = ?",
+                Long.class, String.valueOf(entryIdOf(first.body()))),
+                "the admin credit has its ADMIN_CREDIT row and no posting row as well (no double rows)");
     }
 
     @Test
