@@ -665,3 +665,9 @@ The dev stack's gateway is healthy. An unauthenticated call to the legacy balanc
 - Deploy: the dev container runs the 3b build. The 3c and 3d code isn't deployed, and it has no migrations, so a rebuild is safe whenever you want it.
 - The phase 3 checklist (above), including D3 for the legacy endpoints and the `transaction.completed` consumer.
 - The reconciliation endpoint and statement are not yet on the gateway (see first item).
+
+### 8.21 Follow-up: the receipt review (decision 3 of 8.19)
+
+Built after 8.20. `V6__receipt_review.sql` adds `receipt_review`, in account_db next to the ledger, shaped like `unmatched_inbound`. `ReceiptReview.quarantine` keeps the full receipt, with status `OPEN` and a unique key on (source, provider reference, reason). It also writes the alert `ledger.receipt.quarantined` to the outbox, in the same transaction. Nothing is posted to the ledger. A repeat of the same receipt is recorded once and alerted once. The suite is 96/96 green.
+
+Not yet wired: the deposit flow (phase 5) calls `quarantine` when a receipt's currency does not match its intent. The admin resolution (refund or reclassify) is not built yet.
