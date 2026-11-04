@@ -102,7 +102,7 @@ All of these are in account-service. Money is a string at the currency's scale (
 | `GET /api/v1/admin/ledger/reconciliation` | ADMIN | the reconciliation checks, as `{clean, issues}` |
 | `PUT /api/v1/admin/accounts/{n}/credit?amount=&reason=` and `…/deduct…` | ADMIN, with an `Idempotency-Key` header | an admin adjustment. Replays return the stored response. |
 
-The legacy endpoints (`PUT …/deduct`, `PUT …/credit`, `GET …/balance`, `GET /{accountNumber}`) still exist for the old callers. They are dev-only and go in phase 3 (wallet-plan 8.18, 8.19).
+The legacy header path (`PUT …/deduct`, `PUT …/credit`, `GET …/balance`, `GET /{accountNumber}` with `X-User-*` headers and no token) is removed (phase 3, slice 3b, commit `8b8155f`). Every route needs a verified token. The old `PUT …/deduct` and `PUT …/credit` are transaction-service only (allow-list, wallet-plan 3.7) and are deleted in slice 3c.
 
 ## Who writes what
 
