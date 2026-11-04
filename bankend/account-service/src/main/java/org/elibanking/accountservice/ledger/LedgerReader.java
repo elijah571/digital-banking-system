@@ -27,6 +27,63 @@ public class LedgerReader {
                 .stream().findFirst();
     }
 
+    /** A customer account with its owner and its wallet's account type, for ownership checks and statements. */
+    public record AccountRow(String accountNumber, String ownerId, long ledgerAccountId, String currency, String type) {
+    }
+
+    /** One line of a statement, with the balance after it. */
+    public record StatementRow(long lineId, long entryId, String entryType, String reference, String direction,
+                               BigDecimal amount, String currency, BigDecimal runningBalance) {
+    }
+
+    public Optional<AccountRow> accountRow(String accountNumber) {
+        return jdbc.query("""
+                        SELECT a.account_number, a.owner_id, a.ledger_account_id, a.currency, la.type
+                        FROM accounts a JOIN ledger_account la ON la.id = a.ledger_account_id
+                        WHERE a.account_number = ?
+                        """,
+                (rs, n) -> new AccountRow(rs.getString("account_number"), rs.getString("owner_id"),
+                        rs.getLong("ledger_account_id"), rs.getString("currency"), rs.getString("type")),
+                accountNumber).stream().findFirst();
+    }
+
+    /**
+     * The balance after every line up to and including {@code afterLineId}, on the account's normal side. Zero when
+     * {@code afterLineId} is 0.
+     */
+    public BigDecimal balanceThrough(long ledgerAccountId, String type, long afterLineId) {
+        BigDecimal balance = jdbc.queryForObject("""
+                        SELECT COALESCE(SUM(CASE WHEN ? IN ('ASSET', 'EXPENSE')
+                                 THEN CASE WHEN jl.direction = 'DEBIT' THEN jl.amount ELSE -jl.amount END
+                                 ELSE CASE WHEN jl.direction = 'CREDIT' THEN jl.amount ELSE -jl.amount END END), 0)
+                        FROM journal_line jl WHERE jl.ledger_account_id = ? AND jl.id <= ?
+                        """, BigDecimal.class, type, ledgerAccountId, afterLineId);
+        return balance == null ? BigDecimal.ZERO : balance;
+    }
+
+    /**
+     * One page of an account's lines, from the line after {@code afterLineId}. The running balance is a window SUM over the
+     * page, starting from the opening balance, so the window only touches the rows on this page.
+     */
+    public List<StatementRow> statementPage(long ledgerAccountId, String type, BigDecimal opening, long afterLineId,
+                                            int limit) {
+        return jdbc.query("""
+                        SELECT p.id, p.entry_id, je.type, je.reference, p.direction, p.amount, p.currency,
+                               CAST(? AS DECIMAL(19, 4)) + SUM(CASE WHEN ? IN ('ASSET', 'EXPENSE')
+                                   THEN CASE WHEN p.direction = 'DEBIT' THEN p.amount ELSE -p.amount END
+                                   ELSE CASE WHEN p.direction = 'CREDIT' THEN p.amount ELSE -p.amount END END)
+                                   OVER (ORDER BY p.id) AS running_balance
+                        FROM (SELECT id, entry_id, direction, amount, currency FROM journal_line
+                              WHERE ledger_account_id = ? AND id > ? ORDER BY id LIMIT ?) p
+                        JOIN journal_entry je ON je.id = p.entry_id
+                        ORDER BY p.id
+                        """,
+                (rs, n) -> new StatementRow(rs.getLong("id"), rs.getLong("entry_id"), rs.getString("type"),
+                        rs.getString("reference"), rs.getString("direction"), rs.getBigDecimal("amount"),
+                        rs.getString("currency"), rs.getBigDecimal("running_balance")),
+                opening, type, ledgerAccountId, afterLineId, limit);
+    }
+
     /** A system ledger account, found by its code such as {@code PAYOUT_PAYABLE:NGN}. */
     public Optional<Long> systemAccountOf(String code) {
         return jdbc.queryForList("SELECT id FROM ledger_account WHERE owner_type = 'SYSTEM' AND code = ?", Long.class, code)
