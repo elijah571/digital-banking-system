@@ -256,19 +256,29 @@ call GET "/accounts/$B/balance" "" "$Bob_TOKEN";              check "     balanc
 # ================================================================ transactions
 echo "== Transactions — normal transfer"
 TX='{"senderAccountNumber":"%s","receiverAccountNumber":"%s","amount":%s,"type":"TRANSFER","description":"%s"}'
-call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)"
+# wallet-plan 3.6: every transfer carries a fresh Idempotency-Key, unless the check is about the key itself.
+idem() { echo "smoke-$RUN_ID-$RANDOM$RANDOM$RANDOM"; }
+call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "" "Idempotency-Key: $(idem)"
 check "POST /transactions without token -> 401" 401
-call POST /transactions "$(printf "$TX" "$A" "$B" 1000 steal)" "$Bob_TOKEN"
+call POST /transactions "$(printf "$TX" "$A" "$B" 1000 steal)" "$Bob_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions from someone else's account -> 403" 403
-call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$ADMIN_TOKEN"
+call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$ADMIN_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions from a customer's account as ADMIN -> 403" 403
-call POST /transactions "$(printf "$TX" "$A" "$A" 10 self)" "$Alice_TOKEN"
+call POST /transactions "$(printf "$TX" "$A" "$A" 10 self)" "$Alice_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions to the same account -> 400" 400
-call POST /transactions "$(printf "$TX" "$B" "$A" 999999 big)" "$Bob_TOKEN"
+call POST /transactions "$(printf "$TX" "$B" "$A" 999999 big)" "$Bob_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions insufficient funds -> 422" 422 '.detail | startswith("Insufficient funds")' true
-call POST /transactions '{"amount":-5}' "$Alice_TOKEN";       check "POST /transactions invalid body -> 400" 400
-call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$Alice_TOKEN"
+call POST /transactions '{"amount":-5}' "$Alice_TOKEN" "Idempotency-Key: $(idem)";       check "POST /transactions invalid body -> 400" 400
+K1=$(idem)
+call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$Alice_TOKEN" "Idempotency-Key: $K1"
 check "POST /transactions" 201 .status PROCESSING; T1=$(jq -r .id <<<"$BODY")
+# A repeat with the same key and body returns the same transfer. A different body with the same key is refused. No key is refused.
+call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$Alice_TOKEN" "Idempotency-Key: $K1"
+check "POST /transactions repeated with the same key -> the same transfer" 201 .id "$T1"
+call POST /transactions "$(printf "$TX" "$A" "$B" 1001 rent)" "$Alice_TOKEN" "Idempotency-Key: $K1"
+check "POST /transactions same key, different body -> 422" 422
+call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$Alice_TOKEN"
+check "POST /transactions without Idempotency-Key -> 400" 400
 wait_status "$T1" COMPLETED "$Alice_TOKEN"; check "     saga: fraud check clean -> COMPLETED" 200 .status COMPLETED
 call GET "/transactions/$T1" "" "$Alice_TOKEN";               check "GET  /transactions/{id} own" 200 .id "$T1"
 call GET "/transactions/$T1" "" "$Bob_TOKEN";                 check "GET  /transactions/{id} someone else's -> 403" 403
@@ -284,7 +294,7 @@ call GET "/accounts/$B/balance" "" "$Bob_TOKEN";              check "     receiv
 
 echo "== Transactions — suspicious transfer + OTP"
 otp_mark=$(log_mark)
-call POST /transactions "$(printf "$TX" "$A" "$B" 8500 large)" "$Alice_TOKEN"
+call POST /transactions "$(printf "$TX" "$A" "$B" 8500 large)" "$Alice_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions (95% of balance)" 201; T2=$(jq -r .id <<<"$BODY")
 wait_status "$T2" PENDING_VERIFICATION "$Alice_TOKEN"; check "     flagged -> PENDING_VERIFICATION" 200 .status PENDING_VERIFICATION
 if OTP=$(otp_after "$otp_mark"); then
@@ -297,7 +307,7 @@ else
   yellow "SKIP  OTP verify — could not read OTP from notification logs"; SKIP=$((SKIP+1))
 fi
 
-call POST /transactions "$(printf "$TX" "$C" "$B" 1950 large)" "$Carol_TOKEN"
+call POST /transactions "$(printf "$TX" "$C" "$B" 1950 large)" "$Carol_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions (Carol, 97% of balance)" 201; T3=$(jq -r .id <<<"$BODY")
 if wait_status "$T3" PENDING_VERIFICATION "$Carol_TOKEN"; then
   # wallet-plan D6: the first two wrong OTPs get a 400 and the transfer waits; the third flags it, refunds it and blocks the account.

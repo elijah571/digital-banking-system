@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 @Service
@@ -55,7 +56,16 @@ public class TransactionalService {
     private final RedisTemplate<String, String> redisTemplate;
     private final OtpCodes otps;
 
+    /** A transfer with no idempotency record, for internal callers and tests. The API always goes through IdempotentTransfers. */
     public TransactionResponse transfer(TransactionRequest request, Caller caller) {
+        return transfer(request, caller, id -> { });
+    }
+
+    /**
+     * {@code recordInSameTransaction} gets the new transfer's id inside the transaction that saves it, so the idempotency record
+     * and the transfer commit or roll back together (wallet-plan 3.6).
+     */
+    TransactionResponse transfer(TransactionRequest request, Caller caller, Consumer<String> recordInSameTransaction) {
         log.info("Start Transfer");
         if (request.getSenderAccountNumber().equals(request.getReceiverAccountNumber())) {
             throw new IllegalArgumentException("Sender and receiver accounts must be different");
@@ -86,6 +96,7 @@ public class TransactionalService {
         // by the relay only after the hold, so a refused transfer never reaches the fraud check.
         Transaction savedTransaction = tx.execute(status -> {
             Transaction saved = transactionRepository.save(transaction);
+            recordInSameTransaction.accept(saved.getId());
             outbox.append(TRANSACTION_INITIATED_TOPIC, saved.getId(), saved.getId(), new TransactionInitiatedEvent(
                     saved.getId(), saved.getSenderAccountNumber(), saved.getReceiverAccountNumber(),
                     saved.getAmount(), saved.getDescription()));
@@ -138,6 +149,22 @@ public class TransactionalService {
                 log.warn("Recovery of transaction {} failed, will retry: {}", transaction.getId(), e.getMessage());
             }
         }
+    }
+
+    /**
+     * A retry of a transfer that an earlier attempt saved (wallet-plan 3.6). It finishes the hold if that never happened, and
+     * returns the transfer, so the retry never makes a second one.
+     */
+    TransactionResponse resume(String transactionId) {
+        Transaction transaction = transactionRepository.findById(transactionId)
+                .orElseThrow(() -> new TransactionNotFoundException("Transaction not found " + transactionId));
+        if (transaction.getStatus() == TransactionStatus.FAILED) {
+            throw new TransactionRejectedException(transaction.getFailureReason());
+        }
+        if (transaction.getStatus() == TransactionStatus.PROCESSING && transaction.getHeldAt() == null) {
+            holdFunds(transaction);
+        }
+        return mapToResponse(transaction);
     }
 
     public TransactionResponse getTransaction(String transactionId, Caller caller) {

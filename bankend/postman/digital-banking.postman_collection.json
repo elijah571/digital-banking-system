@@ -732,6 +732,11 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}",
+                "description": "Required (wallet-plan 3.6). Send the same key when retrying the same transfer; a new key starts a new transfer."
               }
             ],
             "url": {

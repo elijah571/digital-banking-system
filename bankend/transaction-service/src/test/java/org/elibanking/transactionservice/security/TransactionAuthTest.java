@@ -50,6 +50,7 @@ class TransactionAuthTest {
     @Test
     void aForgedUserIdHeaderWithNoTokenIsRefused() throws Exception {
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY)
+                        .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
                         .header("X-User-Id", "user-b").header("X-User-Role", "ADMIN"))
                 .andExpect(status().isUnauthorized());
         verifyNoInteractions(accountService);
@@ -60,6 +61,7 @@ class TransactionAuthTest {
         when(accountService.getAccount(SENDER)).thenReturn(new AccountInfo(SENDER, "user-b", "ACTIVE"));
 
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY)
+                        .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + UserTokens.of("user-a", "USER")))
                 .andExpect(status().isForbidden());
         verify(ledger, never()).post(any());
@@ -70,6 +72,7 @@ class TransactionAuthTest {
         when(accountService.getAccount(SENDER)).thenReturn(new AccountInfo(SENDER, "user-b", "ACTIVE"));
 
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY)
+                        .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + UserTokens.of("admin-1", "ADMIN")))
                 .andExpect(status().isForbidden());
         verify(ledger, never()).post(any());
@@ -82,6 +85,7 @@ class TransactionAuthTest {
         when(ledger.post(any())).thenReturn(new LedgerClient.LedgerEntryResponse(1L, false));
 
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY)
+                        .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + UserTokens.of("user-a", "USER")))
                 .andExpect(status().isCreated());
         verify(ledger).post(any());
@@ -90,6 +94,7 @@ class TransactionAuthTest {
     @Test
     void aTokenWithNoSubjectIsRefused() throws Exception {
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY)
+                        .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + UserTokens.withoutSubject()))
                 .andExpect(status().isUnauthorized());
         verifyNoInteractions(accountService);
