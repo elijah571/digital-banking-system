@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.elibanking.authservice.entity.User;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -39,7 +41,21 @@ public class AuthEventPublisher {
         event.put("userId", user.getId());
         event.put("email", user.getEmail());
         event.put("fullName", user.getFullName());
-        kafkaTemplate.send(topic, user.getId(), event);
-        log.info("Published {} for user {}", topic, user.getId());
+        // Publish only after the business transaction commits. A verification link is emailed as soon as the event is consumed,
+        // and the link works only once its token is committed. Sending earlier let a fast click arrive first and get 400.
+        Runnable publish = () -> {
+            kafkaTemplate.send(topic, user.getId(), event);
+            log.info("Published {} for user {}", topic, user.getId());
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publish.run();
+                }
+            });
+        } else {
+            publish.run();
+        }
     }
 }
