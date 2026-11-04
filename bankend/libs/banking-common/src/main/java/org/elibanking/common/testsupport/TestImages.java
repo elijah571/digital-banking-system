@@ -14,7 +14,7 @@ import org.testcontainers.utility.DockerImageName;
  */
 public final class TestImages {
 
-    public static final String MYSQL = "mysql:26.10";
+    public static final String MYSQL = "mysql:9.7.4";
     public static final String KAFKA = "apache/kafka:4.3.1";
     public static final String REDIS = "redis:8.10.2";
 

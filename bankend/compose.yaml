@@ -23,8 +23,9 @@ x-app-depends: &app-depends
 services:
   # ---------------- Infrastructure ----------------
   mysql:
-    # Pinned. Keep in sync with libs/banking-common TestImages. Never downgrade: MySQL cannot read a newer data directory.
-    image: mysql:26.10
+    # Pinned to the current MySQL LTS (9.7.4). Keep in sync with libs/banking-common TestImages.
+    # Never downgrade: MySQL cannot read a data directory written by a newer server.
+    image: mysql:9.7.4
     container_name: mysql
     # Lets Flyway (non-SUPER users) create the ledger's append-only triggers while binary logging is on
     command: ["--log-bin-trust-function-creators=1"]
@@ -34,7 +35,7 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - mysql_data_lts97:/var/lib/mysql
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 5s
@@ -232,6 +233,9 @@ services:
       - banking-network
 
 volumes:
+  # MySQL 9.7 data lives in its own volume. The old mysql_data volume (MySQL 26.10 data) is kept, not reused:
+  # 9.7 cannot read a data directory written by 26.10. Remove mysql_data manually once the new volume is verified.
+  mysql_data_lts97:
   mysql_data:
 
 networks:
