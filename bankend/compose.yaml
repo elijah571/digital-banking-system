@@ -122,6 +122,8 @@ services:
       dockerfile: transaction-service/Dockerfile
     environment:
       <<: *app-env
+      # Verifies the user tokens from auth-service (D8). The same value as the gateway's and auth-service's.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       # Signs this service's calls to account-service (wallet-plan 3.7). The same value as account-service's.
       INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
     depends_on:
@@ -162,6 +164,8 @@ services:
       dockerfile: payment-service/Dockerfile
     environment:
       <<: *app-env
+      # Verifies the user tokens from auth-service (D8). The same value as the gateway's and auth-service's.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}

@@ -1,20 +1,16 @@
 package org.elibanking.paymentservice.security;
 
 /**
- * Who is calling, taken from the X-User-* headers that the API gateway sets from the verified JWT
- * (the gateway strips any client-supplied copies). All fields are null for internal service-to-service
- * calls (e.g. transaction-service → account-service), which do not go through the gateway.
+ * Who is calling, from the verified user token (wallet-plan 3.7, D8): the subject is the user id, and the email and role
+ * are claims. X-User-* headers are never identity. A request without a verified token never reaches a controller.
  */
 public record Caller(String userId, String email, String role) {
-
-    public static final String USER_ID = "X-User-Id";
-    public static final String USER_EMAIL = "X-User-Email";
-    public static final String USER_ROLE = "X-User-Role";
 
     public boolean isAdmin() {
         return "ADMIN".equals(role);
     }
 
+    /** A call with no user. A verified token always has a subject, so this never comes from a user's request. */
     public boolean isInternal() {
         return userId == null;
     }

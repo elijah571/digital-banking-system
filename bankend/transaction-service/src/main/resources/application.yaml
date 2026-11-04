@@ -60,6 +60,11 @@ account:
   service:
     url: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
 
+# Verifies the user tokens that auth-service issues (wallet-plan 3.7, D8). The gateway and auth-service share this secret.
+auth:
+  jwt-secret: ${JWT_SECRET:}
+  jwt-issuer: elibanking-auth
+
 # Service tokens for calls to account-service (wallet-plan 3.7). The secret is shared with account-service and must be set.
 internal-auth:
   jwt-secret: ${INTERNAL_JWT_SECRET:}

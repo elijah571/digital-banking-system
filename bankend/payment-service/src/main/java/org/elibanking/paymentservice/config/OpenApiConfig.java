@@ -17,7 +17,7 @@ import java.util.List;
 public class OpenApiConfig {
 
     static {
-        // Caller is resolved from gateway headers, not something API clients send
+        // Caller is resolved from the verified user token, not something API clients send
         SpringDocUtils.getConfig().addRequestWrapperToIgnore(Caller.class);
     }
 
