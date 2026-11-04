@@ -28,7 +28,7 @@ import java.nio.charset.StandardCharsets;
  * All authentication and role checks happen here, in one place.
  * <ul>
  *   <li>public: auth flows (register, login, verify, reset…), Stripe webhook, health, Swagger</li>
- *   <li>ADMIN: user management, block / deduct / credit, list all accounts / transactions, actuator</li>
+ *   <li>ADMIN: user management, block / deduct / credit, list all accounts / transactions, /api/v1/admin/** (account-service admin endpoints), actuator</li>
  *   <li>everything else under /api: any logged-in user (ownership is checked by each service)</li>
  * </ul>
  */
@@ -64,6 +64,7 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.PUT, "/api/v1/accounts/*/block", "/api/v1/accounts/*/deduct",
                                 "/api/v1/accounts/*/credit").hasRole("ADMIN")
                         .pathMatchers("/actuator/**").hasRole("ADMIN")
+                        .pathMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .pathMatchers("/api/**").authenticated()
                         .anyExchange().denyAll())
                 .oauth2ResourceServer(rs -> rs

@@ -68,6 +68,21 @@ spring:
                     redis-rate-limiter.requestedTokens: 1
                     key-resolver: "#{@userKeyResolver}"
 
+            # account-service admin endpoints: ledger reconciliation, admin credit and deduct (ADMIN only, enforced in
+            # SecurityConfig). Keep any more specific /api/v1/admin/... route (for example /admin/audit, D7) above this one.
+            - id: account-service-admin
+              uri: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/admin/**
+              filters:
+                - PreserveHostHeader
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 10
+                    redis-rate-limiter.burstCapacity: 20
+                    redis-rate-limiter.requestedTokens: 1
+                    key-resolver: "#{@userKeyResolver}"
+
             - id: transaction-service
               uri: ${TRANSACTION_SERVICE_URL:http://localhost:8082}
               predicates:
