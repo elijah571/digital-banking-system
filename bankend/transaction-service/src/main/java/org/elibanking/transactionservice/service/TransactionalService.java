@@ -8,6 +8,7 @@ import feign.FeignException;
 import org.elibanking.transactionservice.client.AccountService;
 import org.elibanking.transactionservice.client.LedgerClient;
 import org.elibanking.transactionservice.exception.TransactionRejectedException;
+import org.elibanking.transactionservice.outbox.OutboxWriter;
 import org.elibanking.transactionservice.exception.TransactionAccessDeniedException;
 import org.elibanking.transactionservice.security.Caller;
 import org.elibanking.transactionservice.dto.TransactionRequest;
@@ -19,6 +20,7 @@ import org.elibanking.transactionservice.event.TransactionInitiatedEvent;
 import org.elibanking.transactionservice.repository.TransactionRepository;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -40,10 +42,14 @@ public class TransactionalService {
     private static final String FRAUD_DETECTED_TOPIC = "fraud.detected";
     /** Where a transfer's money waits between the hold and the settle or release (wallet-plan 3.4). */
     private static final String IN_FLIGHT = "TRANSFER_IN_FLIGHT:NGN";
+    /** A transfer that has not been held after this long is one the request never finished: the recovery job picks it up. */
+    private static final java.time.Duration RECOVERY_AGE = java.time.Duration.ofMinutes(2);
 
     private final TransactionRepository transactionRepository;
     private final AccountService accountService;
     private final LedgerClient ledger;
+    private final OutboxWriter outbox;
+    private final TransactionTemplate tx;
     private final KafkaTemplate<String, Object> kafkaTemplate; // Fixed: removed duplicate declaration
     private final RedisTemplate<String, String> redisTemplate;
 
@@ -74,35 +80,62 @@ public class TransactionalService {
         transaction.setDescription(request.getDescription());
         transaction.setReferenceNumber(UUID.randomUUID().toString());
 
-        // The row exists before any money moves, so a held amount always has a transaction that explains it.
-        Transaction savedTransaction = transactionRepository.save(transaction);
+        // The row and its initiated event commit together, before any money moves (wallet-plan 3.8). The event is published
+        // by the relay only after the hold, so a refused transfer never reaches the fraud check.
+        Transaction savedTransaction = tx.execute(status -> {
+            Transaction saved = transactionRepository.save(transaction);
+            outbox.append(TRANSACTION_INITIATED_TOPIC, saved.getId(), saved.getId(), new TransactionInitiatedEvent(
+                    saved.getId(), saved.getSenderAccountNumber(), saved.getReceiverAccountNumber(),
+                    saved.getAmount(), saved.getDescription()));
+            return saved;
+        });
         log.info("Transaction saved: {}", savedTransaction.getId());
 
-        // Hold the amount: sender to TRANSFER_IN_FLIGHT. A refused hold (insufficient funds) fails the transfer, and the row
-        // says why. Nothing has moved, so there is nothing to give back.
+        holdFunds(savedTransaction);
+        return mapToResponse(savedTransaction);
+    }
+
+    /**
+     * Holds a transfer's amount: sender to TRANSFER_IN_FLIGHT (wallet-plan 3.4). A refusal by the ledger (4xx) fails the transfer and
+     * says why. Any other failure leaves the row PROCESSING and unheld, and the recovery job holds it later under the same key.
+     */
+    void holdFunds(Transaction transaction) {
         try {
-            ledger.post(entry("TRANSFER_HOLD", savedTransaction, "tx-" + savedTransaction.getId() + "-hold",
-                    account(savedTransaction.getSenderAccountNumber(), "DEBIT", savedTransaction.getAmount()),
-                    system(IN_FLIGHT, "CREDIT", savedTransaction.getAmount())));
+            ledger.post(entry("TRANSFER_HOLD", transaction, "tx-" + transaction.getId() + "-hold",
+                    account(transaction.getSenderAccountNumber(), "DEBIT", transaction.getAmount()),
+                    system(IN_FLIGHT, "CREDIT", transaction.getAmount())));
         } catch (FeignException e) {
-            savedTransaction.setStatus(TransactionStatus.FAILED);
-            savedTransaction.setFailureReason("Hold refused by account-service (" + e.status() + ")");
-            transactionRepository.save(savedTransaction);
+            if (e.status() >= 400 && e.status() < 500) {
+                transaction.setStatus(TransactionStatus.FAILED);
+                transaction.setFailureReason("Hold refused by account-service (" + e.status() + ")");
+                transactionRepository.save(transaction);
+            }
             throw e;
         }
+        transaction.setHeldAt(LocalDateTime.now());
+        transactionRepository.save(transaction);
+    }
 
-        TransactionInitiatedEvent event = new TransactionInitiatedEvent(
-                savedTransaction.getId(),
-                savedTransaction.getSenderAccountNumber(),
-                savedTransaction.getReceiverAccountNumber(),
-                savedTransaction.getAmount(),
-                savedTransaction.getDescription()
-        );
-
-        kafkaTemplate.send(TRANSACTION_INITIATED_TOPIC, savedTransaction.getId(), event);
-        log.info("Transaction initiated published: {}", savedTransaction.getId());
-
-        return mapToResponse(savedTransaction);
+    /**
+     * Holds transfers that were committed but never held, for example after a crash between the row and the hold (wallet-plan 3.8).
+     * A sender that is no longer active when the job runs fails the transfer instead.
+     */
+    public void holdStuckTransfers() {
+        LocalDateTime cutoff = LocalDateTime.now().minus(RECOVERY_AGE);
+        for (Transaction transaction : transactionRepository
+                .findTop50ByStatusAndHeldAtIsNullAndCreatedAtBefore(TransactionStatus.PROCESSING, cutoff)) {
+            try {
+                requireActive(accountService.getAccount(transaction.getSenderAccountNumber()), "sender");
+                holdFunds(transaction);
+                log.info("Recovered the hold for transaction {}", transaction.getId());
+            } catch (TransactionRejectedException e) {
+                transaction.setStatus(TransactionStatus.FAILED);
+                transaction.setFailureReason(e.getMessage());
+                transactionRepository.save(transaction);
+            } catch (RuntimeException e) {
+                log.warn("Recovery of transaction {} failed, will retry: {}", transaction.getId(), e.getMessage());
+            }
+        }
     }
 
     public TransactionResponse getTransaction(String transactionId, Caller caller) {

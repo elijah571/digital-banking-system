@@ -9,6 +9,9 @@ import java.util.List;
 public interface TransactionRepository extends JpaRepository<Transaction, String> {
     List<Transaction> findBySenderAccountNumberOrderByCreatedAtDesc(String accountNumber);
 
+    List<Transaction> findTop50ByStatusAndHeldAtIsNullAndCreatedAtBefore(
+            org.elibanking.transactionservice.entity.TransactionStatus status, java.time.LocalDateTime cutoff);
+
     List<Transaction> findAllByOrderByCreatedAtDesc();
 
 }

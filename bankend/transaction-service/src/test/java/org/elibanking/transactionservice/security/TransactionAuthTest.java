@@ -28,7 +28,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * gateway path is covered by the smoke test, which runs through it.
  */
 @SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789",
-        "auth.jwt-secret=" + UserTokens.SECRET})
+        "auth.jwt-secret=" + UserTokens.SECRET, "outbox.relay.enabled=false", "transfer.recovery.enabled=false"})
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
 class TransactionAuthTest {

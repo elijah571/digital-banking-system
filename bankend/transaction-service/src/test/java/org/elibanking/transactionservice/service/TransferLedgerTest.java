@@ -44,7 +44,7 @@ import static org.mockito.Mockito.when;
  * account-service ledger is mocked here; its own behaviour (locks, idempotency, funds) is tested in account-service.
  */
 @SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789",
-        "auth.jwt-secret=" + UserTokens.SECRET})
+        "auth.jwt-secret=" + UserTokens.SECRET, "outbox.relay.enabled=false", "transfer.recovery.enabled=false"})
 @Import(TestcontainersConfiguration.class)
 class TransferLedgerTest {
 
