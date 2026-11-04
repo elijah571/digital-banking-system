@@ -14,8 +14,10 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
  * Only the classes that own a table may write it through {@link JdbcTemplate}. {@code LedgerPostingService} is the only
- * writer of {@code ledger_account} and {@code journal_*} (wallet-plan 3.1). The other three write their own tables.
- * A new writer must be added here on purpose. The SQL inside migrations is reviewed by hand.
+ * writer of {@code ledger_account} and {@code journal_*} (wallet-plan 3.1). The others write their own tables:
+ * {@code AuditLogWriter} (audit_log), {@code OutboxWriter} (outbox inserts), {@code OutboxRelay} (outbox publish state)
+ * and {@code IdempotencyService} (idempotency_record). A new writer must be added here on purpose. The SQL inside
+ * migrations is reviewed by hand.
  */
 @AnalyzeClasses(packages = "org.elibanking.accountservice", importOptions = ImportOption.DoNotIncludeTests.class)
 class LedgerWriteArchitectureTest {
@@ -25,6 +27,7 @@ class LedgerWriteArchitectureTest {
             .that().doNotHaveFullyQualifiedName("org.elibanking.accountservice.ledger.LedgerPostingService")
             .and().doNotHaveFullyQualifiedName("org.elibanking.accountservice.audit.AuditLogWriter")
             .and().doNotHaveFullyQualifiedName("org.elibanking.accountservice.outbox.OutboxWriter")
+            .and().doNotHaveFullyQualifiedName("org.elibanking.accountservice.outbox.OutboxRelay")
             .and().doNotHaveFullyQualifiedName("org.elibanking.accountservice.idempotency.IdempotencyService")
             .should().callMethodWhere(target(nameMatching("update|batchUpdate|execute"))
                     .and(target(owner(assignableTo(JdbcTemplate.class)))))
