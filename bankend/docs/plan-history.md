@@ -338,3 +338,16 @@ Legacy headers stay on in this slice, so callers behave as before. The slice pre
 - **Dev stack.** On 2026-11-05 the dev app containers were crash-looping at up to 99% CPU, and the first smoke attempt failed on port 8083 (8.33). The user's instruction was to stop them with `docker compose stop`, with no `rm`, no `down`, and no volume changes. That was done. The containers are stopped, not removed. The `mysql`, `redis` and `kafka-broker` containers had already been stopped for 31 hours. The stop reported them, which is why the earlier note in 8.33 that they were "gone" was wrong.
 - **History.** The 3c.7 commit was first made as `e28964f`. The user then amended it and merged the branch with origin, which left the same tree as `122b172` on the branch. `e28964f` is no longer on the branch. The tests and the smoke run above ran on that tree, and `122b172` is the commit the docs now cite.
 - **Still open.** 3c.8 (D3 money strings) is next. The Feign client to wallet's verify endpoint waits for phase 4.
+
+### 8.36 Slice 3c.8: money in transfer and account responses is a string (2026-11-05)
+
+- **Built** (`ae50989`). `TransactionResponse.amount`, and `AccountResponse` `balance`, `initialDeposit` and `dailyTransactionLimit`, are written as strings with two decimal places, such as `"250.00"`. `GET /api/v1/accounts/{n}/balance` returns `"9000.00"` as a bare JSON string. Each service has a small `MoneyJson` serializer. `plain()` never rounds: a value with more decimals is written as it is. The serializer is not in `banking-common`, because that module has no Jackson dependency. Moving it there would be a separate decision.
+- **Why `/balance` returns a `JsonNode`.** A `String` body would be written unquoted, as a number.
+- **Inputs unchanged.** A number or a string is accepted. More than two decimals is still a 400, through the scale check in `TransactionalService`.
+- **Evidence first.** Both `MoneyStringTest` classes failed on the numeric output before the change (`"amount":250`, `"balance":9000`).
+- **Smoke on `ae50989`: 115 passed, 0 failed, 0 skipped.** That is the 114 from before, plus a check that the transfer amount is `"8500.00"`. The six balance checks now use `'.=="N.00"'`, the form the plan names. Reconciliation: clean. Teardown: clean. The dev volumes are unchanged.
+- **Tests.** transaction-service 55 run, 0 failed. account-service 115 run, 0 failed. Both are full suites on the working tree, which was the commit.
+- **Fraud.** The fraud service reads `/balance` through Feign as a `BigDecimal`. Jackson reads the string into it, and the smoke's 95% and 97% transfers go through that check.
+- **Not changed, and why.** The statement and the internal ledger endpoints already return strings. Events are not responses, so they keep numbers. Postman has no test that asserts a money response type, so the collection did not change.
+- **Open (D3).** payment-service's `PaymentOrderResponse.amount` is still a number. It is outside the transfer and account slice. It should change with phase 5 (deposits), which is the next payment work.
+- **Phase 3 is complete.** 3c.0 to 3c.8 are built and each is committed. Phase 4 (wallet-service and PIN) is next. It starts with `threat-model-pin.md`. The plan leaves the design calls to that document, so it needs your review before any PIN code is written.
