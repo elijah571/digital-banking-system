@@ -65,6 +65,10 @@ auth:
   jwt-secret: ${JWT_SECRET:}
   jwt-issuer: elibanking-auth
 
+# Transfers need the user's PIN while this is true (wallet-plan D2, 8.22). Off until phase 4. The prod profile refuses to start while it is off.
+transfer:
+  pin-required: ${TRANSFER_PIN_REQUIRED:false}
+
 # Service tokens for calls to account-service (wallet-plan 3.7). The secret is shared with account-service and must be set.
 internal-auth:
   jwt-secret: ${INTERNAL_JWT_SECRET:}
