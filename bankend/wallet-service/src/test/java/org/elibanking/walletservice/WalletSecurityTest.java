@@ -11,9 +11,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Who may call wallet-service (wallet-plan 3.7). With no endpoints yet, these pin down the defaults that every later endpoint
- * builds on: no token is 401, a service token is refused on user paths, a user token is refused on internal paths, and a
- * token signed with the wrong secret is 401.
+ * Who may call wallet-service (wallet-plan 3.7): no token is 401, a service token is refused on user paths, a user token is
+ * refused on internal paths, a token signed with the wrong secret is 401, and the internal routes are closed to every caller
+ * but the one allowed.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -44,7 +44,8 @@ class WalletSecurityTest {
     }
 
     @Test
-    void noCallerReachesAnInternalPathYet() throws Exception {
+    void theOnlyInternalRouteIsPostOnly() throws Exception {
+        // GET on the PIN path matches no rule, so it is denied even for transaction-service.
         mvc.perform(get("/internal/v1/pin/verify")
                         .header("Authorization", "Bearer " + TestTokens.serviceTokenAs("transaction-service")))
                 .andExpect(status().isForbidden());
