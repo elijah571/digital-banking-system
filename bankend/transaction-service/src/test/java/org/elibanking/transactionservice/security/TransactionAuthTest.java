@@ -27,7 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * D8 (wallet-plan 3.7): transaction-service checks the user token itself, and X-User-* headers are never identity. The
  * gateway path is covered by the smoke test, which runs through it.
  */
-@SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789",
+@SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789", "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
         "auth.jwt-secret=" + UserTokens.SECRET, "outbox.relay.enabled=false", "transfer.recovery.enabled=false"})
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)

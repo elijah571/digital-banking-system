@@ -57,6 +57,7 @@ public class TransactionEventConsumer {
 
             // Only a keyed hash is kept in Redis. The code itself goes once, to notification-service, on its own topic.
             String otp = otps.generate();
+            redisTemplate.delete(OtpCodes.decisionKey(transactionId)); // a decision from an earlier round must not block this one
             redisTemplate.opsForValue().set(OtpCodes.codeKey(transactionId), otps.hash(transactionId, otp), OtpCodes.TTL);
             redisTemplate.opsForValue().set(OtpCodes.attemptsKey(transactionId), "0", OtpCodes.TTL);
 

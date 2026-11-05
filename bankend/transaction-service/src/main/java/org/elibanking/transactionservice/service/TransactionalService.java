@@ -211,9 +211,24 @@ public class TransactionalService {
                     + " is not awaiting OTP verification (status: " + transaction.getStatus() + ")");
         }
 
+        // Each guess takes its place in the count before it is compared (wallet-plan 3c.5 review). Only the first MAX_ATTEMPTS
+        // places are compared, so a burst of parallel guesses cannot test more codes than the limit.
+        Long attempts = redisTemplate.opsForValue().increment(OtpCodes.attemptsKey(transactionId));
+        long count = attempts == null ? OtpCodes.MAX_ATTEMPTS + 1 : attempts;
+        if (count == 1) {
+            redisTemplate.expire(OtpCodes.attemptsKey(transactionId), OtpCodes.TTL);
+        }
+        if (count > OtpCodes.MAX_ATTEMPTS) {
+            throw alreadyDecided(transactionId);
+        }
+
         String storedHash = redisTemplate.opsForValue().get(OtpCodes.codeKey(transactionId));
 
         if (storedHash == null) {
+            // The code ran out of time, or a request that won earlier already used it. Only one request may act on the expiry.
+            if (!claimDecision(transactionId)) {
+                throw alreadyDecided(transactionId);
+            }
             log.warn("OTP expired for transaction: {}", transactionId);
             forgetOtp(transactionId);
             compensateTransaction(transaction, "OTP expired - transaction cancelled and amount refunded");
@@ -221,28 +236,44 @@ public class TransactionalService {
         }
 
         if (otps.matches(transactionId, otp, storedHash)) {
+            if (!claimDecision(transactionId)) {
+                throw alreadyDecided(transactionId);
+            }
             log.info("OTP verified - completing transaction: {}", transactionId);
             forgetOtp(transactionId);
             completeTransaction(transaction);
             return mapToResponse(transaction);
         }
 
-        // A wrong code counts. The first two only get a 400 and the transfer waits. The third flags it, refunds it and blocks the account.
-        Long attempts = redisTemplate.opsForValue().increment(OtpCodes.attemptsKey(transactionId));
-        long count = attempts == null ? OtpCodes.MAX_ATTEMPTS : attempts;
-        if (count == 1) {
-            redisTemplate.expire(OtpCodes.attemptsKey(transactionId), OtpCodes.TTL);
-        }
+        // A wrong code counts. The first two only get a 400 and the transfer waits.
         if (count < OtpCodes.MAX_ATTEMPTS) {
             log.warn("Wrong OTP for transaction {} (attempt {} of {})", transactionId, count, OtpCodes.MAX_ATTEMPTS);
             throw new InvalidOtpException(OtpCodes.MAX_ATTEMPTS - count);
         }
 
+        // The third wrong code flags it, refunds it and blocks the account. Only the request that wins the claim does this.
+        if (!claimDecision(transactionId)) {
+            throw alreadyDecided(transactionId);
+        }
         log.warn("Wrong OTP for transaction {} for the last time - blocking account and refunding", transactionId);
         forgetOtp(transactionId);
         blockAccountAndCompensate(transaction,
                 "Wrong OTP entered - transaction cancelled, account blocked for security");
         return mapToResponse(transaction);
+    }
+
+    /**
+     * One decision per code, made by whichever outcome gets here first: a correct code, the third wrong one, or expiry.
+     * The request that wins acts on it. Every other request is refused, so a code settles or blocks at most once.
+     */
+    private boolean claimDecision(String transactionId) {
+        return Boolean.TRUE.equals(redisTemplate.opsForValue()
+                .setIfAbsent(OtpCodes.decisionKey(transactionId), "1", OtpCodes.TTL));
+    }
+
+    private static IllegalStateException alreadyDecided(String transactionId) {
+        return new IllegalStateException("Transaction " + transactionId
+                + " is not awaiting OTP verification (it was already decided)");
     }
 
     /** Removes the code and its attempt count. A code is single use, whatever the outcome. */

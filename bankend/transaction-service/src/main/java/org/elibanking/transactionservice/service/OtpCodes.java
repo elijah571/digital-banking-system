@@ -14,20 +14,27 @@ import java.util.HexFormat;
 
 /**
  * Transfer OTPs (wallet-plan 3.4, D6). A code comes from {@link SecureRandom}, and only a keyed hash of it is kept in Redis.
- * The key is the internal service secret, which Redis does not hold, so someone who can read Redis cannot test codes offline.
- * The hash is bound to the transaction, so a code cannot be moved from one transfer to another.
+ * The key is {@code OTP_HMAC_KEY}, which only transaction-service holds. It is not the internal service secret, which four
+ * services share, and a six-digit code is easy to guess offline with the key and Redis read access. The hash is bound to the
+ * transaction, so a code cannot be moved from one transfer to another.
  */
 @Component
 public class OtpCodes {
 
     public static final int MAX_ATTEMPTS = 3;
     public static final Duration TTL = Duration.ofMinutes(5);
+    public static final int MIN_KEY_BYTES = 32;
 
     private final SecureRandom random = new SecureRandom();
     private final SecretKeySpec key;
 
-    public OtpCodes(@Value("${internal-auth.jwt-secret}") String secret) {
-        this.key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+    public OtpCodes(@Value("${otp.hmac-key:}") String secret) {
+        byte[] bytes = secret == null ? new byte[0] : secret.getBytes(StandardCharsets.UTF_8);
+        // Checked here, so the service does not start without a usable key. The message never includes the key.
+        if (bytes.length < MIN_KEY_BYTES) {
+            throw new IllegalStateException("OTP_HMAC_KEY must be set, and at least " + MIN_KEY_BYTES + " bytes long");
+        }
+        this.key = new SecretKeySpec(bytes, "HmacSHA256");
     }
 
     public static String codeKey(String transactionId) {
@@ -36,6 +43,11 @@ public class OtpCodes {
 
     public static String attemptsKey(String transactionId) {
         return "verification:otp-attempts:" + transactionId;
+    }
+
+    /** Set once per code by whichever outcome gets there first: success, the third wrong code, or expiry. */
+    public static String decisionKey(String transactionId) {
+        return "verification:otp-decided:" + transactionId;
     }
 
     /** A new six-digit code, 100000 to 999999. */

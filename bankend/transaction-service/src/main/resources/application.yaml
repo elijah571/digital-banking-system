@@ -71,6 +71,10 @@ internal-auth:
   subject: transaction-service
   audience: account-service
 
+# Key for the hash of a transfer OTP (wallet-plan 3c.5 review). Only this service has it, and it must be at least 32 bytes.
+otp:
+  hmac-key: ${OTP_HMAC_KEY:}
+
 management:
   endpoints:
     web:
