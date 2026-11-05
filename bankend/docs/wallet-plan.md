@@ -292,6 +292,14 @@ Each service that publishes (account, wallet, payment, transaction) gets an `out
 
    The 107 existing smoke checks still pass, adapted only where the contract was deliberately changed (Idempotency-Key, reason, money strings), and each change is listed in its commit.
 4. **wallet-service and PIN.** `threat-model-pin.md` **first**, then PIN, the auth verify-password endpoint, OTP, lockout, log-masking test.
+   Slices (8.37), each ending green and committed:
+   - **4.1** wallet-service skeleton: port 8087, `wallet_db`, Flyway V1, resource server (user and SERVICE decoders), the startup checks for `PIN_PEPPER` and `PIN_OTP_HMAC_KEY`.
+   - **4.2** auth-service `POST /internal/v1/auth/verify-password`: allow-list (wallet only), rate limit (D-P10), audit, no password in logs.
+   - **4.3** `pin_credential`, Argon2id with the pepper, the lockout (T1, T7), `POST /internal/v1/pin/verify` (allow-list: transaction-service), the log-masking layer and its test.
+   - **4.4** PIN OTP (`POST /api/v1/wallet/pin/otp`) and set or change (`PUT /api/v1/wallet/pin`), with the email on change (D-P6).
+   - **4.5** transaction-service calls wallet's verify in place of the fail-closed default, and `TRANSFER_PIN_REQUIRED` becomes `true`.
+   - **4.6** gateway route, compose, and a smoke test that sets a PIN before its transfers.
+   The decisions D-P1 to D-P10 are in `docs/threat-model-pin.md`, section 6. Each one took its recommended option, and it can still change before the code that depends on it is written.
 5. **Deposits.** payment-service internal intent, webhook outbox, wallet consumer, expiry, tests (replay, bad signature, mismatch). The smoke test signs webhook payloads itself with `STRIPE_WEBHOOK_SECRET` via openssl, so no Stripe CLI is needed. **Starts after phase 4.** D26 and D27 are approved (8.17). The ledger side is built in phase 2 (`CardDepositPostings`). The wallet is credited the requested amount, never more and never less (review fix 3).
 6. **Withdrawals and the outbound pipeline.** State machine (with REVERSED), limits, fraud endpoint, gate, maker-checker, expiry, recovery, and the `PayoutProvider` interface with its simulator, which lives in payment-service (8.2, 8.3). The pipeline is built for both types from the start (`type = WITHDRAWAL` now), so 6b adds a type and does not add a second pipeline. All transition and concurrency tests.
 6b. **External transfers.** Bank list, name enquiry, routing in transaction-service, `EXTERNAL_TRANSFER` on the phase-6 pipeline, Paystack adapter (recipient, transfer, verify by reference), signed webhooks for transfer.success / transfer.failed / transfer.reversed with dedupe and matching, reversal entries. `docs/deploy.md` is created here with every variable so far. Smoke test: external transfer and withdrawal on the simulator, plus a sandbox run for the happy path only (8.7). Needs your Paystack test secret key in `.env` (gitignored).

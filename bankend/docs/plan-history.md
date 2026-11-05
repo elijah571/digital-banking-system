@@ -351,3 +351,10 @@ Legacy headers stay on in this slice, so callers behave as before. The slice pre
 - **Not changed, and why.** The statement and the internal ledger endpoints already return strings. Events are not responses, so they keep numbers. Postman has no test that asserts a money response type, so the collection did not change.
 - **Open (D3).** payment-service's `PaymentOrderResponse.amount` is still a number. It is outside the transfer and account slice. It should change with phase 5 (deposits), which is the next payment work.
 - **Phase 3 is complete.** 3c.0 to 3c.8 are built and each is committed. Phase 4 (wallet-service and PIN) is next. It starts with `threat-model-pin.md`. The plan leaves the design calls to that document, so it needs your review before any PIN code is written.
+
+### 8.37 Phase 4 starts: the PIN threat model and the slice plan (2026-11-05)
+
+- **Written** (`docs/threat-model-pin.md`). Assets, actors, the set, change and verify flows, fourteen threats with the mitigation and the test that proves each one, five accepted residual risks, and the lessons from the 3c.5 and 3c.7 reviews.
+- **Decisions.** The plan leaves a few points open, and its status rule says the recommended option is used. Those are D-P1 to D-P10 in the threat model, and they can still change. The main ones are a 4-digit PIN (D-P1), a wrong password counting toward the same lockout (D-P3), and an email on each PIN change (D-P6).
+- **Slices.** Section 5 lists 4.1 to 4.6. Each ends green and committed. The smoke test runs on the slices that touch money paths, which means 4.5 and 4.6.
+- **Still open for the user.** `PIN_PEPPER` and `PIN_OTP_HMAC_KEY` are new required settings. Like `OTP_HMAC_KEY`, they must be in the dev `.env`, which is not committed. `.env.example` is your file, so I will not add them to it without asking.
