@@ -287,3 +287,27 @@ Legacy headers stay on in this slice, so callers behave as before. The slice pre
 - **Breaking** (README). The header is required. The smoke test sends a key on every transfer and checks replay, a different body, and a missing key. The Postman transfer request sends one.
 - **Tests.** transaction-service 31/31 on a clean run. One earlier run had five `TransactionAuthTest` errors from a Kafka container that timed out at startup. The class passed 5/5 when run alone, and the full suite then passed 31/31.
 - **Throwaway run on `ebb2390`**: 114 passed, 0 failed, 0 skipped. Reconciliation: clean. Teardown: clean. The dev volumes are unchanged.
+
+### 8.32 Slice 3c.7: the PIN client waits for phase 4 (2026-11-05)
+
+- **Scope change** (`7b02b71`, plan only). The Feign client to wallet's `POST /internal/v1/pin/verify` is not built in 3c.7. That contract belongs to wallet-service in phase 4, which starts with `threat-model-pin.md`. Building the client now would mean guessing the contract. (This entry was missing from this log; it was added on 2026-11-05 from the plan text.)
+- **What 3c.7 builds instead:** the `PinVerifier` port, the gate, and a default that fails closed with 503 while `TRANSFER_PIN_REQUIRED` is on. The phase 4 client replaces the default.
+- **Status.** The 3c.7 code is in the working tree and is not in any commit yet.
+
+### 8.33 Slice 3c.5 review: the OTP key, counted guesses, one decision per code (2026-11-05)
+
+- **Approved in the user's review of 3c.5.** A dedicated `OTP_HMAC_KEY`, required at startup, at least 32 bytes, for transaction-service only. An atomic attempt count before the compare. Single use. The throwaway smoke on the final commit. The working rules, now in `bankend/CLAUDE.md`.
+- **Evidence first.** Before the fix (`7b02b71`, which includes 3c.6), two new tests in `OtpTest` failed.
+  - 10 parallel wrong codes on one transfer: two got a 400 and the third flagged, as expected. But the parallel test logged eight block-and-refund passes where one was expected. None of the seven extra requests got a 409.
+  - The same correct code sent twice in parallel: the second call was not refused with a 409.
+  - Cause: `verifyOTP` compared the code first and counted a wrong guess after it. Nothing claimed the outcome, so every request that passed the status check acted on it.
+- **Fix** (`a1fda8d`).
+  - `OtpCodes` takes `OTP_HMAC_KEY` (`otp.hmac-key`) and refuses to start with a key under 32 bytes. The error does not show the key. `compose.yaml` requires it (`:?`), so `compose up` stops until `.env` has it.
+  - Each wrong guess takes its count with an atomic `INCR` before the compare. A guess past the third place is refused without a compare, so at most three codes are ever compared. Under a burst the Redis counter can read above 3. Only the first three are compared.
+  - One decision per code: `verification:otp-decided:{id}`, set with `SETNX`. A correct code, the third wrong one, and the expiry each claim it. The losers get a 409. The key has the code's five-minute TTL. A new code clears any old decision.
+- **Tests.** `OtpTest` 8/8: the two race tests, and the key rule. The full transaction-service suite on the staged tree of `a1fda8d` ran 34 tests. 15 errored at context start, because the Kafka container timed out (four timeouts in the log). Those three classes passed 15/15 when run alone. The dev app containers were running during that run. `TransactionAuthTest` passed in the full run.
+- **Not covered.** A crash between the claim and the transfer's save leaves the transfer `PENDING_VERIFICATION` with no code. The code before this change had the same window. I have not checked whether the recovery job covers this state.
+- **Throwaway smoke: not run yet.** `scripts/smoke-throwaway.sh a1fda8d` stopped at `compose up`: host port 8083 was already bound by the dev `auth-service`. The dev app containers are crash-looping at up to 99% CPU, because their MySQL, Redis and Kafka containers are gone. The smoke volumes were removed, and the dev volumes are unchanged. The result goes here once the dev app containers are stopped and the run is done.
+- **Count.** The smoke count on this commit should be 114, not 111. The 111 was on `22ffb19`, and 3c.6 added three checks (8.31).
+- **Config.** `.env` (gitignored) needs `OTP_HMAC_KEY` before `compose up`. It was not added. The README has the breaking-change line.
+- **Still uncommitted.** The 3c.7 PIN code, and the transfer PIN lines in `TransactionalService.java` and `application.yaml`. Also the user's Paystack and `INTERNAL_JWT_SECRET` lines in `.env.example`, and the 3c.7 README line. None of these is in `a1fda8d`.
