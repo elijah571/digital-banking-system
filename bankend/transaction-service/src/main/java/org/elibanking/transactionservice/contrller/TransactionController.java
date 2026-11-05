@@ -110,7 +110,7 @@ public class TransactionController {
                     * correct OTP → **COMPLETED**, receiver credited
                     * wrong OTP, first or second attempt → **400** (`Incorrect OTP. N attempts left`), still PENDING_VERIFICATION
                     * wrong OTP, third attempt → **FLAGGED**, sender refunded and sender account **BLOCKED**
-                    * OTP expired (5 min) → **FLAGGED**, sender refunded
+                    * OTP expired (5 min) → **EXPIRED**, sender refunded. A transfer whose code is never sent is also **EXPIRED** by the recovery job, once it is older than the code's lifetime plus five minutes.
 
                     The OTP is delivered by notification-service (currently written to its log).""")
     @ApiResponse(responseCode = "200", description = "Verification processed — check `status` in the body")

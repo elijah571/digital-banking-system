@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * The version on {@link Transaction} (wallet-plan section 4, slice 3c.1). Two verifies that read the same version cannot
  * both write: the second write fails. The reads are sequenced here so the race is deterministic, not timing-dependent.
  */
-@SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789",
+@SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789", "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
         "auth.jwt-secret=" + UserTokens.SECRET, "outbox.relay.enabled=false", "transfer.recovery.enabled=false"})
 @Import(TestcontainersConfiguration.class)
 class TransactionVersionTest {

@@ -12,6 +12,7 @@ import org.elibanking.transactionservice.client.LedgerClient.LedgerEntryRequest;
 import org.elibanking.transactionservice.entity.Transaction;
 import org.elibanking.transactionservice.entity.TransactionStatus;
 import org.elibanking.transactionservice.entity.TransactionType;
+import org.elibanking.transactionservice.dto.TransactionResponse;
 import org.elibanking.transactionservice.exception.InvalidOtpException;
 import org.elibanking.transactionservice.repository.TransactionRepository;
 import org.elibanking.transactionservice.security.Caller;
@@ -34,6 +35,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -52,7 +54,7 @@ import static org.mockito.Mockito.when;
  * Transfer OTPs (wallet-plan D6, slice 3c.5): the code is hashed in Redis and sent once, on {@code notification.otp}; a wrong
  * code is counted; the third one flags, refunds and blocks. The Kafka template is mocked so every send can be read back.
  */
-@SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789",
+@SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789", "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
         "auth.jwt-secret=" + UserTokens.SECRET, "outbox.relay.enabled=false", "transfer.recovery.enabled=false"})
 @Import(TestcontainersConfiguration.class)
 class OtpTest {
@@ -193,6 +195,62 @@ class OtpTest {
         assertNotEquals(otps.hash("tx-a", "123456"), otps.hash("tx-b", "123456"));
         assertFalse(otps.matches("tx-b", "123456", otps.hash("tx-a", "123456")));
         assertFalse(otps.matches("tx-a", null, otps.hash("tx-a", "123456")));
+    }
+
+    /** The service does not start without a key of at least 32 bytes, and the error never shows the key. */
+    @Test
+    void theHmacKeyIsRequiredAndAtLeastThirtyTwoBytes() {
+        assertThrows(IllegalStateException.class, () -> new OtpCodes(""));
+        assertThrows(IllegalStateException.class, () -> new OtpCodes(null));
+        IllegalStateException short31 = assertThrows(IllegalStateException.class, () -> new OtpCodes("too-short-key-value"));
+        assertFalse(short31.getMessage().contains("too-short-key-value"), "the message never shows the key");
+        assertDoesNotThrow(() -> new OtpCodes("x".repeat(OtpCodes.MIN_KEY_BYTES)));
+    }
+
+    /**
+     * Ten wrong codes at once on one transfer (wallet-plan 3c.5 review, item 2). Exactly three are counted: two get a 400, the
+     * third flags, refunds and blocks once. The other seven are refused and do not block or refund again.
+     */
+    @Test
+    void tenParallelWrongCodesCountThreeAndBlockOnce() throws Exception {
+        String sender = randomAccount();
+        String receiver = randomAccount();
+        stubAccounts(sender, receiver);
+        when(ledger.post(any())).thenReturn(new LedgerClient.LedgerEntryResponse(1L, false));
+        String id = processingTransfer(sender, receiver);
+        String otp = generateCode(id);
+        String wrong = otp.equals("000000") ? "000001" : "000000";
+
+        List<Object> outcomes = Concurrently.sameCall(10, () -> transfers.verifyOTP(id, wrong, new Caller(null, null, null)));
+
+        assertEquals(2, Concurrently.count(outcomes, InvalidOtpException.class), "two wrong codes get a 400 and wait");
+        assertEquals(1, Concurrently.count(outcomes, TransactionResponse.class), "the third wrong code flags the transfer");
+        assertEquals(7, Concurrently.count(outcomes, IllegalStateException.class), "the rest are refused, not counted again");
+        assertEquals(TransactionStatus.FLAGGED, transactions.findById(id).orElseThrow().getStatus());
+        verify(kafka, times(1)).send(eq("fraud.detected"), eq(id), any());
+        verify(ledger, times(1)).post(any());
+    }
+
+    /**
+     * The same correct code sent twice at once (wallet-plan 3c.5 review, item 3). One succeeds and the transfer settles once;
+     * the other is refused.
+     */
+    @Test
+    void theSameCorrectCodeSentTwiceAtOnceSettlesOnce() throws Exception {
+        String sender = randomAccount();
+        String receiver = randomAccount();
+        stubAccounts(sender, receiver);
+        when(ledger.post(any())).thenReturn(new LedgerClient.LedgerEntryResponse(1L, false));
+        String id = processingTransfer(sender, receiver);
+        String otp = generateCode(id);
+
+        List<Object> outcomes = Concurrently.sameCall(2, () -> transfers.verifyOTP(id, otp, new Caller(null, null, null)));
+
+        assertEquals(1, Concurrently.count(outcomes, TransactionResponse.class), "one of the two succeeds");
+        assertEquals(1, Concurrently.count(outcomes, IllegalStateException.class), "the other is refused");
+        assertEquals(TransactionStatus.COMPLETED, transactions.findById(id).orElseThrow().getStatus());
+        verify(ledger, times(1)).post(any());
+        assertNull(redis.opsForValue().get(OtpCodes.codeKey(id)), "a code is single use");
     }
 
     // ------------------------------------------------------------------ helpers
