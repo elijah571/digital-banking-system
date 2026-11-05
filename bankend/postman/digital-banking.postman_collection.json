@@ -732,6 +732,11 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}",
+                "description": "Required (wallet-plan 3.6). Send the same key when retrying the same transfer; a new key starts a new transfer."
               }
             ],
             "url": {
@@ -1238,15 +1243,21 @@
           "name": "Credit account",
           "request": {
             "method": "PUT",
-            "header": [],
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/accounts/{{receiverAccount}}/credit?amount=100",
+              "raw": "{{baseUrl}}/api/v1/admin/accounts/{{receiverAccount}}/credit?amount=100&reason=postman",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
                 "v1",
+                "admin",
                 "accounts",
                 "{{receiverAccount}}",
                 "credit"
@@ -1255,10 +1266,14 @@
                 {
                   "key": "amount",
                   "value": "100"
+                },
+                {
+                  "key": "reason",
+                  "value": "postman"
                 }
               ]
             },
-            "description": ""
+            "description": "Admin credit (wallet-plan 3.4, D5). Needs an ADMIN token and an Idempotency-Key. The old /api/v1/accounts/{n}/credit path is transaction-service only."
           },
           "event": [
             {
@@ -1266,7 +1281,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                  "pm.test('status 201', () => pm.response.to.have.status(201));"
                 ]
               }
             }
@@ -1276,15 +1291,21 @@
           "name": "Deduct from account",
           "request": {
             "method": "PUT",
-            "header": [],
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/accounts/{{receiverAccount}}/deduct?amount=100",
+              "raw": "{{baseUrl}}/api/v1/admin/accounts/{{receiverAccount}}/deduct?amount=100&reason=postman",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
                 "v1",
+                "admin",
                 "accounts",
                 "{{receiverAccount}}",
                 "deduct"
@@ -1293,10 +1314,14 @@
                 {
                   "key": "amount",
                   "value": "100"
+                },
+                {
+                  "key": "reason",
+                  "value": "postman"
                 }
               ]
             },
-            "description": ""
+            "description": "Admin deduct (wallet-plan 3.4, D5). Needs an ADMIN token and an Idempotency-Key. The old /api/v1/accounts/{n}/deduct path is transaction-service only."
           },
           "event": [
             {
@@ -1304,7 +1329,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                  "pm.test('status 201', () => pm.response.to.have.status(201));"
                 ]
               }
             }

@@ -11,8 +11,18 @@ import java.util.Map;
 @Service
 public class NotificationService {
 
+    /** OTPs now arrive on {@code notification.otp} (wallet-plan D6). This listener is kept for one release, for messages already queued. */
     @KafkaListener(topics = "transaction.otp.generated", groupId = "notification-service-group")
     public void consumeOtpGenerated(@Payload Map<String, Object> payload) {
+        sendOtp(payload);
+    }
+
+    @KafkaListener(topics = "notification.otp", groupId = "notification-service-group")
+    public void consumeOtp(@Payload Map<String, Object> payload) {
+        sendOtp(payload);
+    }
+
+    private void sendOtp(Map<String, Object> payload) {
         try {
             String accountNumber = (String) payload.get("accountNumber");
             String otp = (String) payload.get("otp");

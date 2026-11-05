@@ -1,6 +1,9 @@
-# Full stack:            docker compose up -d --build
+# Full stack:            docker compose up -d --build   (multi-stage builds: no local JDK needed)
 # Infrastructure only:   docker compose up -d mysql redis kafka   (then run services with ./mvnw)
 # Secrets come from .env (see .env.example).
+
+# Pinned so the project (containers, mysql_data volume) does not depend on the folder name.
+name: digital-banking-system
 
 x-app-env: &app-env
   MYSQL_HOST: mysql
@@ -20,15 +23,19 @@ x-app-depends: &app-depends
 services:
   # ---------------- Infrastructure ----------------
   mysql:
-    image: mysql:latest
+    # Pinned to the current MySQL LTS (9.7.4). Keep in sync with libs/banking-common TestImages.
+    # Never downgrade: MySQL cannot read a data directory written by a newer server.
+    image: mysql:9.7.4
     container_name: mysql
+    # Lets Flyway (non-SUPER users) create the ledger's append-only triggers while binary logging is on
+    command: ["--log-bin-trust-function-creators=1"]
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
       MYSQL_DATABASE: digital_banking
     ports:
       - "3306:3306"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - mysql_data_lts97:/var/lib/mysql
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 5s
@@ -38,7 +45,7 @@ services:
       - banking-network
 
   redis:
-    image: redis:latest
+    image: redis:8.10.2
     container_name: redis
     ports:
       - "${REDIS_HOST_PORT:-6379}:6379"   # set REDIS_HOST_PORT in .env if 6379 is taken on the host
@@ -51,7 +58,7 @@ services:
       - banking-network
 
   kafka:
-    image: apache/kafka:latest
+    image: apache/kafka:4.3.1
     container_name: kafka-broker
     ports:
       - "9092:9092"
@@ -78,7 +85,7 @@ services:
 
   # Not used by any service yet — start with: docker compose --profile neo4j up -d
   neo4j:
-    image: neo4j:latest
+    image: neo4j:2026.10.1   # pinned to the version latest resolved to (was :latest)
     container_name: neo4j
     profiles: ["neo4j"]
     environment:
@@ -92,57 +99,96 @@ services:
   # ---------------- Application services ----------------
   # Every service port is published for testing. In production publish only 8080 (the gateway).
   account-service:
-    build: ./account-service
-    environment: *app-env
+    build:
+      context: .
+      dockerfile: account-service/Dockerfile
+    environment:
+      <<: *app-env
+      # Opening deposits (wallet-plan 3.4, D4): on in dev. Prod leaves it off, so accounts open at 0.
+      ACCOUNT_OPENING_DEPOSIT_ENABLED: "true"
+      # Both are required (compose stops if they are missing). Same JWT_SECRET as auth-service; INTERNAL_JWT_SECRET is for service tokens.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
     depends_on: *app-depends
     ports:
       - "8081:8081"
     restart: on-failure
+    # Heap is 75% of this limit (MaxRAMPercentage in the Dockerfile). Same values as compose.prod.yaml.
+    mem_limit: 768m
     networks:
       - banking-network
 
   transaction-service:
-    build: ./transaction-service
-    environment: *app-env
+    build:
+      context: .
+      dockerfile: transaction-service/Dockerfile
+    environment:
+      <<: *app-env
+      # Verifies the user tokens from auth-service (D8). The same value as the gateway's and auth-service's.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      # Signs this service's calls to account-service (wallet-plan 3.7). The same value as account-service's.
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
     depends_on:
       <<: *app-depends
       account-service:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "8082:8082"
     restart: on-failure
+    # Heap is 75% of this limit (MaxRAMPercentage in the Dockerfile). Same values as compose.prod.yaml.
+    mem_limit: 768m
     networks:
       - banking-network
 
   fraud-detection-service:
-    build: ./fraud-detection-service
-    environment: *app-env
+    build:
+      context: .
+      dockerfile: fraud-detection-service/Dockerfile
+    environment:
+      <<: *app-env
+      # Signs this service's calls to account-service (wallet-plan 3.7). The same value as account-service's.
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
     depends_on:
       <<: *app-depends
       account-service:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "8084:8084"
     restart: on-failure
+    # Heap is 75% of this limit (MaxRAMPercentage in the Dockerfile). Same values as compose.prod.yaml.
+    mem_limit: 512m
     networks:
       - banking-network
 
   payment-service:
-    build: ./payment-service
+    build:
+      context: .
+      dockerfile: payment-service/Dockerfile
     environment:
       <<: *app-env
+      # Verifies the user tokens from auth-service (D8). The same value as the gateway's and auth-service's.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
-    depends_on: *app-depends
+      # Signs this service's calls to account-service (wallet-plan 3.7). The same value as account-service's.
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
+    depends_on:
+      <<: *app-depends
+      account-service:
+        condition: service_healthy
     ports:
       - "8085:8085"
     restart: on-failure
+    # Heap is 75% of this limit (MaxRAMPercentage in the Dockerfile). Same values as compose.prod.yaml.
+    mem_limit: 512m
     networks:
       - banking-network
 
   auth-service:
-    build: ./auth-service
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
     environment:
       <<: *app-env
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
@@ -158,11 +204,15 @@ services:
     ports:
       - "8083:8083"
     restart: on-failure
+    # Heap is 75% of this limit (MaxRAMPercentage in the Dockerfile). Same values as compose.prod.yaml.
+    mem_limit: 512m
     networks:
       - banking-network
 
   notification-service:
-    build: ./notification-service
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
     environment:
       <<: *app-env
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
@@ -178,11 +228,15 @@ services:
     ports:
       - "8086:8086"
     restart: on-failure
+    # Heap is 75% of this limit (MaxRAMPercentage in the Dockerfile). Same values as compose.prod.yaml.
+    mem_limit: 384m
     networks:
       - banking-network
 
   api-gateway:
-    build: ./API-GATEWAY
+    build:
+      context: .
+      dockerfile: API-GATEWAY/Dockerfile
     environment:
       REDIS_HOST: redis
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
@@ -195,20 +249,25 @@ services:
       redis:
         condition: service_healthy
       auth-service:
-        condition: service_started
+        condition: service_healthy
       account-service:
-        condition: service_started
+        condition: service_healthy
       transaction-service:
-        condition: service_started
+        condition: service_healthy
       payment-service:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "8080:8080"
     restart: on-failure
+    # Heap is 75% of this limit (MaxRAMPercentage in the Dockerfile). Same values as compose.prod.yaml.
+    mem_limit: 512m
     networks:
       - banking-network
 
 volumes:
+  # MySQL 9.7 data lives in its own volume. The old mysql_data volume (MySQL 26.10 data) is kept, not reused:
+  # 9.7 cannot read a data directory written by 26.10. Remove mysql_data manually once the new volume is verified.
+  mysql_data_lts97:
   mysql_data:
 
 networks:

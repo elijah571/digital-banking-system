@@ -25,7 +25,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate   # no JPA entities yet; Flyway + validate arrive with notification_db in phase 7
     show-sql: ${SHOW_SQL:false}
     properties:
       hibernate:

@@ -53,4 +53,14 @@ public class Transaction {
 
 
     private LocalDateTime completedAt;
+
+    /** When the amount was held in TRANSFER_IN_FLIGHT (wallet-plan 3.4). Null until then; the recovery job holds those transfers. */
+    private LocalDateTime heldAt;
+
+    /**
+     * Optimistic lock (wallet-plan section 4, slice 3c.1). Two writers that read the same version cannot both save, which
+     * fixes the verify race: a second verify of the same transfer fails instead of completing it twice.
+     */
+    @Version
+    private Long version;
 }

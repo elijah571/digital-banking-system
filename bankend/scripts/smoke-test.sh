@@ -15,6 +15,7 @@ set -uo pipefail
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 API="$BASE_URL/api/v1"
 NOTIFICATION_LOG="${NOTIFICATION_LOG:-}"
+TRACE_FILE="${TRACE_FILE:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUN_ID="$(date +%s)"
@@ -62,24 +63,55 @@ check() {
 
 notification_logs() {
   if [[ -n "$NOTIFICATION_LOG" ]]; then cat "$NOTIFICATION_LOG"
-  else (cd "$ROOT_DIR" && docker compose logs --no-log-prefix notification-service 2>/dev/null); fi
+  else (cd "$ROOT_DIR" && docker compose logs --no-log-prefix --timestamps notification-service 2>/dev/null); fi
 }
 
-# from_logs EMAIL REGEX -> newest match from the email logged for that address
-from_logs() {
-  local email=$1 regex=$2 v=""
-  for _ in $(seq 1 20); do
-    v=$(notification_logs | grep -A2 -F "to=$email" | grep -oP "$regex" | tail -1)
+# log_mark -> how many lines the notification log has now. Take a mark before an action, then read only what comes after it,
+# so a message from an earlier step can never be mistaken for the one this step caused.
+log_mark() { notification_logs | wc -l; }
+
+# link_after MARK EMAIL REGEX -> the newest match logged for EMAIL after line MARK. Waits up to 30 s, then fails.
+link_after() {
+  local mark=$1 email=$2 regex=$3 v=""
+  for _ in $(seq 1 30); do
+    v=$(notification_logs | tail -n "+$((mark + 1))" | grep -A2 -F "to=$email" | grep -oP "$regex" | tail -1)
     [[ -n "$v" ]] && { echo "$v"; return 0; }
     sleep 1
   done
   return 1
 }
 
-get_otp() {
-  local otp=""
-  for _ in $(seq 1 20); do
-    otp=$(notification_logs | grep -oP 'Your OTP is \K[0-9]{6}' | tail -1)
+# Evidence for a 400 from verify-email (wallet-plan 8.29). When TRACE_FILE is set, each verify call appends one row: whether the
+# token sent was empty and its length, the SHA-256 of the token (it matches auth_tokens.token_hash; the raw token is never
+# written), the status and body, and three times: the request that sent the email, the email's log line, the verify call.
+now_ts() { date -u +%Y-%m-%dT%H:%M:%S.%3NZ; }
+
+# logged_ts_after MARK EMAIL -> the time of the first "to=EMAIL" line logged after line MARK (the log carries timestamps).
+logged_ts_after() {
+  notification_logs | tail -n "+$(($1 + 1))" | grep -F "to=$2" | sed -n '1p' | awk '{print $1}'
+}
+
+# verify_call CALL TOKEN SENT LOGGED MARK EMAIL -> calls verify-email, sets STATUS and BODY for check, and traces the call.
+verify_call() {
+  local call=$1 token=$2 sent=$3 logged=$4 mark=$5 email=$6 verified resp sha="" empty=no to_lines="" link_lines=""
+  verified=$(now_ts)
+  resp=$(curl -s -w $'\n%{http_code}' "$API/auth/verify-email?token=$token")
+  STATUS=${resp##*$'\n'}; BODY=${resp%$'\n'*}
+  [[ -n "$TRACE_FILE" ]] || return 0
+  if [[ -z "$token" ]]; then empty=yes; else sha=$(printf '%s' "$token" | sha256sum | cut -d' ' -f1); fi
+  if [[ -n "$mark" ]]; then
+    to_lines=$(notification_logs | tail -n "+$((mark + 1))" | grep -cF "to=$email")
+    link_lines=$(notification_logs | tail -n "+$((mark + 1))" | grep -cF 'verify-email?token=')
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$call" "$empty" "${#token}" "$sha" "$STATUS" \
+    "$(tr '\t\r\n' '   ' <<<"$BODY" | cut -c1-200)" "$sent" "$logged" "$verified" "$to_lines" "$link_lines" >> "$TRACE_FILE"
+}
+
+# otp_after MARK -> the newest OTP logged after line MARK. Waits up to 30 s, then fails.
+otp_after() {
+  local mark=$1 otp=""
+  for _ in $(seq 1 30); do
+    otp=$(notification_logs | tail -n "+$((mark + 1))" | grep -oP 'Your OTP is \K[0-9]{6}' | tail -1)
     [[ -n "$otp" ]] && { echo "$otp"; return 0; }
     sleep 1
   done
@@ -99,10 +131,12 @@ wait_status() { # TX_ID WANTED TOKEN
 # signup NAME -> registers, verifies via emailed link, logs in; sets <NAME>_TOKEN, <NAME>_REFRESH, <NAME>_ID, <NAME>_EMAIL
 signup() {
   local name=$1 email; email="$(tr '[:upper:]' '[:lower:]' <<<"$1").$RUN_ID@test.com"
+  local mark; mark=$(log_mark)
+  local sent; sent=$(now_ts)
   call POST /auth/register "{\"fullName\":\"$name Tester\",\"email\":\"$email\",\"password\":\"$PASSWORD\"}"
   check "POST /auth/register ($name)" 201 .emailVerified false
-  local token; token=$(from_logs "$email" 'verify-email\?token=\K[A-Za-z0-9_-]+')
-  STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$API/auth/verify-email?token=$token"); BODY=""
+  local token; token=$(link_after "$mark" "$email" 'verify-email\?token=\K[A-Za-z0-9_-]+')
+  verify_call "$name (link from email)" "$token" "$sent" "$(logged_ts_after "$mark" "$email")" "$mark" "$email"
   check "GET  /auth/verify-email ($name, link from email)" 200
   call POST /auth/login "{\"email\":\"$email\",\"password\":\"$PASSWORD\"}"
   check "POST /auth/login ($name)" 200 .user.role USER
@@ -125,15 +159,25 @@ echo "== Auth — register / verify / login"
 E="dave.$RUN_ID@test.com"
 call POST /auth/register "{\"fullName\":\"Dave\",\"email\":\"$E\",\"password\":\"short\"}"
 check "POST /auth/register weak password -> 400" 400
+dave_mark=$(log_mark)
 call POST /auth/register "{\"fullName\":\"Dave\",\"email\":\"$E\",\"password\":\"$PASSWORD\"}"
 check "POST /auth/register" 201
+# Wait for the first email before the resend starts. The notification log can lag the register by several seconds. If the
+# first email arrived after the resend's mark, the resend's lookup would take its superseded link, and verify would reject it.
+link_after "$dave_mark" "$E" 'verify-email\?token=\K[A-Za-z0-9_-]+' > /dev/null \
+  || { red "FAIL  Dave's first verification email never reached the log"; FAIL=$((FAIL+1)); }
 call POST /auth/register "{\"fullName\":\"Dave\",\"email\":\"$E\",\"password\":\"$PASSWORD\"}"
 check "POST /auth/register duplicate email -> 409" 409
 call POST /auth/login "{\"email\":\"$E\",\"password\":\"$PASSWORD\"}"
 check "POST /auth/login before email verified -> 403" 403
+resend_mark=$(log_mark)
+resend_sent=$(now_ts)
 call POST /auth/resend-verification "{\"email\":\"$E\"}"
 check "POST /auth/resend-verification" 200
-STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$API/auth/verify-email?token=not-a-real-token"); BODY=""
+resend_token=$(link_after "$resend_mark" "$E" 'verify-email\?token=\K[A-Za-z0-9_-]+')
+verify_call "Dave, link from the resend" "$resend_token" "$resend_sent" "$(logged_ts_after "$resend_mark" "$E")" "$resend_mark" "$E"
+check "GET  /auth/verify-email (Dave, link from the resend)" 200
+verify_call "bad token" "not-a-real-token" "" "" "" ""
 check "GET  /auth/verify-email bad token -> 400" 400
 
 signup Alice
@@ -202,28 +246,39 @@ check "GET  /accounts/{n} with spoofed X-User-Id header -> 403" 403
 call GET "/accounts/0000000000" "" "$ADMIN_TOKEN";         check "GET  /accounts/{n} unknown -> 404" 404
 
 echo "== Accounts — admin operations"
-call PUT "/accounts/$B/credit?amount=100" "" "$Alice_TOKEN";  check "PUT  /accounts/{n}/credit as USER -> 403" 403
-call PUT "/accounts/$B/credit?amount=100" "" "$ADMIN_TOKEN";  check "PUT  /accounts/{n}/credit as ADMIN" 200
-call PUT "/accounts/$B/deduct?amount=100" "" "$ADMIN_TOKEN";  check "PUT  /accounts/{n}/deduct as ADMIN" 200
-call PUT "/accounts/$B/deduct?amount=999999" "" "$ADMIN_TOKEN"; check "PUT  /accounts/{n}/deduct insufficient -> 422" 422
+call PUT "/accounts/$B/credit?amount=100" "" "$Alice_TOKEN";  check "PUT  /accounts/{n}/credit as USER -> 403 (gateway admin rule)" 403
+call PUT "/accounts/$B/credit?amount=100" "" "$ADMIN_TOKEN";  check "PUT  /accounts/{n}/credit (removed in 3c.3) as ADMIN -> 404" 404
+call PUT "/admin/accounts/$B/credit?amount=100&reason=smoke" "" "$ADMIN_TOKEN" "Idempotency-Key: smoke-credit-$RUN_ID"; check "PUT  /admin/accounts/{n}/credit as ADMIN" 201
+call PUT "/admin/accounts/$B/deduct?amount=100&reason=smoke" "" "$ADMIN_TOKEN" "Idempotency-Key: smoke-deduct-$RUN_ID"; check "PUT  /admin/accounts/{n}/deduct as ADMIN" 201
+call PUT "/admin/accounts/$B/deduct?amount=999999&reason=smoke" "" "$ADMIN_TOKEN" "Idempotency-Key: smoke-overdraw-$RUN_ID"; check "PUT  /admin/accounts/{n}/deduct insufficient -> 422" 422
 call GET "/accounts/$B/balance" "" "$Bob_TOKEN";              check "     balance unchanged after credit+deduct" 200 ".==500" true
 
 # ================================================================ transactions
 echo "== Transactions — normal transfer"
 TX='{"senderAccountNumber":"%s","receiverAccountNumber":"%s","amount":%s,"type":"TRANSFER","description":"%s"}'
-call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)"
+# wallet-plan 3.6: every transfer carries a fresh Idempotency-Key, unless the check is about the key itself.
+idem() { echo "smoke-$RUN_ID-$RANDOM$RANDOM$RANDOM"; }
+call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "" "Idempotency-Key: $(idem)"
 check "POST /transactions without token -> 401" 401
-call POST /transactions "$(printf "$TX" "$A" "$B" 1000 steal)" "$Bob_TOKEN"
+call POST /transactions "$(printf "$TX" "$A" "$B" 1000 steal)" "$Bob_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions from someone else's account -> 403" 403
-call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$ADMIN_TOKEN"
+call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$ADMIN_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions from a customer's account as ADMIN -> 403" 403
-call POST /transactions "$(printf "$TX" "$A" "$A" 10 self)" "$Alice_TOKEN"
+call POST /transactions "$(printf "$TX" "$A" "$A" 10 self)" "$Alice_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions to the same account -> 400" 400
-call POST /transactions "$(printf "$TX" "$B" "$A" 999999 big)" "$Bob_TOKEN"
+call POST /transactions "$(printf "$TX" "$B" "$A" 999999 big)" "$Bob_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions insufficient funds -> 422" 422 '.detail | startswith("Insufficient funds")' true
-call POST /transactions '{"amount":-5}' "$Alice_TOKEN";       check "POST /transactions invalid body -> 400" 400
-call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$Alice_TOKEN"
+call POST /transactions '{"amount":-5}' "$Alice_TOKEN" "Idempotency-Key: $(idem)";       check "POST /transactions invalid body -> 400" 400
+K1=$(idem)
+call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$Alice_TOKEN" "Idempotency-Key: $K1"
 check "POST /transactions" 201 .status PROCESSING; T1=$(jq -r .id <<<"$BODY")
+# A repeat with the same key and body returns the same transfer. A different body with the same key is refused. No key is refused.
+call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$Alice_TOKEN" "Idempotency-Key: $K1"
+check "POST /transactions repeated with the same key -> the same transfer" 201 .id "$T1"
+call POST /transactions "$(printf "$TX" "$A" "$B" 1001 rent)" "$Alice_TOKEN" "Idempotency-Key: $K1"
+check "POST /transactions same key, different body -> 422" 422
+call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$Alice_TOKEN"
+check "POST /transactions without Idempotency-Key -> 400" 400
 wait_status "$T1" COMPLETED "$Alice_TOKEN"; check "     saga: fraud check clean -> COMPLETED" 200 .status COMPLETED
 call GET "/transactions/$T1" "" "$Alice_TOKEN";               check "GET  /transactions/{id} own" 200 .id "$T1"
 call GET "/transactions/$T1" "" "$Bob_TOKEN";                 check "GET  /transactions/{id} someone else's -> 403" 403
@@ -238,10 +293,11 @@ call GET "/accounts/$A/balance" "" "$Alice_TOKEN";            check "     sender
 call GET "/accounts/$B/balance" "" "$Bob_TOKEN";              check "     receiver credited" 200 ".==1500" true
 
 echo "== Transactions — suspicious transfer + OTP"
-call POST /transactions "$(printf "$TX" "$A" "$B" 8500 large)" "$Alice_TOKEN"
+otp_mark=$(log_mark)
+call POST /transactions "$(printf "$TX" "$A" "$B" 8500 large)" "$Alice_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions (95% of balance)" 201; T2=$(jq -r .id <<<"$BODY")
 wait_status "$T2" PENDING_VERIFICATION "$Alice_TOKEN"; check "     flagged -> PENDING_VERIFICATION" 200 .status PENDING_VERIFICATION
-if OTP=$(get_otp); then
+if OTP=$(otp_after "$otp_mark"); then
   call POST "/transactions/$T2/verify?otp=$OTP" "" "$Bob_TOKEN"; check "POST /transactions/{id}/verify by another user -> 403" 403
   call POST "/transactions/$T2/verify?otp=$OTP" "" "$Alice_TOKEN"; check "POST /transactions/{id}/verify (correct OTP)" 200 .status COMPLETED
   sleep 1
@@ -251,10 +307,13 @@ else
   yellow "SKIP  OTP verify — could not read OTP from notification logs"; SKIP=$((SKIP+1))
 fi
 
-call POST /transactions "$(printf "$TX" "$C" "$B" 1950 large)" "$Carol_TOKEN"
+call POST /transactions "$(printf "$TX" "$C" "$B" 1950 large)" "$Carol_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions (Carol, 97% of balance)" 201; T3=$(jq -r .id <<<"$BODY")
 if wait_status "$T3" PENDING_VERIFICATION "$Carol_TOKEN"; then
-  call POST "/transactions/$T3/verify?otp=000000" "" "$Carol_TOKEN"; check "POST /transactions/{id}/verify (wrong OTP) -> FLAGGED" 200 .status FLAGGED
+  # wallet-plan D6: the first two wrong OTPs get a 400 and the transfer waits; the third flags it, refunds it and blocks the account.
+  call POST "/transactions/$T3/verify?otp=000000" "" "$Carol_TOKEN"; check "POST /transactions/{id}/verify (wrong OTP 1 of 3) -> 400" 400 .detail "Incorrect OTP. 2 attempts left"
+  call POST "/transactions/$T3/verify?otp=000000" "" "$Carol_TOKEN"; check "POST /transactions/{id}/verify (wrong OTP 2 of 3) -> 400" 400 .detail "Incorrect OTP. 1 attempt left"
+  call POST "/transactions/$T3/verify?otp=000000" "" "$Carol_TOKEN"; check "POST /transactions/{id}/verify (wrong OTP 3 of 3) -> FLAGGED" 200 .status FLAGGED
   sleep 2
   call GET "/accounts/$C" "" "$Carol_TOKEN";                  check "     sender account BLOCKED" 200 .status BLOCKED
   call GET "/accounts/$C/balance" "" "$Carol_TOKEN";          check "     sender refunded" 200 ".==2000" true
@@ -283,8 +342,9 @@ call POST /payments/webhook '{}' "" "Stripe-Signature: t=1,v1=bad";      check "
 echo "== Auth — forgot / reset / change password"
 call POST /auth/login "{\"email\":\"$Alice_EMAIL\",\"password\":\"$PASSWORD\"}"; Alice_REFRESH=$(jq -r .refreshToken <<<"$BODY")
 call POST /auth/forgot-password '{"email":"nobody-'$RUN_ID'@test.com"}';  check "POST /auth/forgot-password unknown email -> 200 (no enumeration)" 200
+reset_mark=$(log_mark)
 call POST /auth/forgot-password "{\"email\":\"$Alice_EMAIL\"}";            check "POST /auth/forgot-password" 200
-if RESET=$(from_logs "$Alice_EMAIL" 'Password reset token: \K[A-Za-z0-9_-]+'); then
+if RESET=$(link_after "$reset_mark" "$Alice_EMAIL" 'Password reset token: \K[A-Za-z0-9_-]+'); then
   call POST /auth/reset-password "{\"token\":\"$RESET\",\"newPassword\":\"weak\"}"; check "POST /auth/reset-password weak password -> 400" 400
   call POST /auth/reset-password "{\"token\":\"$RESET\",\"newPassword\":\"NewSecret456\"}"; check "POST /auth/reset-password" 200
   call POST /auth/reset-password "{\"token\":\"$RESET\",\"newPassword\":\"Other789xyz\"}"; check "POST /auth/reset-password token reused -> 400" 400

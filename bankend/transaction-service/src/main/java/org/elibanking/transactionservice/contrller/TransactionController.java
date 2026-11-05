@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.elibanking.transactionservice.dto.TransactionRequest;
 import org.elibanking.transactionservice.dto.TransactionResponse;
 import org.elibanking.transactionservice.security.Caller;
+import org.elibanking.transactionservice.service.IdempotentTransfers;
 import org.elibanking.transactionservice.service.TransactionalService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -28,6 +29,7 @@ import java.util.List;
 public class TransactionController {
 
     private final TransactionalService transactionalService;
+    private final IdempotentTransfers idempotentTransfers;
 
     @PostMapping
     @Operation(summary = "Transfer money",
@@ -48,15 +50,20 @@ public class TransactionController {
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "404", description = "Sender account not found",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    @ApiResponse(responseCode = "422", description = "Insufficient funds, or sender account not active",
+    @ApiResponse(responseCode = "409", description = "The same Idempotency-Key is still being processed; retry later",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "422", description = "Insufficient funds, sender account not active, or the Idempotency-Key was used for a different request",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "502", description = "Account service unavailable",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     public ResponseEntity<TransactionResponse> transfer(
+            @Parameter(description = "Unique per transfer. A repeat with the same key and body returns the first result and moves no money.",
+                    required = true)
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody TransactionRequest request, Caller caller
     ) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(transactionalService.transfer(request, caller));
+                .body(idempotentTransfers.transfer(idempotencyKey, request, caller));
     }
 
     @GetMapping("/{transactionId}")
@@ -101,11 +108,14 @@ public class TransactionController {
                     Only for transactions in **PENDING_VERIFICATION**.
 
                     * correct OTP → **COMPLETED**, receiver credited
-                    * wrong OTP → **FLAGGED**, sender refunded and sender account **BLOCKED**
+                    * wrong OTP, first or second attempt → **400** (`Incorrect OTP. N attempts left`), still PENDING_VERIFICATION
+                    * wrong OTP, third attempt → **FLAGGED**, sender refunded and sender account **BLOCKED**
                     * OTP expired (5 min) → **FLAGGED**, sender refunded
 
                     The OTP is delivered by notification-service (currently written to its log).""")
     @ApiResponse(responseCode = "200", description = "Verification processed — check `status` in the body")
+    @ApiResponse(responseCode = "400", description = "Wrong OTP, with attempts left (the transfer stays PENDING_VERIFICATION)",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "404", description = "Transaction not found",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "403", description = "Only the sender can verify",

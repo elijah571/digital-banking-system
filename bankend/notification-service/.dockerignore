@@ -1,9 +1,0 @@
-target/*
-!target/*.jar
-src/
-.mvn/
-mvnw
-mvnw.cmd
-HELP.md
-*.iml
-.idea/

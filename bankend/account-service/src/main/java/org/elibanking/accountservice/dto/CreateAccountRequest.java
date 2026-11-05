@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -34,7 +35,6 @@ public class CreateAccountRequest {
     private AccountType accountType;
 
     @Schema(description = "Opening balance", example = "10000")
-    @NotNull(message = "Initial deposit  is required")
-    @Positive(message = "Initial deposit must be positive")
+    @PositiveOrZero(message = "Initial deposit must not be negative")
     private BigDecimal initialDeposit;
 }

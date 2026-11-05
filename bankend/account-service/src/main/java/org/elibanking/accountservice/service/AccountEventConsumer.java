@@ -17,25 +17,6 @@ public class AccountEventConsumer {
     private final AccountService accountService;
 
     /**
-     * Consume transaction.completed event from Kafka.
-     * Credits receiver account.
-     * @param payload the message payload
-     */
-    @KafkaListener(topics = "transaction.completed", groupId = "account-service-group")
-    public void consumeTransactionCompleted(@Payload Map<String, Object> payload) {
-        try {
-            String receiverAccount = (String) payload.get("receiverAccountNumber");
-            BigDecimal amount = new BigDecimal(payload.get("amount").toString());
-
-            log.info("Crediting account: {} with amount: {}", receiverAccount, amount);
-            accountService.creditBalance(receiverAccount, amount);
-
-        } catch (Exception e) {
-            log.error("Error crediting account: {}", e.getMessage(), e);
-        }
-    }
-
-    /**
      * Consume fraud.detected event from Kafka.
      * Blocks the flagged account.
      * @param payload the message payload

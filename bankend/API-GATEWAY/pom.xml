@@ -58,6 +58,24 @@
             <artifactId>spring-boot-starter-data-redis-reactive-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Flyway, Testcontainers (real MySQL/Kafka/Redis in tests), ArchUnit money rules -->
+        <dependency>
+            <groupId>org.elibanking</groupId>
+            <artifactId>banking-common</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <dependencyManagement>
         <dependencies>

@@ -1,0 +1,10 @@
+# Build context is bankend/ (all service Dockerfiles). Keep it small and never send secrets.
+**/target
+**/.idea
+**/*.iml
+**/HELP.md
+.env
+.env.*
+docs
+postman
+scripts

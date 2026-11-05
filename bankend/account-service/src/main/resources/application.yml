@@ -11,20 +11,21 @@ spring:
     password: ${MYSQL_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  flyway:
+    # Databases created by Hibernate before Flyway existed have tables but no history table:
+    # mark them as version 1 (= V1__baseline_schema.sql) instead of failing.
+    baseline-on-migrate: true
+    baseline-version: 1
+
   jpa:
+    open-in-view: false
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate   # schema is owned by Flyway (src/main/resources/db/migration)
     show-sql: ${SHOW_SQL:false}
     properties:
       hibernate:
         format_sql: true
     database-platform: org.hibernate.dialect.MySQLDialect
-
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      timeout: 60000ms
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
@@ -54,3 +55,20 @@ management:
     web:
       exposure:
         include: "*"
+
+# Opening deposits (wallet-plan 3.4, D4). Dev turns this on in compose. Prod leaves it off: accounts open at 0.
+account:
+  opening-deposit:
+    enabled: ${ACCOUNT_OPENING_DEPOSIT_ENABLED:false}
+
+# Authentication (wallet-plan 3.7). There is no legacy header path: every route needs a verified token.
+auth:
+  # Same secret and issuer as auth-service (user tokens, HS256).
+  jwt-secret: ${JWT_SECRET:}
+  jwt-issuer: elibanking-auth
+
+internal-auth:
+  # Service tokens (HS256). Minted by the calling service, with iss=elibanking-internal and role=SERVICE.
+  jwt-secret: ${INTERNAL_JWT_SECRET:}
+  jwt-issuer: elibanking-internal
+  audience: account-service
