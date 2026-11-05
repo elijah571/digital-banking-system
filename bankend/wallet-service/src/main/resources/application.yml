@@ -1,0 +1,46 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: wallet-service
+
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/wallet_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  flyway:
+    # wallet_db is new, so V1 creates the whole schema. There is no older schema to baseline.
+    baseline-on-migrate: false
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate   # schema is owned by Flyway (src/main/resources/db/migration)
+    show-sql: ${SHOW_SQL:false}
+    database-platform: org.hibernate.dialect.MySQLDialect
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+# PIN secrets (threat model T12 and D-P7). Each must be at least 32 bytes, or the service does not start.
+pin:
+  pepper: ${PIN_PEPPER:}
+  otp-hmac-key: ${PIN_OTP_HMAC_KEY:}
+
+# Authentication (wallet-plan 3.7). Every route needs a verified token.
+auth:
+  # Same secret and issuer as auth-service (user tokens, HS256).
+  jwt-secret: ${JWT_SECRET:}
+  jwt-issuer: elibanking-auth
+
+internal-auth:
+  # Service tokens (HS256). Minted by the calling service, with iss=elibanking-internal and role=SERVICE.
+  jwt-secret: ${INTERNAL_JWT_SECRET:}
+  jwt-issuer: elibanking-internal
+  audience: wallet-service
