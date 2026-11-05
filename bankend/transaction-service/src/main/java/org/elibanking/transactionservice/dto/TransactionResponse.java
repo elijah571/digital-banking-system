@@ -11,6 +11,7 @@ import lombok.NoArgsConstructor;
 import org.elibanking.transactionservice.entity.TransactionStatus;
 import org.elibanking.transactionservice.entity.TransactionType;
 import org.hibernate.annotations.CreationTimestamp;
+import tools.jackson.databind.annotation.JsonSerialize;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -27,6 +28,8 @@ public class TransactionResponse {
     private String referenceNumber;
     private TransactionType type;
     private TransactionStatus status;
+    /** A string such as "250.00" in responses (wallet-plan D3). Requests still take a number or a string. */
+    @JsonSerialize(using = MoneyJson.Serializer.class)
     private BigDecimal amount;
     private LocalDateTime createdAt;
     private LocalDateTime completedAt;
