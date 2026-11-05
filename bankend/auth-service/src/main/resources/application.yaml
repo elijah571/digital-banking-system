@@ -22,6 +22,12 @@ spring:
     show-sql: ${SHOW_SQL:false}
     open-in-view: false
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # Short, so a Redis outage fails the password check fast (503), not after a long wait (threat model T13).
+      timeout: 2s
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
@@ -46,6 +52,11 @@ auth:
   admin-email: ${ADMIN_EMAIL:}
   admin-password: ${ADMIN_PASSWORD:}
 
+# Service tokens for the internal API (wallet-plan 3.7). Minted by the calling service with iss=elibanking-internal and role=SERVICE.
+internal-auth:
+  jwt-secret: ${INTERNAL_JWT_SECRET:}
+  jwt-issuer: elibanking-internal
+  audience: auth-service
 management:
   endpoints:
     web:

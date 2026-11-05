@@ -194,12 +194,16 @@ services:
     environment:
       <<: *app-env
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      # Service tokens for the internal password check (wallet-plan 3.7, threat model D-P10). Same value as wallet's.
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:8080}
       PASSWORD_RESET_URL: ${PASSWORD_RESET_URL:-http://localhost:3000/reset-password}
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       kafka:
         condition: service_healthy

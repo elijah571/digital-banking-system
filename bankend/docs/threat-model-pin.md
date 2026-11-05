@@ -45,7 +45,7 @@ Status: written 2026-11-05, first step of phase 4 (wallet-plan section 5). Read 
 | T4 | PIN, OTP or password in logs or request traces | A Logback masking layer and a request-logging filter that mask `pin`, `otp`, `password` and `destination.accountNumber`. No code path logs them. | The flows run with known values, and the test asserts that none of them appears in captured logs. |
 | T5 | Account takeover through a stolen access token | A PIN change needs the password and the OTP. The OTP goes to the owner's email. | A call with only the access token is refused. |
 | T6 | Lockout used to block a victim (DoS) | Accepted, and bounded: the lock lasts at most 24 hours and affects transfers and PIN changes only. Read endpoints keep working. See R4. | A locked user can still read balances. |
-| T7 | Password guessing through the PIN change endpoint | Wrong passwords count toward the same lockout (D-P3). auth-service also rate-limits `verify-password` per user (D-P10). | Five wrong passwords lock the PIN. |
+| T7 | Password guessing through the PIN change endpoint | Wrong passwords count toward the same lockout (D-P3). auth-service also limits `verify-password` to five calls per user per 30 minutes (D-P10), counted before the comparison. | Five wrong passwords lock the PIN. |
 | T8 | Forged internal calls to the PIN verify endpoint | The allow-list admits only transaction-service (`sub`), and the audience must be wallet. Other callers get 403. | A token from another service gets 403. A token for another audience gets 401. |
 | T9 | Timing differences that reveal the PIN | The hash compare is constant-time (`MessageDigest.isEqual`). Argon2 runs on every attempt that passes the lock check, so a locked PIN and a wrong PIN take different paths, but a wrong PIN and a right PIN take the same path up to the compare. | Covered by the code review, not a timing test. |
 | T10 | Replay of a PIN change | The OTP is single use, and the OTP claim is recorded. The password is checked again on each change. | The same OTP and password used twice: one change, one refusal. |
@@ -77,7 +77,7 @@ Where the plan left a choice open, the plan's rule applies: the recommended opti
 | D-P7 | Pepper | `PIN_PEPPER` from the environment, at least 32 bytes, required at startup. `pepper_version` stored, rotation not built. | The plan's rule (3.5). Rotation can come later without changing the stored format. |
 | D-P8 | Status codes | Wrong PIN gives 403. No PIN set gives 403 with "Set a PIN first". Locked gives 423 with `Retry-After`. | 403 for a wrong PIN is in the plan (6b, review fix 1). 423 tells the client to wait, not to retry. |
 | D-P9 | Redis outage | OTP issue and verify give 503. PIN verify (MySQL) keeps working. | The plan's rule (3.10). |
-| D-P10 | Rate limit on `verify-password` | 5 failures per user per 30 minutes, then 429, in Redis. Each call is audited. | The plan requires a rate limit. These numbers match the PIN lockout's first step. |
+| D-P10 | Rate limit on `verify-password` | **5 calls per user per 30 minutes**, then 429 with Retry-After, in Redis. Every call is counted before the password is compared, and each verdict and refusal is audited. | The plan requires a rate limit. Counting failures would need a check, then a write, which is the race 3c.5 fixed. Counting calls keeps the count atomic. A legitimate user who mistypes can use up the five in the window, and waits 30 minutes. |
 
 ## 7. Lessons carried in from the 3c.5 and 3c.7 reviews
 

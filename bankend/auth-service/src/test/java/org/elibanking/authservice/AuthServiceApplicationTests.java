@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Import;
 
 @SpringBootTest(properties = {
         "auth.jwt-secret=test-secret-test-secret-test-secret-0123456789",
+        "internal-auth.jwt-secret=" + TestTokens.SERVICE_SECRET,
         "auth.admin-email=",
         "auth.admin-password="
 })
