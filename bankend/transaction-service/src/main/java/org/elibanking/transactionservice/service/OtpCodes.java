@@ -10,6 +10,7 @@ import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.HexFormat;
 
 /**
@@ -48,6 +49,27 @@ public class OtpCodes {
     /** Set once per code by whichever outcome gets there first: success, the third wrong code, or expiry. */
     public static String decisionKey(String transactionId) {
         return "verification:otp-decided:" + transactionId;
+    }
+
+    /** What a claim decided. The name is stored with the claim time, so a recovery can finish the same outcome (wallet-plan 8.34). */
+    public enum Outcome { COMPLETE, FLAG, EXPIRE }
+
+    /** A stored claim: its outcome, and when it was made. */
+    public record Decision(Outcome outcome, Instant at) {
+    }
+
+    /**
+     * How long a decision is kept. It must outlast any crash window, because an abandoned claim is finished from this record.
+     */
+    public static final Duration DECISION_TTL = Duration.ofHours(24);
+
+    public static String encodeDecision(Outcome outcome, Instant at) {
+        return outcome.name() + "@" + at.toEpochMilli();
+    }
+
+    public static Decision decodeDecision(String stored) {
+        int at = stored.indexOf('@');
+        return new Decision(Outcome.valueOf(stored.substring(0, at)), Instant.ofEpochMilli(Long.parseLong(stored.substring(at + 1))));
     }
 
     /** A new six-digit code, 100000 to 999999. */

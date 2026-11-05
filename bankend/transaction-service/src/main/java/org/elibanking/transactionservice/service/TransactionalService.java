@@ -25,6 +25,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -46,6 +47,10 @@ public class TransactionalService {
     private static final String IN_FLIGHT = "TRANSFER_IN_FLIGHT:NGN";
     /** A transfer that has not been held after this long is one the request never finished: the recovery job picks it up. */
     private static final java.time.Duration RECOVERY_AGE = java.time.Duration.ofMinutes(2);
+    /** Past the code's lifetime, a transfer still waiting for its code is abandoned after this much more (wallet-plan 8.34). */
+    private static final java.time.Duration ABANDONED_MARGIN = java.time.Duration.ofMinutes(5);
+    /** A claim younger than this belongs to a request that may still be running, so recovery leaves it alone. */
+    private static final java.time.Duration CLAIM_SETTLE_TIME = java.time.Duration.ofMinutes(1);
 
     private final TransactionRepository transactionRepository;
     private final AccountService accountService;
@@ -226,17 +231,17 @@ public class TransactionalService {
 
         if (storedHash == null) {
             // The code ran out of time, or a request that won earlier already used it. Only one request may act on the expiry.
-            if (!claimDecision(transactionId)) {
+            if (!claimDecision(transactionId, OtpCodes.Outcome.EXPIRE)) {
                 throw alreadyDecided(transactionId);
             }
             log.warn("OTP expired for transaction: {}", transactionId);
             forgetOtp(transactionId);
-            compensateTransaction(transaction, "OTP expired - transaction cancelled and amount refunded");
+            releaseExpired(transaction, "OTP expired - transaction cancelled and amount refunded");
             return mapToResponse(transaction);
         }
 
         if (otps.matches(transactionId, otp, storedHash)) {
-            if (!claimDecision(transactionId)) {
+            if (!claimDecision(transactionId, OtpCodes.Outcome.COMPLETE)) {
                 throw alreadyDecided(transactionId);
             }
             log.info("OTP verified - completing transaction: {}", transactionId);
@@ -252,7 +257,7 @@ public class TransactionalService {
         }
 
         // The third wrong code flags it, refunds it and blocks the account. Only the request that wins the claim does this.
-        if (!claimDecision(transactionId)) {
+        if (!claimDecision(transactionId, OtpCodes.Outcome.FLAG)) {
             throw alreadyDecided(transactionId);
         }
         log.warn("Wrong OTP for transaction {} for the last time - blocking account and refunding", transactionId);
@@ -265,10 +270,78 @@ public class TransactionalService {
     /**
      * One decision per code, made by whichever outcome gets here first: a correct code, the third wrong one, or expiry.
      * The request that wins acts on it. Every other request is refused, so a code settles or blocks at most once.
+     * The claim records its outcome and its time, so recovery can finish it after a crash (wallet-plan 8.34).
      */
-    private boolean claimDecision(String transactionId) {
+    private boolean claimDecision(String transactionId, OtpCodes.Outcome outcome) {
         return Boolean.TRUE.equals(redisTemplate.opsForValue()
-                .setIfAbsent(OtpCodes.decisionKey(transactionId), "1", OtpCodes.TTL));
+                .setIfAbsent(OtpCodes.decisionKey(transactionId),
+                        OtpCodes.encodeDecision(outcome, Instant.now()), OtpCodes.DECISION_TTL));
+    }
+
+    private OtpCodes.Decision decisionOf(String transactionId) {
+        String stored = redisTemplate.opsForValue().get(OtpCodes.decisionKey(transactionId));
+        return stored == null ? null : OtpCodes.decodeDecision(stored);
+    }
+
+    /**
+     * Ends the transfers that were left waiting for their code (wallet-plan 8.34). Nothing else moves a PENDING_VERIFICATION
+     * transfer on, so without this its hold would stay forever. A transfer is a candidate once it is older than the code's
+     * lifetime plus a margin. It is acted on only when its code is gone, and what it does depends on the recorded decision:
+     * a claim that got past the point of no return is finished, never released.
+     */
+    public void expireAbandonedVerifications() {
+        LocalDateTime cutoff = LocalDateTime.now().minus(OtpCodes.TTL).minus(ABANDONED_MARGIN);
+        for (Transaction transaction : transactionRepository
+                .findTop50ByStatusAndCreatedAtBefore(TransactionStatus.PENDING_VERIFICATION, cutoff)) {
+            try {
+                resolveAbandoned(transaction.getId());
+            } catch (RuntimeException e) {
+                log.warn("Recovery of abandoned transfer {} failed, will retry: {}", transaction.getId(), e.getMessage());
+            }
+        }
+    }
+
+    private void resolveAbandoned(String transactionId) {
+        Transaction transaction = transactionRepository.findById(transactionId).orElse(null);
+        if (transaction == null || transaction.getStatus() != TransactionStatus.PENDING_VERIFICATION) {
+            return;
+        }
+
+        OtpCodes.Decision decision = decisionOf(transactionId);
+        OtpCodes.Outcome outcome;
+        if (decision != null) {
+            // A claim still being acted on by a live request is left alone. An older one was left by a crash, so it is finished.
+            if (decision.at().isAfter(Instant.now().minus(CLAIM_SETTLE_TIME))) {
+                return;
+            }
+            outcome = decision.outcome();
+        } else {
+            if (Boolean.TRUE.equals(redisTemplate.hasKey(OtpCodes.codeKey(transactionId)))) {
+                return; // the code is still valid, so the user may still enter it
+            }
+            // Nothing decided and no code left: the same claim a late verify would make. If another request wins it, that one acts.
+            if (!claimDecision(transactionId, OtpCodes.Outcome.EXPIRE)) {
+                return;
+            }
+            outcome = OtpCodes.Outcome.EXPIRE;
+        }
+
+        log.warn("Abandoned transfer {}: finishing the recorded outcome {}", transactionId, outcome);
+        switch (outcome) {
+            case COMPLETE -> {
+                forgetOtp(transactionId);
+                completeTransaction(transaction);
+            }
+            case FLAG -> {
+                forgetOtp(transactionId);
+                blockAccountAndCompensate(transaction,
+                        "Wrong OTP entered - transaction cancelled, account blocked for security");
+            }
+            case EXPIRE -> {
+                forgetOtp(transactionId);
+                releaseExpired(transaction, "OTP expired - transaction cancelled and amount refunded");
+            }
+        }
     }
 
     private static IllegalStateException alreadyDecided(String transactionId) {
@@ -283,6 +356,15 @@ public class TransactionalService {
     }
 
     private void compensateTransaction(Transaction transaction, String reason) {
+        refund(transaction, reason, TransactionStatus.FLAGGED);
+    }
+
+    /** An expired code: the same release as a flagged transfer, but the transfer ends as EXPIRED (wallet-plan 8.34). */
+    private void releaseExpired(Transaction transaction, String reason) {
+        refund(transaction, reason, TransactionStatus.EXPIRED);
+    }
+
+    private void refund(Transaction transaction, String reason, TransactionStatus endState) {
         log.info("Compensation - refunding sender: {} amount: {}",
                 transaction.getSenderAccountNumber(), transaction.getAmount());
 
@@ -291,7 +373,7 @@ public class TransactionalService {
                 system(IN_FLIGHT, "DEBIT", transaction.getAmount()),
                 account(transaction.getSenderAccountNumber(), "CREDIT", transaction.getAmount())));
 
-        transaction.setStatus(TransactionStatus.FLAGGED);
+        transaction.setStatus(endState);
         transaction.setFailureReason(reason + " | Refunded at " + LocalDateTime.now());
         transactionRepository.save(transaction);
 

@@ -12,6 +12,9 @@ public interface TransactionRepository extends JpaRepository<Transaction, String
     List<Transaction> findTop50ByStatusAndHeldAtIsNullAndCreatedAtBefore(
             org.elibanking.transactionservice.entity.TransactionStatus status, java.time.LocalDateTime cutoff);
 
+    List<Transaction> findTop50ByStatusAndCreatedAtBefore(
+            org.elibanking.transactionservice.entity.TransactionStatus status, java.time.LocalDateTime cutoff);
+
     List<Transaction> findAllByOrderByCreatedAtDesc();
 
 }

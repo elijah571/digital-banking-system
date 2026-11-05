@@ -6,6 +6,8 @@ public enum TransactionStatus {
     COMPLETED,
     PENDING_VERIFICATION,
     FLAGGED,
-    FAILED
+    FAILED,
+    /** A transfer that waited for its code past the code's lifetime, and was released (wallet-plan 8.34). */
+    EXPIRED
 
 }
