@@ -60,6 +60,7 @@ public class TransactionalService {
     private final KafkaTemplate<String, Object> kafkaTemplate; // Fixed: removed duplicate declaration
     private final RedisTemplate<String, String> redisTemplate;
     private final OtpCodes otps;
+    private final PinGate pins;
 
     /** A transfer with no idempotency record, for internal callers and tests. The API always goes through IdempotentTransfers. */
     public TransactionResponse transfer(TransactionRequest request, Caller caller) {
@@ -83,6 +84,8 @@ public class TransactionalService {
         if (!caller.isInternal() && !caller.userId().equals(sender.ownerId())) {
             throw new TransactionAccessDeniedException("You can only transfer from your own accounts");
         }
+        // The PIN is checked on every transfer path, once the sender is known to be the caller's own (wallet-plan 8.22).
+        pins.check(caller, request.getPin());
         AccountInfo receiver = accountService.getAccount(request.getReceiverAccountNumber());
         requireActive(sender, "sender");
         requireActive(receiver, "receiver");

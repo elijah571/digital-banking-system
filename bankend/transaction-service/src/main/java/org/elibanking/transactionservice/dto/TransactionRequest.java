@@ -1,9 +1,11 @@
+
 package org.elibanking.transactionservice.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -35,4 +37,11 @@ public class TransactionRequest {
     @Schema(example = "TRANSFER")
     @NotNull(message = "Transaction type is required")
     private TransactionType type;
+
+    /**
+     * The user's transfer PIN. Required while TRANSFER_PIN_REQUIRED is on (wallet-plan 8.22). Never logged.
+     */
+    @Schema(description = "Transfer PIN. Required while TRANSFER_PIN_REQUIRED is true.", example = "1234")
+    @Size(max = 10)
+    private String pin;
 }

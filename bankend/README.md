@@ -134,6 +134,7 @@ Still to do before real users:
 
 One line per breaking change, newest first. Each change adds its line in the same commit as the change.
 
+- **transaction-service refuses to start under the `prod` profile while `TRANSFER_PIN_REQUIRED` is `false`** (phase 3, slice 3c.7, wallet-plan 8.22). Phases 3 and 4 ship together, so prod does not get phase 3 alone. With the flag on, a transfer needs a `pin` (400 without one) that wallet's PIN check accepts. Until phase 4 builds that check, a transfer with the flag on gets 503.
 - **A transfer that waits for its code ends as `EXPIRED`** (phase 3, wallet-plan 8.34). The recovery job releases the held money of a transfer whose code is gone and was never entered, and the transfer ends as `EXPIRED`. An expired code entered late also ends as `EXPIRED`, not `FLAGGED`. `EXPIRED` is a new value of `status`, so a client that reads statuses must accept it.
 - **transaction-service needs `OTP_HMAC_KEY`** (phase 3, slice 3c.5 review, wallet-plan 3c.5). Set it in `.env` before `compose up`, because compose stops without it. It must be at least 32 bytes. It is used only for the hash of a transfer OTP, and it is not the internal service secret.
 - **`POST /api/v1/transactions` requires an `Idempotency-Key` header** (phase 3, slice 3c.6, wallet-plan 3.6). A missing key gets 400. The same key with the same body returns the first result and moves no money. The same key with a different body gets 422. A repeat while the first attempt is still running gets 409. A retry after a crash resumes the transfer the first attempt saved.
