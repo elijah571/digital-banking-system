@@ -53,6 +53,20 @@ auth-service:
   url: ${AUTH_SERVICE_URL:http://localhost:8083}
   audience: auth-service
 
+# Card deposits (wallet-plan 3.5, 8.19). CARD_DEPOSIT_MIN is in naira. A deposit that is not paid expires after DEPOSIT_EXPIRY.
+wallet:
+  deposits:
+    card-min: ${CARD_DEPOSIT_MIN:20000}
+    expiry: ${DEPOSIT_EXPIRY:PT24H}
+
+# account-service (owner, status, currency) and payment-service (the card intent). Calls carry a SERVICE token whose sub is this service.
+account-service:
+  url: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
+  audience: account-service
+payment-service:
+  url: ${PAYMENT_SERVICE_URL:http://localhost:8085}
+  audience: payment-service
+
 # Authentication (wallet-plan 3.7). Every route needs a verified token.
 auth:
   # Same secret and issuer as auth-service (user tokens, HS256).
