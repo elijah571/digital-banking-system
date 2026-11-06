@@ -14,6 +14,7 @@ import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -132,6 +133,55 @@ public class PaymentServiceClient {
         }
         String name = body.hasNonNull("accountName") ? body.get("accountName").asText() : null;
         return new Resolution(body.get("status").asText(), name);
+    }
+
+    /** The provider's answer to a send: its reference, and ACCEPTED, PENDING or FAILED (wallet-plan 8.7). */
+    public record Send(String providerRef, String status) {
+    }
+
+    /**
+     * Sends a payout under its key, out-{id}. The provider answers a repeat of a key with its first answer, so a retry is safe. Any failure
+     * is refused with 503, and the processor tries again with the same key.
+     */
+    public Send sendPayout(String key, String amount, String bankCode, String accountNumber, String accountName, String narration) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("key", key);
+        body.put("amount", amount);
+        body.put("bankCode", bankCode);
+        body.put("accountNumber", accountNumber);
+        body.put("accountName", accountName);
+        body.put("narration", narration);
+        JsonNode answer;
+        try {
+            answer = client.post()
+                    .uri("/internal/v1/payouts")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (RestClientException e) {
+            log.warn("payment-service did not take the payout {}: {}", key, e.getClass().getSimpleName());
+            throw unavailable();
+        }
+        if (answer == null || !answer.hasNonNull("status")) {
+            throw unavailable();
+        }
+        return new Send(answer.path("providerRef").asText(), answer.get("status").asText());
+    }
+
+    /** The provider's status for a send: SUCCESS, PENDING, FAILED, REVERSED or NOT_FOUND. Asked, not believed from the send (wallet-plan 8.3). */
+    public String payoutStatus(String key) {
+        JsonNode answer;
+        try {
+            answer = client.get().uri("/internal/v1/payouts/{key}", key).retrieve().body(JsonNode.class);
+        } catch (RestClientException e) {
+            log.warn("payment-service did not answer the status of {}: {}", key, e.getClass().getSimpleName());
+            throw unavailable();
+        }
+        if (answer == null || !answer.hasNonNull("status")) {
+            throw unavailable();
+        }
+        return answer.get("status").asText();
     }
 
     private static RequestRefusedException unavailable() {

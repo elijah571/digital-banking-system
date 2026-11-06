@@ -333,7 +333,7 @@ public class WithdrawalService {
     }
 
     /** Releases the hold on the ledger: the amount and the fee go back to the wallet, under {@code out-{id}-release}. */
-    private void release(OutboundPayout payout) {
+    void release(OutboundPayout payout) {
         List<LedgerLine> lines = new ArrayList<>();
         lines.add(new LedgerLine(null, PAYOUT_PAYABLE, "DEBIT", payout.getAmount().toPlainString(), CURRENCY));
         if (payout.getFee().signum() > 0) {

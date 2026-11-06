@@ -13,4 +13,8 @@ public interface OutboundPayoutRepository extends JpaRepository<OutboundPayout, 
     /** The ids of payouts in this state since the cutoff, oldest first. The state's own time is the update time (8.3). */
     @Query("select p.id from OutboundPayout p where p.state = :state and p.updatedAt < :cutoff order by p.updatedAt")
     List<Long> findIdsInStateSince(@Param("state") PayoutState state, @Param("cutoff") Instant cutoff, Pageable page);
+
+    /** The ids of payouts in any of these states, oldest update first. The processor works through them. */
+    @Query("select p.id from OutboundPayout p where p.state in :states order by p.updatedAt")
+    List<Long> findIdsInStates(@Param("states") List<PayoutState> states, Pageable page);
 }
