@@ -82,6 +82,8 @@ wallet:
     approval-threshold: ${WITHDRAWAL_APPROVAL_THRESHOLD}
     # A payout that no admin decides within this time is expired, and its money is released (wallet-plan 8.3). A default of 72 hours.
     approval-expiry: ${WITHDRAWAL_APPROVAL_EXPIRY:PT72H}
+    # A payout still REQUESTED after this long has its hold and gate replayed by recovery (wallet-plan 8.3). A default of five minutes.
+    recovery-after: ${WITHDRAWAL_RECOVERY_AFTER:PT5M}
     expiry-job:
       enabled: ${WITHDRAWAL_EXPIRY_JOB_ENABLED:true}
       delay-ms: ${WITHDRAWAL_EXPIRY_JOB_DELAY_MS:60000}

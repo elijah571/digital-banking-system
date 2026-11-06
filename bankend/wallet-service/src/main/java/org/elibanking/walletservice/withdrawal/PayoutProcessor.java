@@ -9,10 +9,13 @@ import org.elibanking.walletservice.payout.OutboundPayout;
 import org.elibanking.walletservice.payout.OutboundPayoutRepository;
 import org.elibanking.walletservice.payout.PayoutState;
 import org.elibanking.walletservice.payout.PayoutTransitions;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,9 +47,12 @@ public class PayoutProcessor {
     private final PayoutTransitions transitions;
     private final WithdrawalService withdrawals;
     private final TransactionTemplate tx;
+    private final Duration recoveryAfter;
 
     public PayoutProcessor(OutboundPayoutRepository payouts, PaymentServiceClient payments, AccountServiceClient accounts,
-                           PayoutTransitions transitions, WithdrawalService withdrawals, TransactionTemplate tx) {
+                           PayoutTransitions transitions, WithdrawalService withdrawals, TransactionTemplate tx,
+                           @Value("${wallet.withdrawals.recovery-after}") Duration recoveryAfter) {
+        this.recoveryAfter = recoveryAfter;
         this.payouts = payouts;
         this.payments = payments;
         this.accounts = accounts;
@@ -57,7 +63,8 @@ public class PayoutProcessor {
 
     /** Advances the payouts that are waiting to be sent, or for the provider's answer. One that fails is left for the next run. */
     public int processDue() {
-        List<Long> ids = payouts.findIdsInStates(List.of(PayoutState.APPROVED, PayoutState.PROCESSING), PageRequest.of(0, BATCH));
+        List<Long> ids = payouts.findIdsInStates(List.of(PayoutState.REQUESTED, PayoutState.APPROVED, PayoutState.PROCESSING),
+                PageRequest.of(0, BATCH));
         int looked = 0;
         for (long id : ids) {
             try {
@@ -75,6 +82,7 @@ public class PayoutProcessor {
         OutboundPayout payout = current(id);
         switch (payout.getState()) {
             case APPROVED -> send(id);
+            case REQUESTED -> recoverIfStale(payout);
             case PROCESSING -> followTheProvider(current(id));
             default -> {
             }
@@ -101,6 +109,16 @@ public class PayoutProcessor {
         accounts.postEntry("OUTBOUND_REVERSAL", payout.ledgerKey() + "-reversal", String.valueOf(id), "payout-" + id, lines);
         tx.executeWithoutResult(status -> transitions.move(current(id), PayoutState.REVERSED, "the bank reversed the transfer"));
         return true;
+    }
+
+    /**
+     * A payout still REQUESTED after the recovery window has lost its hold, or its gate, to a failure (wallet-plan 8.3). A payout that is
+     * younger than the window is left alone, because its request may still be running.
+     */
+    private void recoverIfStale(OutboundPayout payout) {
+        if (payout.getUpdatedAt().isBefore(Instant.now().minus(recoveryAfter))) {
+            withdrawals.recoverRequested(payout.getId());
+        }
     }
 
     /** APPROVED to PROCESSING, then the send. The move comes first, so a send that is lost is found as PROCESSING. */
