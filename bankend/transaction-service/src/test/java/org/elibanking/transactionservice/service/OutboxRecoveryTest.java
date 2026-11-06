@@ -44,7 +44,7 @@ import static org.mockito.Mockito.when;
  * only once the transfer is held, a crash before the hold is completed by recovery exactly once, and a refused hold is never published.
  * The scheduled jobs are off in this context; the test calls the relay and the recovery itself.
  */
-@SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789", "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
+@SpringBootTest(properties = {"transfer.pin-required=false", "internal-auth.jwt-secret=transaction-service-test-secret-0123456789", "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
         "auth.jwt-secret=" + UserTokens.SECRET, "outbox.relay.enabled=false", "transfer.recovery.enabled=false"})
 @Import(TestcontainersConfiguration.class)
 class OutboxRecoveryTest {

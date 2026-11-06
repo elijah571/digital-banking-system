@@ -118,12 +118,36 @@ services:
     networks:
       - banking-network
 
+  wallet-service:
+    build:
+      context: .
+      dockerfile: wallet-service/Dockerfile
+    environment:
+      <<: *app-env
+      AUTH_SERVICE_URL: http://auth-service:8083
+      # Verifies the user tokens from auth-service, and the SERVICE tokens from transaction-service and auth-service's callers.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
+      # The keyed hash of a PIN (threat model T3, D-P7) and the key for the PIN code (T2). Each at least 32 bytes.
+      PIN_PEPPER: ${PIN_PEPPER:?set PIN_PEPPER in .env}
+      PIN_OTP_HMAC_KEY: ${PIN_OTP_HMAC_KEY:?set PIN_OTP_HMAC_KEY in .env}
+    depends_on: *app-depends
+    ports:
+      - "8087:8087"
+    restart: on-failure
+    # Heap is 75% of this limit (MaxRAMPercentage in the Dockerfile).
+    mem_limit: 768m
+    networks:
+      - banking-network
+
   transaction-service:
     build:
       context: .
       dockerfile: transaction-service/Dockerfile
     environment:
       <<: *app-env
+      # The transfer PIN is checked by wallet-service (wallet-plan 3.5, D2).
+      WALLET_SERVICE_URL: http://wallet-service:8087
       # Verifies the user tokens from auth-service (D8). The same value as the gateway's and auth-service's.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       # Signs this service's calls to account-service (wallet-plan 3.7). The same value as account-service's.

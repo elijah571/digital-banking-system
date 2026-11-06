@@ -54,7 +54,7 @@ import static org.mockito.Mockito.when;
  * Transfer OTPs (wallet-plan D6, slice 3c.5): the code is hashed in Redis and sent once, on {@code notification.otp}; a wrong
  * code is counted; the third one flags, refunds and blocks. The Kafka template is mocked so every send can be read back.
  */
-@SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789", "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
+@SpringBootTest(properties = {"transfer.pin-required=false", "internal-auth.jwt-secret=transaction-service-test-secret-0123456789", "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
         "auth.jwt-secret=" + UserTokens.SECRET, "outbox.relay.enabled=false", "transfer.recovery.enabled=false"})
 @Import(TestcontainersConfiguration.class)
 class OtpTest {

@@ -253,13 +253,37 @@ call PUT "/admin/accounts/$B/deduct?amount=100&reason=smoke" "" "$ADMIN_TOKEN" "
 call PUT "/admin/accounts/$B/deduct?amount=999999&reason=smoke" "" "$ADMIN_TOKEN" "Idempotency-Key: smoke-overdraw-$RUN_ID"; check "PUT  /admin/accounts/{n}/deduct insufficient -> 422" 422
 call GET "/accounts/$B/balance" "" "$Bob_TOKEN";              check "     balance unchanged after credit+deduct" 200 '.=="500.00"' true
 
+# ================================================================ transfer PIN (wallet-plan 3.5, D2)
+echo "== Wallet — transfer PIN"
+# set_pin NAME -> asks for a code, reads it from the notification log, and sets the PIN to 1234.
+set_pin() {
+  local name=$1 token_var="${1}_TOKEN" token
+  token=${!token_var}
+  local mark; mark=$(log_mark)
+  call POST /wallet/pin/otp "" "$token"
+  check "POST /wallet/pin/otp ($name)" 200 .sent true
+  local code
+  if code=$(otp_after "$mark"); then
+    call PUT /wallet/pin "{\"code\":\"$code\",\"password\":\"$PASSWORD\",\"pin\":\"1234\"}" "$token"
+    check "PUT  /wallet/pin ($name, first PIN)" 200 .status PIN_SET
+  else
+    red "SKIP  PUT /wallet/pin ($name) — could not read the code from notification logs"; SKIP=$((SKIP+1))
+  fi
+}
+set_pin Alice; set_pin Bob; set_pin Carol
+call POST /wallet/pin/otp "" "$Alice_TOKEN"; check "POST /wallet/pin/otp again within a minute -> 429" 429
+
 # ================================================================ transactions
 echo "== Transactions — normal transfer"
-TX='{"senderAccountNumber":"%s","receiverAccountNumber":"%s","amount":%s,"type":"TRANSFER","description":"%s"}'
+TX='{"senderAccountNumber":"%s","receiverAccountNumber":"%s","amount":%s,"type":"TRANSFER","description":"%s","pin":"1234"}'
 # wallet-plan 3.6: every transfer carries a fresh Idempotency-Key, unless the check is about the key itself.
 idem() { echo "smoke-$RUN_ID-$RANDOM$RANDOM$RANDOM"; }
 call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "" "Idempotency-Key: $(idem)"
 check "POST /transactions without token -> 401" 401
+call POST /transactions "$(printf '{"senderAccountNumber":"%s","receiverAccountNumber":"%s","amount":10,"type":"TRANSFER","description":"no pin"}' "$A" "$B")" "$Alice_TOKEN" "Idempotency-Key: $(idem)"
+check "POST /transactions without a PIN -> 400" 400
+call POST /transactions "$(printf '{"senderAccountNumber":"%s","receiverAccountNumber":"%s","amount":10,"type":"TRANSFER","description":"wrong pin","pin":"9999"}' "$A" "$B")" "$Alice_TOKEN" "Idempotency-Key: $(idem)"
+check "POST /transactions with a wrong PIN -> 403" 403 .detail "Wrong PIN"
 call POST /transactions "$(printf "$TX" "$A" "$B" 1000 steal)" "$Bob_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions from someone else's account -> 403" 403
 call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$ADMIN_TOKEN" "Idempotency-Key: $(idem)"
