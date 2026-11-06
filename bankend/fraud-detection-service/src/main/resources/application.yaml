@@ -61,6 +61,9 @@ account:
 # Service tokens for calls to account-service (wallet-plan 3.7). The secret is shared with account-service and must be set.
 internal-auth:
   jwt-secret: ${INTERNAL_JWT_SECRET:}
+  # Calls from wallet-service (wallet-plan 3.7). A token must carry this issuer and name this service in aud.
+  jwt-issuer: elibanking-internal
+  inbound-audience: fraud-detection-service
   subject: fraud-detection-service
   audience: account-service
 

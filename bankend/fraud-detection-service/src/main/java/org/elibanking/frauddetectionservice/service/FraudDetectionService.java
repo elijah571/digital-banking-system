@@ -62,6 +62,17 @@ public class FraudDetectionService {
         }
     }
 
+    /**
+     * The check for an outbound payout, asked by wallet-service before it sends (wallet-plan 3.5, step 3). It runs the same rules as a
+     * transfer, and it counts the same velocity, so a burst of payouts is caught too.
+     */
+    public FraudCheckResult checkWithdrawal(String accountNumber, BigDecimal amount) {
+        BigDecimal balance = accountServiceClient.getBalance(accountNumber);
+        FraudCheckResult result = performFraudChecks(accountNumber, amount, balance);
+        log.info("Payout fraud check - account: {} amount: {} fraud: {}", accountNumber, amount, result.isFraud());
+        return result;
+    }
+
     private FraudCheckResult performFraudChecks(
             String accountNumber,
             BigDecimal amount,
