@@ -30,8 +30,8 @@ class WalletSecurityTest {
 
     @Test
     void aUserTokenReachesTheApi() throws Exception {
-        // Authorised, then nothing matches: there is no endpoint yet, so the answer is 404, not 401 or 403.
-        mvc.perform(get("/api/v1/wallet/pin")
+        // Authorised, then nothing matches: no route is mapped to this path, so the answer is 404, not 401 or 403.
+        mvc.perform(get("/api/v1/wallet/no-such-route")
                         .header("Authorization", "Bearer " + TestTokens.userToken("alice", "USER")))
                 .andExpect(status().isNotFound());
     }

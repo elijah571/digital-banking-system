@@ -121,6 +121,18 @@ class PinServiceTest {
         assertTrue(hasher.matches(user, RIGHT, stored));
     }
 
+    @Test
+    void fiveWrongPasswordsOnAPinChangeLockThePin() {
+        String user = aUserWithPin(RIGHT);
+
+        for (int i = 0; i < 5; i++) {
+            pins.recordPasswordFailure(user, "wallet-service");
+        }
+
+        assertEquals(PinService.Outcome.LOCKED, pins.check(user, RIGHT, "transaction-service").outcome(),
+                "five wrong passwords lock the PIN, as five wrong PINs do (D-P3)");
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private String aUserWithPin(String pin) {

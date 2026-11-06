@@ -20,6 +20,11 @@ public class GlobalExceptionHandler {
                 .body(ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, e.getMessage()));
     }
 
+    @ExceptionHandler(PasswordCheckUnavailableException.class)
+    public ProblemDetail passwordCheckDown(PasswordCheckUnavailableException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
+    }
+
     @ExceptionHandler(PinOtpUnavailableException.class)
     public ProblemDetail sendFailed(PinOtpUnavailableException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());

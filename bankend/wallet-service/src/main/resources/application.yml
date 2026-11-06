@@ -48,6 +48,11 @@ pin:
   pepper: ${PIN_PEPPER:}
   otp-hmac-key: ${PIN_OTP_HMAC_KEY:}
 
+# auth-service, for the password check on a PIN change (wallet-plan 3.5). Calls carry a SERVICE token whose sub is this service.
+auth-service:
+  url: ${AUTH_SERVICE_URL:http://localhost:8083}
+  audience: auth-service
+
 # Authentication (wallet-plan 3.7). Every route needs a verified token.
 auth:
   # Same secret and issuer as auth-service (user tokens, HS256).
@@ -59,3 +64,5 @@ internal-auth:
   jwt-secret: ${INTERNAL_JWT_SECRET:}
   jwt-issuer: elibanking-internal
   audience: wallet-service
+  # The sub of the tokens this service mints when it calls another service (wallet-plan 3.7).
+  subject: wallet-service
