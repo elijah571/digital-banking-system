@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
@@ -62,6 +63,25 @@ public class PaymentServiceClient {
             throw unavailable();
         }
         return new Intent(body.path("paymentIntentId").asText(), body.path("clientSecret").asText());
+    }
+
+    /**
+     * Asks payment-service to cancel a deposit's intent at Stripe. True when it is canceled now, or was before. False when Stripe will
+     * not cancel it, for example because it has succeeded. Any other failure is refused with 503, and the caller tries again later.
+     */
+    public boolean cancelIntent(String paymentIntentId) {
+        try {
+            client.post()
+                    .uri("/internal/v1/payments/intents/{paymentIntentId}/cancel", paymentIntentId)
+                    .retrieve()
+                    .toBodilessEntity();
+            return true;
+        } catch (HttpClientErrorException.Conflict refused) {
+            return false;
+        } catch (RestClientException e) {
+            log.warn("payment-service did not cancel an intent: {}", e.getClass().getSimpleName());
+            throw unavailable();
+        }
     }
 
     private static RequestRefusedException unavailable() {

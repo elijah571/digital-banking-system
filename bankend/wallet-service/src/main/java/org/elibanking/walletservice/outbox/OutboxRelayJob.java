@@ -1,20 +1,25 @@
 package org.elibanking.walletservice.outbox;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Runs the outbox relay on a schedule. Tests turn it off and call the relay themselves, so runs are deterministic. */
+/**
+ * Runs the outbox relay on a schedule. The switch is read on each run, not when the bean is created: a test context that turns it
+ * off must never publish to the broker it did not start (the dev broker is localhost:9092). Tests call the relay themselves.
+ */
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "outbox.relay.enabled", havingValue = "true", matchIfMissing = true)
 public class OutboxRelayJob {
 
     private final OutboxRelay relay;
+    private final Environment environment;
 
     @Scheduled(fixedDelayString = "${outbox.relay.delay-ms:1000}")
     public void run() {
-        relay.relay();
+        if (environment.getProperty("outbox.relay.enabled", Boolean.class, true)) {
+            relay.relay();
+        }
     }
 }

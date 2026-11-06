@@ -59,6 +59,7 @@ public class TestcontainersConfiguration {
             registry.add("spring.kafka.listener.auto-startup", () -> "false");
             registry.add("spring.kafka.admin.auto-create", () -> "false");
             registry.add("outbox.relay.enabled", () -> "false");
+            registry.add("wallet.deposits.expiry-job.enabled", () -> "false");
         };
     }
 
