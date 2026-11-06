@@ -36,7 +36,17 @@ build/
 
 ### VS Code ###
 .vscode/
+<<<<<<< HEAD
 .CLAUDE
 CLAUDE
 
 CLAUDE.md
+=======
+
+CLAUDE.md
+
+# Internal planning docs stay private; the rest of docs/ (architecture, ledger,
+# ADRs, threat model, OpenAPI) is tracked so the repo is self-explanatory.
+docs/wallet-plan.md
+docs/plan-history.md
+>>>>>>> 71af5b5 (readme file and architecture file updated)
