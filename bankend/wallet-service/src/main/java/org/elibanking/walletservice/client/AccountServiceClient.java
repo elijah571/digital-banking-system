@@ -31,6 +31,15 @@ public class AccountServiceClient {
     public record AccountCheck(String ownerId, String status, String currency) {
     }
 
+    /** The holder's name and the account's status, for a name enquiry on our own bank (wallet-plan 8.4). */
+    public record AccountHolder(String name, String status) {
+    }
+
+    public AccountHolder holder(String accountNumber) {
+        JsonNode account = get("/api/v1/accounts/{accountNumber}", accountNumber);
+        return new AccountHolder(account.path("accountHolderName").asText(), account.path("status").asText());
+    }
+
     /**
      * One line of a ledger entry. Name the account by {@code accountNumber} (a customer wallet) or by {@code systemAccount} (a
      * system account code). Exactly one of the two. {@code side} is DEBIT or CREDIT.

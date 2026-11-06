@@ -64,6 +64,15 @@ wallet:
   deposits:
     card-min: ${CARD_DEPOSIT_MIN:20000}
     expiry: ${DEPOSIT_EXPIRY:PT24H}
+  # Our own bank, and the name enquiry (wallet-plan 8.4, 8.10). The bank code and name are required: the service does not start without them.
+  own-bank:
+    code: ${OWN_BANK_CODE}
+    name: ${OWN_BANK_NAME}
+  name-enquiry:
+    ttl: ${NAME_ENQUIRY_TTL:PT10M}
+    rate-limit: ${NAME_ENQUIRY_RATE_LIMIT:20}
+  banks:
+    cache-ttl: ${BANK_LIST_CACHE_TTL:PT24H}
 
 # account-service (owner, status, currency) and payment-service (the card intent). Calls carry a SERVICE token whose sub is this service.
 account-service:

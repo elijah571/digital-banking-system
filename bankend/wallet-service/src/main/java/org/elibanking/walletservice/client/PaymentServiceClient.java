@@ -13,6 +13,8 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -82,6 +84,54 @@ public class PaymentServiceClient {
             log.warn("payment-service did not cancel an intent: {}", e.getClass().getSimpleName());
             throw unavailable();
         }
+    }
+
+    /** A bank the provider can send to (wallet-plan 8.4). */
+    public record Bank(String name, String code) {
+    }
+
+    /** What the provider found for an account number: FOUND, NOT_FOUND or UNAVAILABLE, with the holder's name when it was found. */
+    public record Resolution(String status, String accountName) {
+    }
+
+    /** The provider's banks, for the bank list (wallet-plan 8.4). */
+    public List<Bank> listBanks() {
+        JsonNode body;
+        try {
+            body = client.get().uri("/internal/v1/banks").retrieve().body(JsonNode.class);
+        } catch (RestClientException e) {
+            log.warn("payment-service did not list the banks: {}", e.getClass().getSimpleName());
+            throw unavailable();
+        }
+        if (body == null || !body.isArray()) {
+            throw unavailable();
+        }
+        List<Bank> banks = new ArrayList<>();
+        for (JsonNode bank : body) {
+            banks.add(new Bank(bank.path("name").asText(), bank.path("code").asText()));
+        }
+        return banks;
+    }
+
+    /** The provider's name enquiry for an account at another bank (wallet-plan 8.4). The account number is not logged. */
+    public Resolution resolveAccount(String bankCode, String accountNumber) {
+        JsonNode body;
+        try {
+            body = client.post()
+                    .uri("/internal/v1/accounts/resolve")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("bankCode", bankCode, "accountNumber", accountNumber))
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (RestClientException e) {
+            log.warn("payment-service did not resolve an account: {}", e.getClass().getSimpleName());
+            throw unavailable();
+        }
+        if (body == null || !body.hasNonNull("status")) {
+            throw unavailable();
+        }
+        String name = body.hasNonNull("accountName") ? body.get("accountName").asText() : null;
+        return new Resolution(body.get("status").asText(), name);
     }
 
     private static RequestRefusedException unavailable() {

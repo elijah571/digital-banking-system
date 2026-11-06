@@ -60,6 +60,8 @@ public class TestcontainersConfiguration {
             registry.add("spring.kafka.admin.auto-create", () -> "false");
             registry.add("outbox.relay.enabled", () -> "false");
             registry.add("wallet.deposits.expiry-job.enabled", () -> "false");
+            registry.add("wallet.own-bank.code", () -> "999");
+            registry.add("wallet.own-bank.name", () -> "Test Own Bank");
         };
     }
 
