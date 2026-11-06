@@ -23,12 +23,20 @@ import java.util.List;
 public class TestcontainersConfiguration {
 
     private static final MySQLContainer MYSQL = TestImages.mysql().withStartupTimeout(Duration.ofMinutes(3));
+    private static final GenericContainer<?> REDIS = TestImages.redis();
 
     @Bean
     @ServiceConnection
     MySQLContainer mysqlContainer() {
         startOnce(MYSQL);
         return MYSQL;
+    }
+
+    @Bean
+    @ServiceConnection(name = "redis")
+    GenericContainer<?> redisContainer() {
+        startOnce(REDIS);
+        return REDIS;
     }
 
     private static synchronized void startOnce(GenericContainer<?> container) {

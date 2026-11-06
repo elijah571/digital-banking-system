@@ -1,5 +1,6 @@
 package org.elibanking.notificationservice.service;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -9,7 +10,10 @@ import java.util.Map;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class NotificationService {
+
+    private final EmailSender emailSender;
 
     /** OTPs now arrive on {@code notification.otp} (wallet-plan D6). This listener is kept for one release, for messages already queued. */
     @KafkaListener(topics = "transaction.otp.generated", groupId = "notification-service-group")
@@ -23,6 +27,10 @@ public class NotificationService {
     }
 
     private void sendOtp(Map<String, Object> payload) {
+        if ("PIN_CHANGE".equals(payload.get("purpose"))) {
+            sendPinCode(payload);
+            return;
+        }
         try {
             String accountNumber = (String) payload.get("accountNumber");
             String otp = (String) payload.get("otp");
@@ -141,6 +149,24 @@ public class NotificationService {
 
         } catch (Exception e) {
             log.error("Error sending payment failure notification: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * A PIN code goes to the user's own email, not to an account alert (wallet-plan 3.5, threat model D-P4). The code is
+     * never logged by this service: the email sender logs the text only when MAIL_LOG_CONTENT is on, as for transfer codes.
+     */
+    private void sendPinCode(Map<String, Object> payload) {
+        try {
+            String email = (String) payload.get("email");
+            String otp = (String) payload.get("otp");
+            String html = "<p>Your OTP is <strong>" + otp + "</strong>.</p>"
+                    + "<p>Use it to change your EliBanking PIN. It is valid for 5 minutes.</p>"
+                    + "<p>If this wasn't you, ignore this email.</p>";
+            emailSender.send(email, "Your EliBanking PIN code", html,
+                    "Your OTP is " + otp + " to change your PIN. Valid for 5 minutes. If this wasn't you, ignore this message.");
+        } catch (Exception e) {
+            log.error("Error sending PIN code: {}", e.getMessage());
         }
     }
 

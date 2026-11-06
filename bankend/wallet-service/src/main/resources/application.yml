@@ -15,6 +15,21 @@ spring:
     # wallet_db is new, so V1 creates the whole schema. There is no older schema to baseline.
     baseline-on-migrate: false
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # Short, so a Redis outage fails the PIN code fast (503), not after a long wait (threat model T13).
+      timeout: 2s
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+
   jpa:
     open-in-view: false
     hibernate:

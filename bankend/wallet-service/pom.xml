@@ -38,6 +38,15 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
         </dependency>
+        <!-- The PIN code is sent through notification-service (threat model D-P4), and its hash is kept in Redis. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-kafka</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
         <!-- Argon2id for the PIN (threat model T3). BouncyCastle is the provider Spring Security's Argon2PasswordEncoder uses;
              the Boot BOM does not manage its version, so it is pinned here. -->
         <dependency>

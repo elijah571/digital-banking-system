@@ -78,6 +78,7 @@ Where the plan left a choice open, the plan's rule applies: the recommended opti
 | D-P8 | Status codes | Wrong PIN gives 403. No PIN set gives 403 with "Set a PIN first". Locked gives 423 with `Retry-After`. | 403 for a wrong PIN is in the plan (6b, review fix 1). 423 tells the client to wait, not to retry. |
 | D-P9 | Redis outage | OTP issue and verify give 503. PIN verify (MySQL) keeps working. | The plan's rule (3.10). |
 | D-P10 | Rate limit on `verify-password` | **5 calls per user per 30 minutes**, then 429 with Retry-After, in Redis. Every call is counted before the password is compared, and each verdict and refusal is audited. | The plan requires a rate limit. Counting failures would need a check, then a write, which is the race 3c.5 fixed. Counting calls keeps the count atomic. A legitimate user who mistypes can use up the five in the window, and waits 30 minutes. |
+| D-P11 | Codes per user | **One code a minute**, enforced with SETNX and a 60-second key, and answered with 429 and Retry-After. | A code is an email. Without a limit a user, or an attacker with the access token, can flood the inbox. The code's own five tries bound guessing, and this bounds sending. |
 
 ## 7. Lessons carried in from the 3c.5 and 3c.7 reviews
 
