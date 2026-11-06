@@ -11,7 +11,7 @@ Scope change 2026-11-04: **section 8 approved 2026-11-04.** D26 and D27 are appr
 | 2. Ledger core (account-service) | built, complete 2026-11-04 | `59bbc5d` |
 | 3. Transfers onto the ledger | complete. Built: gateway routes, audit on internal postings, callers send service tokens, allow-lists, legacy path removed, wallet at opening (3c.0), D8 (3c.2), transfers on the ledger (3c.3), the outbox and hold recovery (3c.4), hashed OTP on `notification.otp` (3c.5, with the review fixes in 8.33), `Idempotency-Key` on transfers (3c.6), abandoned transfers that expire (8.34), the PIN gate, which fails closed until phase 4 (3c.7, 8.35), and money as strings in transfer and account responses (3c.8, 8.36). Phase 4 is next, and it starts with `threat-model-pin.md` | `ae50989` |
 | 4. wallet-service and PIN | built, slices 4.1 to 4.6 (8.38). Transfers need the PIN, checked by wallet; wallet is in the stack | `241a4b8` |
-| 5. Deposits | not started (after phase 4) | — |
+| 5. Deposits | built, slices 5.1 to 5.6 (8.39). Card deposits work end to end: the intent, the signed webhook into the outbox, the credit once, suspense for the rest, expiry after the cancel at Stripe. Smoke 152/152 on `e45e7f6` | `e45e7f6` |
 | 6. Withdrawals and the outbound pipeline | not started | — |
 | 6b. External transfers | not started | — |
 | 6c. Inbound bank transfers | not started; gate G2 is open | — |

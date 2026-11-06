@@ -374,3 +374,26 @@ Legacy headers stay on in this slice, so callers behave as before. The slice pre
   2. The gateway returns 500 when an upstream refuses the connection. It should return 503. That is gateway error handling, which this phase did not change.
   3. `docs/deploy.md` does not exist yet (phase 9). Production handling of `PIN_PEPPER` belongs there.
   4. Phase 5 (deposits) is next. It starts after phase 4, as section 5 says.
+
+### 8.39 Phase 5 built: card deposits (2026-11-06)
+
+- **Slices and commits.** 5.1, the card intent for a deposit, internal to payment-service: `f6dffa2`. 5.2, the Stripe webhook recorded once per event in the outbox, with a 500 on failure: `2cdbcf2`. 5.3, `POST /api/v1/wallet/deposits`, opened PENDING with its intent and an idempotency key: `2f4331f`. 5.4, the Stripe outcome credits or fails the deposit once, with suspense for the rest (D26): `aabd6c1`. A fix that enables scheduling, without which both outbox relays never ran: `dace736`. 5.5, expiry after the intent is cancelled at Stripe: `9b6e018`. 5.6, `GET /api/v1/wallet/deposits/{id}`, the compose URLs, and the smoke checks for deposits: `91e60f3`. Two fixes to the smoke's own data: `8b10914` and `e45e7f6`.
+- **Decisions taken, for review.** Each follows the plan's default where the plan gives one.
+  1. A receipt that is credited or booked gets the ledger key `dep-{id}-credit` or `dep-{id}-suspense`. A receipt that cannot be credited (an unknown deposit, or one no longer PENDING) gets `dep-{id}-suspense-{eventId}`, so it never collides with the first receipt's key.
+  2. A receipt in another currency is not posted, and the deposit fails with an alert. D26 names `receipt_review` for this case. That table and its endpoint are not built, so this deviates until someone builds them.
+  3. A Stripe outcome that fails to apply is retried without end, and is never skipped. A malformed record therefore blocks its partition. That is loud, and the producer must be fixed.
+  4. The stored response of `POST /api/v1/wallet/deposits` holds the client secret, because a replay has to return it (3.6). The deposit row does not hold it.
+  5. A deposit with no intent recorded expires without a cancel, because there is nothing to cancel. A success that arrives later for it goes to suspense.
+  6. The wallet's outbox has `wallet.deposit.completed`, which the plan names, and also `wallet.deposit.failed` and `wallet.deposit.alert`. The alert is an audit row plus an outbox event.
+  7. The outbox relay and the expiry job read their on/off switch from the environment on each run. `@ConditionalOnProperty` was evaluated before the test registrar applied, so a test context ran the relay and could reach the dev broker.
+  8. account-service and payment-service are called with RestClient, not Feign. The auth-service interceptor is a bean, and Feign would send its token to every client.
+- **Smoke runs** (throwaway stack, reconciliation after each). `2cdbcf2` 124/0/0. `2f4331f` 124/0/0. `aabd6c1` 124/0/0. `dace736` (the fix) 122/1/1 on the first run, where a notification mail send timed out; 124/0/0 on the rerun. `9b6e018` 124/0/0. `91e60f3` (the first run with deposit checks) 131/19/0, and the cause was the smoke script's data: Alice's session had been revoked by the password steps, she could hold only one account, and her first account was blocked. `8b10914` 134/16/0, with the same kind of cause: Carol's account was blocked by the suspicious-transfer check. `e45e7f6` 152/0/0. `f6dffa2` (5.1) was committed without a smoke run: it adds an internal endpoint and moves no money.
+- **Tests.** payment-service 20 run, 0 failed (5.2); 23 run, 0 failed (5.5). wallet-service 80 run, 0 failed (5.4); 86 run, 0 failed (5.5); 87 run, 0 failed (5.6). The Kafka test uses the broker it starts, never the dev broker at localhost:9092.
+- **Breaking changes** (README): real card payments need the Stripe keys in `.env`; wallet-service gets `ACCOUNT_SERVICE_URL` and `PAYMENT_SERVICE_URL` from compose; `CARD_DEPOSIT_MIN` and `DEPOSIT_EXPIRY` are optional.
+- **Open.**
+  1. `.env.example` does not list `CARD_DEPOSIT_MIN`, `DEPOSIT_EXPIRY`, `ACCOUNT_SERVICE_URL` or `PAYMENT_SERVICE_URL`. The file is yours, so I have not changed it.
+  2. payment-service's outbox relay still reads its switch with `@ConditionalOnProperty`, the same timing problem wallet had. Its tests pass, because the relay is off in its shared test config. The switch should move to run time as in wallet.
+  3. D27's fee entry (`dep-{id}-fee`) is not built. It is optional in the plan.
+  4. `receipt_review` is not built (decision 2).
+  5. The Postman collection has no deposit requests yet.
+  6. A poison record blocks the wallet's deposit consumer. It needs an alert or a dead-letter path, which the plan does not describe. Today it shows as a retry loop in the log.
