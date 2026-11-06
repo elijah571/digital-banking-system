@@ -74,6 +74,16 @@
     {
       "key": "otp",
       "value": ""
+    },
+    {
+      "key": "pin",
+      "value": "1234",
+      "type": "string"
+    },
+    {
+      "key": "pinCode",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -753,7 +763,7 @@
             "description": "Set `receiverAccount` to another user's account number first.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"senderAccountNumber\": \"{{senderAccount}}\",\n  \"receiverAccountNumber\": \"{{receiverAccount}}\",\n  \"amount\": 1000,\n  \"type\": \"TRANSFER\",\n  \"description\": \"rent\"\n}"
+              "raw": "{\n  \"senderAccountNumber\": \"{{senderAccount}}\",\n  \"receiverAccountNumber\": \"{{receiverAccount}}\",\n  \"amount\": 1000,\n  \"type\": \"TRANSFER\",\n  \"description\": \"rent\",\n  \"pin\": \"{{pin}}\"\n}"
             }
           },
           "event": [
@@ -1334,6 +1344,71 @@
               }
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "Wallet",
+      "item": [
+        {
+          "name": "Ask for a PIN code",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/pin/otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "pin",
+                "otp"
+              ]
+            },
+            "description": "Set `receiverAccount` to another user's account number first."
+          }
+        },
+        {
+          "name": "Set or change the PIN",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/pin",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "pin"
+              ]
+            },
+            "description": "Set `receiverAccount` to another user's account number first.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{pinCode}}\",\n  \"password\": \"{{password}}\",\n  \"pin\": \"{{pin}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ]
     }

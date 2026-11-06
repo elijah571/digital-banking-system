@@ -10,7 +10,7 @@ Scope change 2026-11-04: **section 8 approved 2026-11-04.** D26 and D27 are appr
 | 1. Foundations | built | `7eb6f60` |
 | 2. Ledger core (account-service) | built, complete 2026-11-04 | `59bbc5d` |
 | 3. Transfers onto the ledger | complete. Built: gateway routes, audit on internal postings, callers send service tokens, allow-lists, legacy path removed, wallet at opening (3c.0), D8 (3c.2), transfers on the ledger (3c.3), the outbox and hold recovery (3c.4), hashed OTP on `notification.otp` (3c.5, with the review fixes in 8.33), `Idempotency-Key` on transfers (3c.6), abandoned transfers that expire (8.34), the PIN gate, which fails closed until phase 4 (3c.7, 8.35), and money as strings in transfer and account responses (3c.8, 8.36). Phase 4 is next, and it starts with `threat-model-pin.md` | `ae50989` |
-| 4. wallet-service and PIN | not started | — |
+| 4. wallet-service and PIN | built, slices 4.1 to 4.6 (8.38). Transfers need the PIN, checked by wallet; wallet is in the stack | `241a4b8` |
 | 5. Deposits | not started (after phase 4) | — |
 | 6. Withdrawals and the outbound pipeline | not started | — |
 | 6b. External transfers | not started | — |
@@ -299,7 +299,7 @@ Each service that publishes (account, wallet, payment, transaction) gets an `out
    - **4.4** PIN OTP (`POST /api/v1/wallet/pin/otp`) and set or change (`PUT /api/v1/wallet/pin`), with the email on change (D-P6).
    - **4.5** transaction-service calls wallet's verify in place of the fail-closed default, and `TRANSFER_PIN_REQUIRED` becomes `true`.
    - **4.6** gateway route, compose, and a smoke test that sets a PIN before its transfers.
-   The decisions D-P1 to D-P10 are in `docs/threat-model-pin.md`, section 6. Each one took its recommended option, and it can still change before the code that depends on it is written.
+   Built (8.38): 4.1 `0bb8905`, 4.2 `ea8e2a4`, 4.3 `25d0d91`, 4.4 `5063c01`, 4.4b `3db5a44`, 4.5 and 4.6 `d8b626e`, and the gateway fix `241a4b8`. The decisions D-P1 to D-P12 are in `docs/threat-model-pin.md`, section 6. Each one took its recommended option, and it can still change before the code that depends on it is written.
 5. **Deposits.** payment-service internal intent, webhook outbox, wallet consumer, expiry, tests (replay, bad signature, mismatch). The smoke test signs webhook payloads itself with `STRIPE_WEBHOOK_SECRET` via openssl, so no Stripe CLI is needed. **Starts after phase 4.** D26 and D27 are approved (8.17). The ledger side is built in phase 2 (`CardDepositPostings`). The wallet is credited the requested amount, never more and never less (review fix 3).
 6. **Withdrawals and the outbound pipeline.** State machine (with REVERSED), limits, fraud endpoint, gate, maker-checker, expiry, recovery, and the `PayoutProvider` interface with its simulator, which lives in payment-service (8.2, 8.3). The pipeline is built for both types from the start (`type = WITHDRAWAL` now), so 6b adds a type and does not add a second pipeline. All transition and concurrency tests.
 6b. **External transfers.** Bank list, name enquiry, routing in transaction-service, `EXTERNAL_TRANSFER` on the phase-6 pipeline, Paystack adapter (recipient, transfer, verify by reference), signed webhooks for transfer.success / transfer.failed / transfer.reversed with dedupe and matching, reversal entries. `docs/deploy.md` is created here with every variable so far. Smoke test: external transfer and withdrawal on the simulator, plus a sandbox run for the happy path only (8.7). Needs your Paystack test secret key in `.env` (gitignored).
