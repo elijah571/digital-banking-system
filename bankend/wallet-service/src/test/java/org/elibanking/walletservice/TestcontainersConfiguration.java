@@ -53,6 +53,12 @@ public class TestcontainersConfiguration {
             registry.add("internal-auth.jwt-secret", () -> TestTokens.SERVICE_SECRET);
             registry.add("pin.pepper", () -> "wallet-test-pepper-0123456789abcdefghij");
             registry.add("pin.otp-hmac-key", () -> "wallet-test-otp-hmac-key-0123456789abcdef");
+            // The Kafka address defaults to localhost:9092, which is the dev broker (compose publishes it). No context may reach it:
+            // the listeners and the outbox relay stay off, and the admin creates no topics. A test that needs Kafka starts its own
+            // listeners on its own broker (DepositEventKafkaTest).
+            registry.add("spring.kafka.listener.auto-startup", () -> "false");
+            registry.add("spring.kafka.admin.auto-create", () -> "false");
+            registry.add("outbox.relay.enabled", () -> "false");
         };
     }
 

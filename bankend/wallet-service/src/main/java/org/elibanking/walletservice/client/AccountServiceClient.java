@@ -6,11 +6,14 @@ import org.elibanking.walletservice.exception.RequestRefusedException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
+
+import java.util.List;
 
 /**
  * Reads an account from account-service with a SERVICE token whose sub is wallet-service (wallet-plan 3.5, 3.7). The owner and
@@ -26,6 +29,22 @@ public class AccountServiceClient {
 
     /** What a deposit needs to know about the account. */
     public record AccountCheck(String ownerId, String status, String currency) {
+    }
+
+    /**
+     * One line of a ledger entry. Name the account by {@code accountNumber} (a customer wallet) or by {@code systemAccount} (a
+     * system account code). Exactly one of the two. {@code side} is DEBIT or CREDIT.
+     */
+    public record LedgerLine(String accountNumber, String systemAccount, String side, String amount, String currency) {
+    }
+
+    /** What account-service answered. {@code replayed} is true when the key had been posted already and nothing new was written. */
+    public record PostResult(long entryId, boolean replayed) {
+    }
+
+    /** The body account-service's internal posting API takes (LedgerApi.PostEntryRequest). */
+    private record PostEntryBody(String type, String idempotencyKey, String reference, String correlationId, String createdBy,
+                                 List<LedgerLine> lines) {
     }
 
     private final RestClient client;
@@ -46,6 +65,30 @@ public class AccountServiceClient {
         JsonNode ledger = get("/internal/v1/ledger/accounts/{accountNumber}", accountNumber);
         return new AccountCheck(account.path("ownerId").asText(), account.path("status").asText(),
                 ledger.path("currency").asText());
+    }
+
+    /**
+     * Posts a ledger entry through account-service's internal API (wallet-plan 3.2). The key is permanent, so a repeat of the same
+     * entry is a replay and moves no money. Any failure is refused with 503, and the caller retries.
+     */
+    public PostResult postEntry(String type, String idempotencyKey, String reference, String correlationId,
+                                List<LedgerLine> lines) {
+        JsonNode body;
+        try {
+            body = client.post()
+                    .uri("/internal/v1/ledger/entries")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new PostEntryBody(type, idempotencyKey, reference, correlationId, "wallet-service", lines))
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (RestClientException e) {
+            log.warn("account-service did not post ledger entry {}: {}", idempotencyKey, e.getClass().getSimpleName());
+            throw unavailable();
+        }
+        if (body == null || !body.hasNonNull("entryId")) {
+            throw unavailable();
+        }
+        return new PostResult(body.path("entryId").asLong(), body.path("replayed").asBoolean());
     }
 
     private JsonNode get(String path, String accountNumber) {
