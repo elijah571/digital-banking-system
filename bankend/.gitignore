@@ -3,7 +3,7 @@ target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
-./docs/
+/docs/
 
 # Local secrets (Stripe keys, etc.) — keep .env.example tracked
 .env
@@ -38,3 +38,5 @@ build/
 .vscode/
 .CLAUDE
 CLAUDE
+
+CLAUDE.md
