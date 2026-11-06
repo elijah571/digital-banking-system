@@ -12,7 +12,9 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -57,9 +59,11 @@ public class AccountServiceClient {
     }
 
     private final RestClient client;
+    private final ObjectMapper mapper;
 
     public AccountServiceClient(@Value("${account-service.url}") String baseUrl,
-                                @Qualifier("accountServiceTokens") ServiceTokens tokens) {
+                                @Qualifier("accountServiceTokens") ServiceTokens tokens, ObjectMapper mapper) {
+        this.mapper = mapper;
         this.client = RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestInterceptor((request, body, execution) -> {
@@ -90,6 +94,9 @@ public class AccountServiceClient {
                     .body(new PostEntryBody(type, idempotencyKey, reference, correlationId, "wallet-service", lines))
                     .retrieve()
                     .body(JsonNode.class);
+        } catch (HttpClientErrorException.UnprocessableEntity refused) {
+            // The ledger refused the entry, for a reason it names (insufficient funds, an inactive account). The caller decides what that means.
+            throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY, ledgerDetail(refused));
         } catch (RestClientException e) {
             log.warn("account-service did not post ledger entry {}: {}", idempotencyKey, e.getClass().getSimpleName());
             throw unavailable();
@@ -98,6 +105,15 @@ public class AccountServiceClient {
             throw unavailable();
         }
         return new PostResult(body.path("entryId").asLong(), body.path("replayed").asBoolean());
+    }
+
+    /** The account's daily transaction limit, as account-service holds it (wallet-plan D13). */
+    public BigDecimal dailyLimit(String accountNumber) {
+        JsonNode account = get("/api/v1/accounts/{accountNumber}", accountNumber);
+        if (!account.hasNonNull("dailyTransactionLimit")) {
+            throw unavailable();
+        }
+        return new BigDecimal(account.get("dailyTransactionLimit").asText());
     }
 
     private JsonNode get(String path, String accountNumber) {
@@ -115,6 +131,16 @@ public class AccountServiceClient {
             throw unavailable();
         }
         return body;
+    }
+
+    /** The reason the ledger gave in its problem response, or a plain line when it gave none. */
+    private String ledgerDetail(HttpClientErrorException refused) {
+        try {
+            String detail = mapper.readTree(refused.getResponseBodyAsString()).path("detail").asText("");
+            return detail.isEmpty() ? "The ledger refused the entry" : detail;
+        } catch (RuntimeException unreadable) {
+            return "The ledger refused the entry";
+        }
     }
 
     private static RequestRefusedException unavailable() {

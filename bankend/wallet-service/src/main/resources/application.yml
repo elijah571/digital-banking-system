@@ -73,6 +73,13 @@ wallet:
     rate-limit: ${NAME_ENQUIRY_RATE_LIMIT:20}
   banks:
     cache-ttl: ${BANK_LIST_CACHE_TTL:PT24H}
+  # Withdrawal limits, in naira (wallet-plan 8.3, D13). They have no defaults: the service does not start without them.
+  withdrawals:
+    min: ${WITHDRAWAL_MIN}
+    max: ${WITHDRAWAL_MAX}
+    daily-max: ${WITHDRAWAL_DAILY_MAX}
+  # The flat fee on an outbound payout, in naira, for both kinds of payout (8.3). Zero until the business sets it.
+  outbound-fee: ${OUTBOUND_FEE:0.00}
 
 # account-service (owner, status, currency) and payment-service (the card intent). Calls carry a SERVICE token whose sub is this service.
 account-service:
