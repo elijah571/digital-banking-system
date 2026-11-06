@@ -66,6 +66,8 @@ public class TestcontainersConfiguration {
             registry.add("wallet.withdrawals.min", () -> "100.00");
             registry.add("wallet.withdrawals.max", () -> "1000000.00");
             registry.add("wallet.withdrawals.daily-max", () -> "5000000.00");
+            registry.add("wallet.withdrawals.approval-threshold", () -> "100000.00");
+            registry.add("wallet.withdrawals.expiry-job.enabled", () -> "false");
         };
     }
 

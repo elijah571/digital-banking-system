@@ -135,6 +135,9 @@ services:
       WITHDRAWAL_MIN: ${WITHDRAWAL_MIN:?set WITHDRAWAL_MIN in .env}
       WITHDRAWAL_MAX: ${WITHDRAWAL_MAX:?set WITHDRAWAL_MAX in .env}
       WITHDRAWAL_DAILY_MAX: ${WITHDRAWAL_DAILY_MAX:?set WITHDRAWAL_DAILY_MAX in .env}
+      WITHDRAWAL_APPROVAL_THRESHOLD: ${WITHDRAWAL_APPROVAL_THRESHOLD:?set WITHDRAWAL_APPROVAL_THRESHOLD in .env}
+      # The fraud check for a payout, called before it is approved (wallet-plan 3.5, step 3).
+      FRAUD_SERVICE_URL: http://fraud-detection-service:8084
       # Verifies the user tokens from auth-service, and the SERVICE tokens from transaction-service and auth-service's callers.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}

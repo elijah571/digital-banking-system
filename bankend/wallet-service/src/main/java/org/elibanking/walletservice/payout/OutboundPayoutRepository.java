@@ -1,6 +1,16 @@
 package org.elibanking.walletservice.payout;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.List;
 
 public interface OutboundPayoutRepository extends JpaRepository<OutboundPayout, Long> {
+
+    /** The ids of payouts in this state since the cutoff, oldest first. The state's own time is the update time (8.3). */
+    @Query("select p.id from OutboundPayout p where p.state = :state and p.updatedAt < :cutoff order by p.updatedAt")
+    List<Long> findIdsInStateSince(@Param("state") PayoutState state, @Param("cutoff") Instant cutoff, Pageable page);
 }

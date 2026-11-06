@@ -2,6 +2,9 @@ package org.elibanking.walletservice.withdrawal;
 
 import org.elibanking.walletservice.client.AccountServiceClient;
 import org.elibanking.walletservice.client.AccountServiceClient.AccountCheck;
+import org.elibanking.walletservice.client.FraudClient;
+import org.elibanking.walletservice.outbox.OutboxWriter;
+import org.elibanking.walletservice.security.Caller;
 import org.elibanking.walletservice.client.AccountServiceClient.LedgerLine;
 import org.elibanking.walletservice.enquiry.NameEnquiry;
 import org.elibanking.walletservice.enquiry.NameEnquiryService;
@@ -26,8 +29,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Requests a withdrawal (wallet-plan 8.3, the steps of 3.5 for a withdrawal). The checks run in this order: the destination is not our own
@@ -66,6 +72,9 @@ public class WithdrawalService {
     private final BigDecimal max;
     private final BigDecimal dailyMax;
     private final BigDecimal fee;
+    private final OutboxWriter outbox;
+    private final FraudClient fraudClient;
+    private final BigDecimal approvalThreshold;
 
     public WithdrawalService(OutboundPayoutRepository payouts, IdempotencyService idempotency, AccountServiceClient accounts,
                              NameEnquiryService enquiries, PinService pins, PayoutTransitions transitions, TransactionTemplate tx,
@@ -74,7 +83,11 @@ public class WithdrawalService {
                              @Value("${wallet.withdrawals.min}") BigDecimal min,
                              @Value("${wallet.withdrawals.max}") BigDecimal max,
                              @Value("${wallet.withdrawals.daily-max}") BigDecimal dailyMax,
-                             @Value("${wallet.outbound-fee}") BigDecimal fee) {
+                             @Value("${wallet.outbound-fee}") BigDecimal fee, OutboxWriter outbox, FraudClient fraudClient,
+                             @Value("${wallet.withdrawals.approval-threshold}") BigDecimal approvalThreshold) {
+        this.outbox = outbox;
+        this.fraudClient = fraudClient;
+        this.approvalThreshold = approvalThreshold;
         this.payouts = payouts;
         this.idempotency = idempotency;
         this.accounts = accounts;
@@ -217,6 +230,10 @@ public class WithdrawalService {
                 return new Reply(HttpStatus.UNPROCESSABLE_ENTITY.value(), body);
             }
         }
+        OutboundPayout held = payouts.findById(payoutId).orElseThrow();
+        if (held.getState() == PayoutState.REQUESTED) {
+            gate(held);
+        }
         String body = mapper.writeValueAsString(respond(payouts.findById(payoutId).orElseThrow()));
         idempotency.complete(scope, key, HttpStatus.ACCEPTED.value(), body);
         return new Reply(HttpStatus.ACCEPTED.value(), body);
@@ -233,6 +250,129 @@ public class WithdrawalService {
             case LOCKED -> throw new RequestRefusedException(HttpStatus.LOCKED,
                     "Too many wrong PINs. Try again in " + check.retryAfterSeconds() + " seconds");
         }
+    }
+
+    /**
+     * Step 4 of a withdrawal (wallet-plan 8.3): approve on its own only when the amount is below the threshold and the fraud check is
+     * clean. A fraud check that cannot answer is not clean, so the payout waits for an admin (fail closed).
+     */
+    private void gate(OutboundPayout payout) {
+        Optional<FraudClient.FraudResult> fraud = fraudClient.check("WITHDRAWAL", payout.getAccountNumber(), payout.getAmount());
+        boolean approve = fraud.isPresent() && !fraud.get().fraud() && payout.getAmount().compareTo(approvalThreshold) < 0;
+        String reason;
+        if (approve) {
+            reason = "below the approval threshold, and the fraud check is clean";
+        } else if (fraud.isEmpty()) {
+            reason = "the fraud check did not answer, so an admin must approve it";
+        } else if (fraud.get().fraud()) {
+            reason = "the fraud check flagged it: " + fraud.get().reason();
+        } else {
+            reason = "at or above the approval threshold, so an admin must approve it";
+        }
+        long id = payout.getId();
+        String key = payout.ledgerKey();
+        tx.executeWithoutResult(status -> {
+            OutboundPayout current = payouts.findById(id).orElseThrow();
+            if (current.getState() != PayoutState.REQUESTED) {
+                return; // an earlier attempt already gated it
+            }
+            if (approve) {
+                transitions.move(current, PayoutState.APPROVED, reason);
+            } else {
+                transitions.move(current, PayoutState.PENDING_APPROVAL, reason);
+                outbox.append("wallet.payout.approval-required", key, key, event("wallet.payout.approval-required", Map.of(
+                        "payoutId", id,
+                        "amount", current.getAmount().toPlainString(),
+                        "reason", reason)));
+            }
+        });
+    }
+
+    /** An admin approves a payout that is waiting. The requester cannot approve their own (maker-checker, wallet-plan 8.3). */
+    public WithdrawalResponse approve(Caller approver, long id) {
+        requireAdmin(approver);
+        if (withdrawal(id).getUserId().equals(approver.userId())) {
+            throw new RequestRefusedException(HttpStatus.FORBIDDEN, "The requester cannot approve their own withdrawal");
+        }
+        tx.executeWithoutResult(status -> transitions.move(awaitingApproval(id), PayoutState.APPROVED,
+                "approved by " + approver.userId()));
+        return respond(withdrawal(id));
+    }
+
+    /** An admin rejects a payout that is waiting. Its money is released to the user. */
+    public WithdrawalResponse reject(Caller approver, long id, String reason) {
+        requireAdmin(approver);
+        release(awaitingApproval(id));
+        tx.executeWithoutResult(status -> transitions.move(awaitingApproval(id), PayoutState.REJECTED,
+                "rejected by " + approver.userId() + ": " + reason));
+        return respond(withdrawal(id));
+    }
+
+    /** The user cancels their own payout while it is waiting. Its money is released. Another user's payout is 404. */
+    public WithdrawalResponse cancel(String userId, long id) {
+        OutboundPayout payout = payouts.findById(id)
+                .filter(found -> found.getType() == PayoutType.WITHDRAWAL && found.getUserId().equals(userId))
+                .orElseThrow(() -> new RequestRefusedException(HttpStatus.NOT_FOUND, "Withdrawal not found"));
+        release(awaitingApproval(payout.getId()));
+        tx.executeWithoutResult(status -> transitions.move(awaitingApproval(id), PayoutState.CANCELLED, "cancelled by the user"));
+        return respond(withdrawal(id));
+    }
+
+    /**
+     * Expires a payout that no admin decided in time, and releases its money (wallet-plan 8.3). Returns false when it is no longer waiting,
+     * which is the case when a decision was made first.
+     */
+    public boolean expire(long id) {
+        OutboundPayout payout = payouts.findById(id).orElse(null);
+        if (payout == null || payout.getState() != PayoutState.PENDING_APPROVAL) {
+            return false;
+        }
+        release(payout);
+        tx.executeWithoutResult(status -> transitions.move(awaitingApproval(id), PayoutState.EXPIRED, "no decision in time"));
+        return true;
+    }
+
+    /** Releases the hold on the ledger: the amount and the fee go back to the wallet, under {@code out-{id}-release}. */
+    private void release(OutboundPayout payout) {
+        List<LedgerLine> lines = new ArrayList<>();
+        lines.add(new LedgerLine(null, PAYOUT_PAYABLE, "DEBIT", payout.getAmount().toPlainString(), CURRENCY));
+        if (payout.getFee().signum() > 0) {
+            lines.add(new LedgerLine(null, FEE_REVENUE, "DEBIT", payout.getFee().toPlainString(), CURRENCY));
+        }
+        lines.add(new LedgerLine(payout.getAccountNumber(), null, "CREDIT",
+                payout.getAmount().add(payout.getFee()).toPlainString(), CURRENCY));
+        accounts.postEntry("OUTBOUND_RELEASE", payout.ledgerKey() + "-release", String.valueOf(payout.getId()),
+                "payout-" + payout.getId(), lines);
+    }
+
+    private OutboundPayout withdrawal(long id) {
+        return payouts.findById(id).filter(found -> found.getType() == PayoutType.WITHDRAWAL)
+                .orElseThrow(() -> new RequestRefusedException(HttpStatus.NOT_FOUND, "Withdrawal not found"));
+    }
+
+    /** The payout, if it is still waiting for approval. Inside a transaction it is locked against a second decision. */
+    private OutboundPayout awaitingApproval(long id) {
+        OutboundPayout payout = withdrawal(id);
+        if (payout.getState() != PayoutState.PENDING_APPROVAL) {
+            throw new RequestRefusedException(HttpStatus.CONFLICT, "This withdrawal is not waiting for approval");
+        }
+        return payout;
+    }
+
+    private static void requireAdmin(Caller caller) {
+        if (!caller.isAdmin()) {
+            throw new RequestRefusedException(HttpStatus.FORBIDDEN, "Only an admin can decide a withdrawal");
+        }
+    }
+
+    private static Map<String, Object> event(String type, Map<String, Object> payload) {
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("eventId", UUID.randomUUID().toString());
+        envelope.put("type", type);
+        envelope.put("version", 1);
+        envelope.put("occurredAt", Instant.now().toString());
+        envelope.put("payload", payload);
+        return envelope;
     }
 
     private WithdrawalResponse respond(OutboundPayout payout) {

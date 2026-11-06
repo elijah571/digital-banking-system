@@ -6,6 +6,7 @@ import org.elibanking.walletservice.client.AccountServiceClient;
 import org.elibanking.walletservice.client.AccountServiceClient.AccountCheck;
 import org.elibanking.walletservice.client.AccountServiceClient.LedgerLine;
 import org.elibanking.walletservice.client.AccountServiceClient.PostResult;
+import org.elibanking.walletservice.client.FraudClient;
 import org.elibanking.walletservice.client.PaymentServiceClient;
 import org.elibanking.walletservice.client.PaymentServiceClient.Resolution;
 import org.elibanking.walletservice.enquiry.NameEnquiryService;
@@ -28,6 +29,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -75,8 +77,12 @@ class WithdrawalTest {
     @MockitoBean
     PinService pins;
 
+    /** Mocked, so a test never reaches a real fraud service. The gate itself is tested in WithdrawalGateTest. */
+    @MockitoBean
+    FraudClient fraud;
+
     @Test
-    void aWithdrawalIsRequestedAndItsMoneyIsHeldOnce() throws Exception {
+    void aWithdrawalIsHeldOnceAndAClearSmallOneIsApproved() throws Exception {
         Fixture f = new Fixture();
         f.accountIsActive(new BigDecimal("1000000.00"));
         when(accounts.postEntry(anyString(), anyString(), anyString(), anyString(), anyList()))
@@ -84,7 +90,7 @@ class WithdrawalTest {
 
         MvcResult result = mvc.perform(f.withdraw(f.key(), "5000.00", OTHER_BANK))
                 .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("REQUESTED"))
+                .andExpect(jsonPath("$.status").value("APPROVED"))
                 .andExpect(jsonPath("$.destinationAccountName").value("Bob Example"))
                 .andReturn();
         long payoutId = payoutIdOf(result);
@@ -253,6 +259,7 @@ class WithdrawalTest {
         Fixture() {
             when(payments.resolveAccount(eq(OTHER_BANK), eq(destination))).thenReturn(new Resolution("FOUND", "Bob Example"));
             when(pins.check(eq(user), anyString(), eq(user))).thenReturn(new PinService.Check(PinService.Outcome.VALID, 0));
+            when(fraud.check(anyString(), anyString(), any())).thenReturn(Optional.of(new FraudClient.FraudResult(false, null)));
             ref = enquiries.enquire(user, OTHER_BANK, destination).ref();
         }
 

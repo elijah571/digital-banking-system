@@ -1,6 +1,8 @@
 package org.elibanking.walletservice.withdrawal;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.elibanking.walletservice.exception.RequestRefusedException;
 import org.elibanking.walletservice.security.Caller;
 import org.springframework.http.HttpStatus;
@@ -43,5 +45,27 @@ public class WithdrawalController {
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     public WithdrawalResponse get(@PathVariable long id, Caller caller) {
         return withdrawals.view(caller.userId(), id);
+    }
+
+    /** The reason an admin gives for rejecting a withdrawal. */
+    public record Decision(@NotBlank @Size(max = 255) String reason) {
+    }
+
+    /** An admin approves a withdrawal that is waiting. The requester cannot approve their own (wallet-plan 8.3). */
+    @PostMapping(value = "/{id}/approve", produces = MediaType.APPLICATION_JSON_VALUE)
+    public WithdrawalResponse approve(@PathVariable long id, Caller caller) {
+        return withdrawals.approve(caller, id);
+    }
+
+    /** An admin rejects a withdrawal that is waiting, and its money is released to the user. */
+    @PostMapping(value = "/{id}/reject", produces = MediaType.APPLICATION_JSON_VALUE)
+    public WithdrawalResponse reject(@PathVariable long id, @Valid @RequestBody Decision body, Caller caller) {
+        return withdrawals.reject(caller, id, body.reason());
+    }
+
+    /** The user cancels their own withdrawal while it is waiting, and its money is released. */
+    @PostMapping(value = "/{id}/cancel", produces = MediaType.APPLICATION_JSON_VALUE)
+    public WithdrawalResponse cancel(@PathVariable long id, Caller caller) {
+        return withdrawals.cancel(caller.userId(), id);
     }
 }
