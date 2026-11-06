@@ -401,18 +401,22 @@ call PATCH "/users/$Bob_ID" '{"role":"USER"}' "$ADMIN_TOKEN";   check "PATCH /us
 call PATCH "/users/$ADMIN_ID" '{"role":"USER"}' "$ADMIN_TOKEN"; check "PATCH /users/{id} admin demoting self -> 409" 409
 
 # ================================================================ card deposits (wallet-plan 3.5, phase 5)
-# Last, because each deposit moves money. Carol's account is used: the password steps above revoke Alice's sessions, and her
-# first account is blocked by the transfer checks. Balances are read as a change from the start, because earlier checks moved
-# Carol's balance. The Stripe webhook is signed here with openssl, using STRIPE_WEBHOOK_SECRET from .env, which is never printed.
+# Last, because each deposit moves money. Alice's first account is used. Her earlier session was revoked by the password steps, so
+# she logs in again with the password she changed to. Carol's account was blocked by the suspicious-transfer check, and Alice can
+# hold only one account. Balances are read as a change from the start, because earlier checks moved them. The Stripe webhook is
+# signed here with openssl, using STRIPE_WEBHOOK_SECRET from .env, which is never printed.
 echo "== Wallet — card deposits"
 STRIPE_WH_SECRET="${STRIPE_WEBHOOK_SECRET:-$(env_value STRIPE_WEBHOOK_SECRET)}"
-DEP_ACC=$C
-call GET "/accounts/$DEP_ACC/balance" "" "$Carol_TOKEN"; check "GET /accounts/{n}/balance (Carol, before the deposits)" 200
+call POST /auth/login "{\"email\":\"$Alice_EMAIL\",\"password\":\"Another789\"}"; check "POST /auth/login (Alice, after the password change)" 200
+Alice_TOKEN=$(jq -r .accessToken <<<"$BODY")
+DEP_ACC=$A
+call GET "/accounts/$DEP_ACC" "" "$Alice_TOKEN"; check "GET /accounts/{n} (Alice's deposit account is ACTIVE)" 200 .status ACTIVE
+call GET "/accounts/$DEP_ACC/balance" "" "$Alice_TOKEN"; check "GET /accounts/{n}/balance (before the deposits)" 200
 BAL0=$(jq -r . <<<"$BODY")
 
-# open_deposit KEY AMOUNT: opens a deposit into Carol's account. The response is left in BODY, and the deposit id in DEP.
+# open_deposit KEY AMOUNT: opens a deposit into Alice's account. The response is left in BODY, and the deposit id in DEP.
 open_deposit() {
-  call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"$2\"}" "$Carol_TOKEN" "Idempotency-Key: $1"
+  call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"$2\"}" "$Alice_TOKEN" "Idempotency-Key: $1"
   DEP=$(jq -r .depositId <<<"$BODY" 2>/dev/null)
 }
 # hook_event TYPE EVENT_ID DEPOSIT_ID AMOUNT_KOBO RECEIVED_KOBO CURRENCY [FAILURE_REASON]: a Stripe event as Stripe sends it.
@@ -435,7 +439,7 @@ signed_webhook() {
 expect_deposit() {
   local i
   for i in $(seq 1 30); do
-    call GET "/wallet/deposits/$2" "" "$Carol_TOKEN"
+    call GET "/wallet/deposits/$2" "" "$Alice_TOKEN"
     if [[ "$(jq -r .status <<<"$BODY" 2>/dev/null)" == "$3" ]]; then green "PASS  $1"; PASS=$((PASS+1)); return 0; fi
     sleep 1
   done
@@ -443,7 +447,7 @@ expect_deposit() {
 }
 # expect_balance NAME DELTA: the balance is the starting balance plus DELTA, as a money string with two decimals.
 expect_balance() {
-  call GET "/accounts/$DEP_ACC/balance" "" "$Carol_TOKEN"
+  call GET "/accounts/$DEP_ACC/balance" "" "$Alice_TOKEN"
   local got want
   got=$(jq -r . <<<"$BODY" 2>/dev/null)
   want=$(awk -v b="$BAL0" -v d="$2" 'BEGIN { printf "%.2f", b + d }')
@@ -453,16 +457,16 @@ expect_balance() {
 open_deposit "smoke-dep-$RUN_ID-ok" 20000.00; DEP_OK=$DEP
 check "POST /wallet/deposits 20000.00 -> 201 PENDING with a card intent" 201 .status PENDING
 check "     the intent is a Stripe payment intent" 201 '.paymentIntentId | startswith("pi_")' true
-call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"20000.00\"}" "$Carol_TOKEN" "Idempotency-Key: smoke-dep-$RUN_ID-ok"
+call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"20000.00\"}" "$Alice_TOKEN" "Idempotency-Key: smoke-dep-$RUN_ID-ok"
 check "     the same key replays the same deposit" 201 .depositId "$DEP_OK"
-call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"20001.00\"}" "$Carol_TOKEN" "Idempotency-Key: smoke-dep-$RUN_ID-ok"
+call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"20001.00\"}" "$Alice_TOKEN" "Idempotency-Key: smoke-dep-$RUN_ID-ok"
 check "     the same key with another amount -> 422" 422
-call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"19999.99\"}" "$Carol_TOKEN" "Idempotency-Key: smoke-dep-$RUN_ID-low"
+call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"19999.99\"}" "$Alice_TOKEN" "Idempotency-Key: smoke-dep-$RUN_ID-low"
 check "     below CARD_DEPOSIT_MIN -> 400" 400
-call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"20000.00\"}" "$Alice_TOKEN" "Idempotency-Key: smoke-dep-$RUN_ID-alice"
+call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"20000.00\"}" "$Bob_TOKEN" "Idempotency-Key: smoke-dep-$RUN_ID-bob"
 check "     another user's account -> 403, for the ownership reason" 403 .detail "This account belongs to another user"
 
-# 1. The full amount arrives: the deposit completes and Carol's account is credited once, with the amount requested.
+# 1. The full amount arrives: the deposit completes and the account is credited once, with the amount requested.
 EVT_OK="evt_smoke_${RUN_ID}_ok"
 PAYLOAD_OK=$(hook_event payment_intent.succeeded "$EVT_OK" "$DEP_OK" 2000000 2000000 ngn)
 signed_webhook "$STRIPE_WH_SECRET" "$PAYLOAD_OK"; check "POST /payments/webhook, signed, full amount -> 200" 200
@@ -476,7 +480,7 @@ sleep 3; expect_balance "a replayed event credits nothing more" 20000.00
 open_deposit "smoke-dep-$RUN_ID-forged" 20000.00; DEP_FORGED=$DEP
 PAYLOAD_FORGED=$(hook_event payment_intent.succeeded "evt_smoke_${RUN_ID}_forged" "$DEP_FORGED" 2000000 2000000 ngn)
 signed_webhook "whsec_not_the_real_secret" "$PAYLOAD_FORGED"; check "POST /payments/webhook with a wrong signature -> 400" 400
-sleep 3; call GET "/wallet/deposits/$DEP_FORGED" "" "$Carol_TOKEN"; check "     the forged event leaves the deposit PENDING" 200 .status PENDING
+sleep 3; call GET "/wallet/deposits/$DEP_FORGED" "" "$Alice_TOKEN"; check "     the forged event leaves the deposit PENDING" 200 .status PENDING
 expect_balance "     and the account is unchanged" 20000.00
 
 # 4. A shortfall: 19000.00 arrives for 20000.00. Nothing is credited, the deposit fails, and the receipt goes to suspense (D26).
@@ -484,7 +488,7 @@ open_deposit "smoke-dep-$RUN_ID-short" 20000.00; DEP_SHORT=$DEP
 signed_webhook "$STRIPE_WH_SECRET" "$(hook_event payment_intent.succeeded "evt_smoke_${RUN_ID}_short" "$DEP_SHORT" 2000000 1900000 ngn)"
 check "POST /payments/webhook, a shortfall -> 200" 200
 expect_deposit "a shortfall fails the deposit" "$DEP_SHORT" FAILED
-call GET "/wallet/deposits/$DEP_SHORT" "" "$Carol_TOKEN"; check "     the failure says what arrived" 200 '.failureReason | test("less than")' true
+call GET "/wallet/deposits/$DEP_SHORT" "" "$Alice_TOKEN"; check "     the failure says what arrived" 200 '.failureReason | test("less than")' true
 expect_balance "     and nothing is credited for it" 20000.00
 
 # 5. A surplus: 20500.00 arrives for 20000.00. The deposit completes with the requested 20000.00, and the surplus goes to suspense.
@@ -499,7 +503,7 @@ open_deposit "smoke-dep-$RUN_ID-declined" 20000.00; DEP_DECLINED=$DEP
 signed_webhook "$STRIPE_WH_SECRET" "$(hook_event payment_intent.payment_failed "evt_smoke_${RUN_ID}_declined" "$DEP_DECLINED" 2000000 0 ngn "Card declined")"
 check "POST /payments/webhook, a failed payment -> 200" 200
 expect_deposit "a failed payment fails the deposit" "$DEP_DECLINED" FAILED
-call GET "/wallet/deposits/$DEP_DECLINED" "" "$Carol_TOKEN"; check "     the failure carries Stripe's reason" 200 .failureReason "Card declined"
+call GET "/wallet/deposits/$DEP_DECLINED" "" "$Alice_TOKEN"; check "     the failure carries Stripe's reason" 200 .failureReason "Card declined"
 expect_balance "     and the account is unchanged" 40000.00
 
 echo
