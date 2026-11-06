@@ -18,6 +18,7 @@ import org.elibanking.walletservice.payout.PayoutTransitions;
 import org.elibanking.walletservice.payout.PayoutType;
 import org.elibanking.walletservice.pin.PinService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Requests a withdrawal (wallet-plan 8.3, the steps of 3.5 for a withdrawal). The checks run in this order: the destination is not our own
@@ -164,12 +166,14 @@ public class WithdrawalService {
         requirePin(userId, body.pin());
         BigDecimal limit = dailyMax.min(accounts.dailyLimit(body.accountNumber()));
 
-        return tx.execute(status -> {
+        LocalDate today = LocalDate.now(PayoutTransitions.BUSINESS_ZONE);
+        // The day's row is created in its own short transaction, so the lock below never races an insert of that row (wallet-plan 8.3, step 3).
+        retryOnDeadlock(() -> tx.execute(status -> jdbc.update(
+                "INSERT IGNORE INTO outbound_daily_usage (account_number, usage_day, total, version) VALUES (?, ?, 0, 0)",
+                body.accountNumber(), today)));
+        return retryOnDeadlock(() -> tx.execute(status -> {
             String sourceAccount = body.accountNumber();
-            LocalDate today = LocalDate.now(PayoutTransitions.BUSINESS_ZONE);
-            // The day's row is created if missing, then locked, so two requests cannot both pass the check (8.3, step 3).
-            jdbc.update("INSERT IGNORE INTO outbound_daily_usage (account_number, usage_day, total, version) VALUES (?, ?, 0, 0)",
-                    sourceAccount, today);
+            // The row is locked, so two requests cannot both pass the check for the day (8.3, step 3).
             BigDecimal used = jdbc.queryForObject("SELECT total FROM outbound_daily_usage WHERE account_number = ? AND usage_day = ?"
                     + " FOR UPDATE", BigDecimal.class, sourceAccount, today);
             if (used.add(amount).compareTo(limit) > 0) {
@@ -199,36 +203,34 @@ public class WithdrawalService {
                     userId, String.valueOf(saved.getId()), amount.toPlainString(), CURRENCY);
             idempotency.recordResource(scope, key, String.valueOf(saved.getId()));
             return String.valueOf(saved.getId());
-        });
+        }));
+    }
+
+    /**
+     * Runs the work again when the database picks it as the loser of a deadlock. That happens when parallel requests lock the same day's row,
+     * and the retry is the right answer, not an error to show the user. Gives up after ten attempts.
+     */
+    private static <T> T retryOnDeadlock(Supplier<T> work) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return work.get();
+            } catch (PessimisticLockingFailureException deadlock) {
+                if (attempt >= 10) {
+                    throw deadlock;
+                }
+            }
+        }
     }
 
     /** Holds the money on the ledger. A refusal by the ledger fails the payout; any other failure is thrown, and the retry holds again. */
     private Reply hold(String scope, String key, long payoutId) {
         OutboundPayout payout = payouts.findById(payoutId).orElseThrow(() ->
                 new IllegalStateException("payout " + payoutId + " is missing for Idempotency-Key " + key));
-        if (payout.getState() == PayoutState.REQUESTED) {
-            List<LedgerLine> lines = new ArrayList<>();
-            lines.add(new LedgerLine(payout.getAccountNumber(), null, "DEBIT", payout.getAmount().add(payout.getFee()).toPlainString(),
-                    CURRENCY));
-            lines.add(new LedgerLine(null, PAYOUT_PAYABLE, "CREDIT", payout.getAmount().toPlainString(), CURRENCY));
-            if (payout.getFee().signum() > 0) {
-                lines.add(new LedgerLine(null, FEE_REVENUE, "CREDIT", payout.getFee().toPlainString(), CURRENCY));
-            }
-            try {
-                accounts.postEntry("OUTBOUND_HOLD", payout.ledgerKey() + "-hold", String.valueOf(payoutId), key, lines);
-            } catch (RequestRefusedException refused) {
-                if (refused.status() != HttpStatus.UNPROCESSABLE_ENTITY) {
-                    throw refused;
-                }
-                // The ledger refused the hold, so nothing was held: the payout fails, and the day's usage is given back.
-                String reason = refused.getMessage();
-                tx.executeWithoutResult(status -> transitions.move(payouts.findById(payoutId).orElseThrow(),
-                        PayoutState.FAILED, reason));
-                String body = mapper.writeValueAsString(Map.of("status", HttpStatus.UNPROCESSABLE_ENTITY.value(),
-                        "title", "Unprocessable Content", "detail", reason));
-                idempotency.complete(scope, key, HttpStatus.UNPROCESSABLE_ENTITY.value(), body);
-                return new Reply(HttpStatus.UNPROCESSABLE_ENTITY.value(), body);
-            }
+        Optional<String> refusal = holdOnLedger(payout, key);
+        if (refusal.isPresent()) {
+            String body = failRequested(payoutId, refusal.get());
+            idempotency.complete(scope, key, HttpStatus.UNPROCESSABLE_ENTITY.value(), body);
+            return new Reply(HttpStatus.UNPROCESSABLE_ENTITY.value(), body);
         }
         OutboundPayout held = payouts.findById(payoutId).orElseThrow();
         if (held.getState() == PayoutState.REQUESTED) {
@@ -237,6 +239,56 @@ public class WithdrawalService {
         String body = mapper.writeValueAsString(respond(payouts.findById(payoutId).orElseThrow()));
         idempotency.complete(scope, key, HttpStatus.ACCEPTED.value(), body);
         return new Reply(HttpStatus.ACCEPTED.value(), body);
+    }
+
+    /**
+     * Posts the hold for a REQUESTED payout under its hold key (wallet-plan 3.4). A refusal by the ledger, which is insufficient funds, is
+     * returned as its reason, and nothing was held. Any other failure is thrown, and the payout stays REQUESTED for the next attempt.
+     */
+    Optional<String> holdOnLedger(OutboundPayout payout, String correlationKey) {
+        if (payout.getState() != PayoutState.REQUESTED) {
+            return Optional.empty();
+        }
+        List<LedgerLine> lines = new ArrayList<>();
+        lines.add(new LedgerLine(payout.getAccountNumber(), null, "DEBIT", payout.getAmount().add(payout.getFee()).toPlainString(),
+                CURRENCY));
+        lines.add(new LedgerLine(null, PAYOUT_PAYABLE, "CREDIT", payout.getAmount().toPlainString(), CURRENCY));
+        if (payout.getFee().signum() > 0) {
+            lines.add(new LedgerLine(null, FEE_REVENUE, "CREDIT", payout.getFee().toPlainString(), CURRENCY));
+        }
+        try {
+            accounts.postEntry("OUTBOUND_HOLD", payout.ledgerKey() + "-hold", String.valueOf(payout.getId()), correlationKey, lines);
+            return Optional.empty();
+        } catch (RequestRefusedException refused) {
+            if (refused.status() != HttpStatus.UNPROCESSABLE_ENTITY) {
+                throw refused;
+            }
+            return Optional.of(refused.getMessage());
+        }
+    }
+
+    /**
+     * The ledger refused the hold, so nothing was held: the payout fails, and the day's usage is given back (wallet-plan 8.3). Returns the
+     * problem body for the 422 answer.
+     */
+    String failRequested(long id, String reason) {
+        tx.executeWithoutResult(status -> transitions.move(payouts.findById(id).orElseThrow(), PayoutState.FAILED, reason));
+        return mapper.writeValueAsString(Map.of("status", HttpStatus.UNPROCESSABLE_ENTITY.value(),
+                "title", "Unprocessable Content", "detail", reason));
+    }
+
+    /**
+     * Recovery for a payout stuck in REQUESTED (wallet-plan 8.3): the hold is posted again under its own hold key, which the ledger answers
+     * with a replay if it was posted before, and then the gate runs.
+     */
+    public void recoverRequested(long id) {
+        OutboundPayout payout = payouts.findById(id).orElseThrow();
+        Optional<String> refusal = holdOnLedger(payout, payout.ledgerKey());
+        if (refusal.isPresent()) {
+            failRequested(id, refusal.get());
+            return;
+        }
+        gate(payouts.findById(id).orElseThrow());
     }
 
     /** The PIN check (wallet-plan D-P2). A wrong PIN counts toward the lock, and a locked PIN is refused until the lock ends. */
