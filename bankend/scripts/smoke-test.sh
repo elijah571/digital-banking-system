@@ -400,6 +400,112 @@ call GET /users "" "$BOB_ADMIN";                    check "     promoted user ca
 call PATCH "/users/$Bob_ID" '{"role":"USER"}' "$ADMIN_TOKEN";   check "PATCH /users/{id} demote to USER" 200 .role USER
 call PATCH "/users/$ADMIN_ID" '{"role":"USER"}' "$ADMIN_TOKEN"; check "PATCH /users/{id} admin demoting self -> 409" 409
 
+# ================================================================ card deposits (wallet-plan 3.5, phase 5)
+# Last, because each deposit moves money. Alice's first account is used. Her earlier session was revoked by the password steps, so
+# she logs in again with the password she changed to. Carol's account was blocked by the suspicious-transfer check, and Alice can
+# hold only one account. Balances are read as a change from the start, because earlier checks moved them. The Stripe webhook is
+# signed here with openssl, using STRIPE_WEBHOOK_SECRET from .env, which is never printed.
+echo "== Wallet — card deposits"
+STRIPE_WH_SECRET="${STRIPE_WEBHOOK_SECRET:-$(env_value STRIPE_WEBHOOK_SECRET)}"
+call POST /auth/login "{\"email\":\"$Alice_EMAIL\",\"password\":\"Another789\"}"; check "POST /auth/login (Alice, after the password change)" 200
+Alice_TOKEN=$(jq -r .accessToken <<<"$BODY")
+DEP_ACC=$A
+call GET "/accounts/$DEP_ACC" "" "$Alice_TOKEN"; check "GET /accounts/{n} (Alice's deposit account is ACTIVE)" 200 .status ACTIVE
+call GET "/accounts/$DEP_ACC/balance" "" "$Alice_TOKEN"; check "GET /accounts/{n}/balance (before the deposits)" 200
+BAL0=$(jq -r . <<<"$BODY")
+
+# open_deposit KEY AMOUNT: opens a deposit into Alice's account. The response is left in BODY, and the deposit id in DEP.
+open_deposit() {
+  call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"$2\"}" "$Alice_TOKEN" "Idempotency-Key: $1"
+  DEP=$(jq -r .depositId <<<"$BODY" 2>/dev/null)
+}
+# hook_event TYPE EVENT_ID DEPOSIT_ID AMOUNT_KOBO RECEIVED_KOBO CURRENCY [FAILURE_REASON]: a Stripe event as Stripe sends it.
+hook_event() {
+  local type=$1 evt=$2 dep=$3 amount=$4 received=$5 cur=$6 reason=${7:-} err=""
+  [[ -n "$reason" ]] && err=",\"last_payment_error\":{\"message\":\"$reason\"}"
+  printf '{"id":"%s","object":"event","api_version":"2025-05-28.basil","type":"%s","data":{"object":{"id":"pi_smoke_%s","object":"payment_intent","amount":%s,"amount_received":%s,"currency":"%s"%s,"metadata":{"depositId":"%s"}}}}' \
+    "$evt" "$type" "$RANDOM$RANDOM" "$amount" "$received" "$cur" "$err" "$dep"
+}
+# signed_webhook SECRET PAYLOAD: posts the event with Stripe's signature, t=<unix>,v1=HMAC-SHA256(secret, "<t>.<payload>").
+signed_webhook() {
+  local secret=$1 payload=$2 ts sig out
+  ts=$(date +%s)
+  sig=$(printf '%s.%s' "$ts" "$payload" | openssl dgst -sha256 -hmac "$secret" -hex | awk '{print $NF}')
+  out=$(curl -s -w $'\n%{http_code}' -X POST "$API/payments/webhook" -H 'Content-Type: application/json' \
+        -H "Stripe-Signature: t=$ts,v1=$sig" --data-binary "$payload")
+  STATUS=$(tail -n1 <<<"$out"); BODY=$(sed '$d' <<<"$out")
+}
+# expect_deposit NAME ID STATUS: polls the deposit, as its owner, for up to 30 seconds until it has that status.
+expect_deposit() {
+  local i
+  for i in $(seq 1 30); do
+    call GET "/wallet/deposits/$2" "" "$Alice_TOKEN"
+    if [[ "$(jq -r .status <<<"$BODY" 2>/dev/null)" == "$3" ]]; then green "PASS  $1"; PASS=$((PASS+1)); return 0; fi
+    sleep 1
+  done
+  red "FAIL  $1 — deposit $2 did not reach $3: ${BODY:0:200}"; FAIL=$((FAIL+1))
+}
+# expect_balance NAME DELTA: the balance is the starting balance plus DELTA, as a money string with two decimals.
+expect_balance() {
+  call GET "/accounts/$DEP_ACC/balance" "" "$Alice_TOKEN"
+  local got want
+  got=$(jq -r . <<<"$BODY" 2>/dev/null)
+  want=$(awk -v b="$BAL0" -v d="$2" 'BEGIN { printf "%.2f", b + d }')
+  if [[ "$got" == "$want" ]]; then green "PASS  $1 ($got)"; PASS=$((PASS+1)); else red "FAIL  $1 — balance $got, expected $want"; FAIL=$((FAIL+1)); fi
+}
+
+open_deposit "smoke-dep-$RUN_ID-ok" 20000.00; DEP_OK=$DEP
+check "POST /wallet/deposits 20000.00 -> 201 PENDING with a card intent" 201 .status PENDING
+check "     the intent is a Stripe payment intent" 201 '.paymentIntentId | startswith("pi_")' true
+call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"20000.00\"}" "$Alice_TOKEN" "Idempotency-Key: smoke-dep-$RUN_ID-ok"
+check "     the same key replays the same deposit" 201 .depositId "$DEP_OK"
+call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"20001.00\"}" "$Alice_TOKEN" "Idempotency-Key: smoke-dep-$RUN_ID-ok"
+check "     the same key with another amount -> 422" 422
+call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"19999.99\"}" "$Alice_TOKEN" "Idempotency-Key: smoke-dep-$RUN_ID-low"
+check "     below CARD_DEPOSIT_MIN -> 400" 400
+call POST /wallet/deposits "{\"accountNumber\":\"$DEP_ACC\",\"amount\":\"20000.00\"}" "$Bob_TOKEN" "Idempotency-Key: smoke-dep-$RUN_ID-bob"
+check "     another user's account -> 403, for the ownership reason" 403 .detail "This account belongs to another user"
+
+# 1. The full amount arrives: the deposit completes and the account is credited once, with the amount requested.
+EVT_OK="evt_smoke_${RUN_ID}_ok"
+PAYLOAD_OK=$(hook_event payment_intent.succeeded "$EVT_OK" "$DEP_OK" 2000000 2000000 ngn)
+signed_webhook "$STRIPE_WH_SECRET" "$PAYLOAD_OK"; check "POST /payments/webhook, signed, full amount -> 200" 200
+expect_deposit "the deposit completes after the webhook" "$DEP_OK" COMPLETED
+expect_balance "the account is credited 20000.00" 20000.00
+# 2. The same Stripe event again: applied once, so nothing moves.
+signed_webhook "$STRIPE_WH_SECRET" "$PAYLOAD_OK"; check "POST /payments/webhook, the same event again -> 200" 200
+sleep 3; expect_balance "a replayed event credits nothing more" 20000.00
+
+# 3. A webhook with a wrong signature is refused, and changes nothing.
+open_deposit "smoke-dep-$RUN_ID-forged" 20000.00; DEP_FORGED=$DEP
+PAYLOAD_FORGED=$(hook_event payment_intent.succeeded "evt_smoke_${RUN_ID}_forged" "$DEP_FORGED" 2000000 2000000 ngn)
+signed_webhook "whsec_not_the_real_secret" "$PAYLOAD_FORGED"; check "POST /payments/webhook with a wrong signature -> 400" 400
+sleep 3; call GET "/wallet/deposits/$DEP_FORGED" "" "$Alice_TOKEN"; check "     the forged event leaves the deposit PENDING" 200 .status PENDING
+expect_balance "     and the account is unchanged" 20000.00
+
+# 4. A shortfall: 19000.00 arrives for 20000.00. Nothing is credited, the deposit fails, and the receipt goes to suspense (D26).
+open_deposit "smoke-dep-$RUN_ID-short" 20000.00; DEP_SHORT=$DEP
+signed_webhook "$STRIPE_WH_SECRET" "$(hook_event payment_intent.succeeded "evt_smoke_${RUN_ID}_short" "$DEP_SHORT" 2000000 1900000 ngn)"
+check "POST /payments/webhook, a shortfall -> 200" 200
+expect_deposit "a shortfall fails the deposit" "$DEP_SHORT" FAILED
+call GET "/wallet/deposits/$DEP_SHORT" "" "$Alice_TOKEN"; check "     the failure says what arrived" 200 '.failureReason | test("less than")' true
+expect_balance "     and nothing is credited for it" 20000.00
+
+# 5. A surplus: 20500.00 arrives for 20000.00. The deposit completes with the requested 20000.00, and the surplus goes to suspense.
+open_deposit "smoke-dep-$RUN_ID-surplus" 20000.00; DEP_SURPLUS=$DEP
+signed_webhook "$STRIPE_WH_SECRET" "$(hook_event payment_intent.succeeded "evt_smoke_${RUN_ID}_surplus" "$DEP_SURPLUS" 2000000 2050000 ngn)"
+check "POST /payments/webhook, a surplus -> 200" 200
+expect_deposit "a surplus completes the deposit" "$DEP_SURPLUS" COMPLETED
+expect_balance "     and the account gets the requested 20000.00 only (40000.00 in all)" 40000.00
+
+# 6. The payment fails at Stripe: the deposit fails with Stripe's reason, and nothing is credited.
+open_deposit "smoke-dep-$RUN_ID-declined" 20000.00; DEP_DECLINED=$DEP
+signed_webhook "$STRIPE_WH_SECRET" "$(hook_event payment_intent.payment_failed "evt_smoke_${RUN_ID}_declined" "$DEP_DECLINED" 2000000 0 ngn "Card declined")"
+check "POST /payments/webhook, a failed payment -> 200" 200
+expect_deposit "a failed payment fails the deposit" "$DEP_DECLINED" FAILED
+call GET "/wallet/deposits/$DEP_DECLINED" "" "$Alice_TOKEN"; check "     the failure carries Stripe's reason" 200 .failureReason "Card declined"
+expect_balance "     and the account is unchanged" 40000.00
+
 echo
 echo "Result: $PASS passed, $FAIL failed, $SKIP skipped"
 [[ $FAIL -eq 0 ]]

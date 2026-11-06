@@ -43,7 +43,16 @@ public class SecurityConfig {
                 .logout(logout -> logout.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.POST, "/internal/v1/payments/intents")
+                        .requestMatchers(HttpMethod.POST, "/internal/v1/payments/intents",
+                                "/internal/v1/payments/intents/*/cancel")
+                        .access(CallerAllowList.only(CallerAllowList.WALLET))
+                        .requestMatchers(HttpMethod.GET, "/internal/v1/banks")
+                        .access(CallerAllowList.only(CallerAllowList.WALLET))
+                        .requestMatchers(HttpMethod.POST, "/internal/v1/accounts/resolve")
+                        .access(CallerAllowList.only(CallerAllowList.WALLET))
+                        .requestMatchers(HttpMethod.POST, "/internal/v1/payouts")
+                        .access(CallerAllowList.only(CallerAllowList.WALLET))
+                        .requestMatchers(HttpMethod.GET, "/internal/v1/payouts/*")
                         .access(CallerAllowList.only(CallerAllowList.WALLET))
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.decoder(internalTokenDecoder)));

@@ -32,6 +32,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -179,6 +180,29 @@ class DepositControllerTest {
                 .andExpect(status().isBadRequest());
 
         assertEquals(0, depositsFor(user));
+    }
+
+    @Test
+    void aDepositIsReadBackByItsOwnerAndHiddenFromOthers() throws Exception {
+        String user = newUser();
+        String account = newAccount();
+        when(accounts.check(account)).thenReturn(new AccountCheck(user, "ACTIVE", "NGN"));
+        when(payments.createIntent(anyString(), anyString(), anyString()))
+                .thenReturn(new Intent("pi_test_read", "pi_test_read_secret"));
+        String depositId = json.readTree(mvc.perform(deposit(user, newKey(), account, "20000.00"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString()).get("depositId").asText();
+
+        mvc.perform(get("/api/v1/wallet/deposits/" + depositId)
+                        .header("Authorization", "Bearer " + TestTokens.userToken(user, "USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.paymentIntentId").value("pi_test_read"))
+                .andExpect(jsonPath("$.clientSecret").isEmpty());
+
+        mvc.perform(get("/api/v1/wallet/deposits/" + depositId)
+                        .header("Authorization", "Bearer " + TestTokens.userToken(newUser(), "USER")))
+                .andExpect(status().isNotFound());
     }
 
     @Test

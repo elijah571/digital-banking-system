@@ -59,6 +59,16 @@ public class TestcontainersConfiguration {
             registry.add("spring.kafka.listener.auto-startup", () -> "false");
             registry.add("spring.kafka.admin.auto-create", () -> "false");
             registry.add("outbox.relay.enabled", () -> "false");
+            registry.add("wallet.deposits.expiry-job.enabled", () -> "false");
+            registry.add("wallet.own-bank.code", () -> "999");
+            registry.add("wallet.own-bank.name", () -> "Test Own Bank");
+            // Test limits only. The real values are the business's, and they are required in .env (compose).
+            registry.add("wallet.withdrawals.min", () -> "100.00");
+            registry.add("wallet.withdrawals.max", () -> "1000000.00");
+            registry.add("wallet.withdrawals.daily-max", () -> "5000000.00");
+            registry.add("wallet.withdrawals.approval-threshold", () -> "100000.00");
+            registry.add("wallet.withdrawals.expiry-job.enabled", () -> "false");
+            registry.add("wallet.payouts.process-job.enabled", () -> "false");
         };
     }
 

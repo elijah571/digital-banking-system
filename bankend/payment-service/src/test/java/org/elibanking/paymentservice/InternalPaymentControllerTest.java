@@ -76,6 +76,33 @@ class InternalPaymentControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void walletCanCancelAnIntentAtStripe() throws Exception {
+        when(stripe.cancel("pi_test_9")).thenReturn(new StripeIntents.Cancelled("canceled"));
+
+        mvc.perform(post(PATH + "/pi_test_9/cancel")
+                        .header("Authorization", "Bearer " + TestTokens.serviceTokenAs("wallet-service")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("canceled"));
+    }
+
+    @Test
+    void anIntentStripeWillNotCancelIsAConflict() throws Exception {
+        when(stripe.cancel("pi_test_10")).thenReturn(new StripeIntents.Cancelled("succeeded"));
+
+        mvc.perform(post(PATH + "/pi_test_10/cancel")
+                        .header("Authorization", "Bearer " + TestTokens.serviceTokenAs("wallet-service")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value("succeeded"));
+    }
+
+    @Test
+    void onlyWalletMayCancel() throws Exception {
+        mvc.perform(post(PATH + "/pi_test_11/cancel")
+                        .header("Authorization", "Bearer " + TestTokens.serviceTokenAs("transaction-service")))
+                .andExpect(status().isForbidden());
+    }
+
     private static MockHttpServletRequestBuilder request(String token, String body) {
         return post(PATH).header("Authorization", "Bearer " + token).contentType(APPLICATION_JSON).content(body);
     }

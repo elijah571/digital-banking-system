@@ -64,6 +64,34 @@ wallet:
   deposits:
     card-min: ${CARD_DEPOSIT_MIN:20000}
     expiry: ${DEPOSIT_EXPIRY:PT24H}
+  # Our own bank, and the name enquiry (wallet-plan 8.4, 8.10). The bank code and name are required: the service does not start without them.
+  own-bank:
+    code: ${OWN_BANK_CODE}
+    name: ${OWN_BANK_NAME}
+  name-enquiry:
+    ttl: ${NAME_ENQUIRY_TTL:PT10M}
+    rate-limit: ${NAME_ENQUIRY_RATE_LIMIT:20}
+  banks:
+    cache-ttl: ${BANK_LIST_CACHE_TTL:PT24H}
+  # Withdrawal limits, in naira (wallet-plan 8.3, D13). They have no defaults: the service does not start without them.
+  withdrawals:
+    min: ${WITHDRAWAL_MIN}
+    max: ${WITHDRAWAL_MAX}
+    daily-max: ${WITHDRAWAL_DAILY_MAX}
+    # At or above this amount a payout waits for an admin, even when the fraud check is clean (wallet-plan 8.3). Required.
+    approval-threshold: ${WITHDRAWAL_APPROVAL_THRESHOLD}
+    # A payout that no admin decides within this time is expired, and its money is released (wallet-plan 8.3). A default of 72 hours.
+    approval-expiry: ${WITHDRAWAL_APPROVAL_EXPIRY:PT72H}
+    expiry-job:
+      enabled: ${WITHDRAWAL_EXPIRY_JOB_ENABLED:true}
+      delay-ms: ${WITHDRAWAL_EXPIRY_JOB_DELAY_MS:60000}
+  # The flat fee on an outbound payout, in naira, for both kinds of payout (8.3). Zero until the business sets it.
+  outbound-fee: ${OUTBOUND_FEE:0.00}
+  # Sends the approved payouts, and settles or releases them once the provider answers (wallet-plan 8.3). Every 10 seconds by default.
+  payouts:
+    process-job:
+      enabled: ${PAYOUT_PROCESS_JOB_ENABLED:true}
+      delay-ms: ${PAYOUT_PROCESS_JOB_DELAY_MS:10000}
 
 # account-service (owner, status, currency) and payment-service (the card intent). Calls carry a SERVICE token whose sub is this service.
 account-service:
@@ -72,6 +100,9 @@ account-service:
 payment-service:
   url: ${PAYMENT_SERVICE_URL:http://localhost:8085}
   audience: payment-service
+fraud-service:
+  url: ${FRAUD_SERVICE_URL:http://localhost:8084}
+  audience: fraud-detection-service
 
 # Authentication (wallet-plan 3.7). Every route needs a verified token.
 auth:
