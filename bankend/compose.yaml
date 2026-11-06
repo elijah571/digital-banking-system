@@ -125,6 +125,9 @@ services:
     environment:
       <<: *app-env
       AUTH_SERVICE_URL: http://auth-service:8083
+      # Card deposits (wallet-plan 3.5): the account's owner and status, and the card intent. Both are called with SERVICE tokens.
+      ACCOUNT_SERVICE_URL: http://account-service:8081
+      PAYMENT_SERVICE_URL: http://payment-service:8085
       # Verifies the user tokens from auth-service, and the SERVICE tokens from transaction-service and auth-service's callers.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}

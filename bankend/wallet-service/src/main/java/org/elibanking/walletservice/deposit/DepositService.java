@@ -120,6 +120,16 @@ public class DepositService {
         });
     }
 
+    /** One of the caller's deposits, with its status. Another user's deposit is not found, so its existence is not revealed. */
+    public DepositResponse view(String userId, String depositId) {
+        Deposit deposit = deposits.findById(depositId)
+                .filter(found -> found.getUserId().equals(userId))
+                .orElseThrow(() -> new RequestRefusedException(HttpStatus.NOT_FOUND, "Deposit not found"));
+        return new DepositResponse(deposit.getId(), deposit.getStatus().name(), deposit.getAccountNumber(),
+                deposit.getAmount().toPlainString(), deposit.getCurrency(), deposit.getPaymentIntentId(), null,
+                deposit.getFailureReason());
+    }
+
     /** Creates the card intent for a PENDING deposit, stores its id, and records the response for replay. */
     private Reply finish(String scope, String key, String depositId) {
         Deposit deposit = deposits.findById(depositId).orElseThrow(() ->
@@ -134,7 +144,8 @@ public class DepositService {
             clientSecret = intent.clientSecret();
         }
         String body = mapper.writeValueAsString(new DepositResponse(depositId, deposit.getStatus().name(),
-                deposit.getAccountNumber(), deposit.getAmount().toPlainString(), deposit.getCurrency(), intentId, clientSecret));
+                deposit.getAccountNumber(), deposit.getAmount().toPlainString(), deposit.getCurrency(), intentId, clientSecret,
+                deposit.getFailureReason()));
         idempotency.complete(scope, key, HttpStatus.CREATED.value(), body);
         return new Reply(HttpStatus.CREATED.value(), body);
     }
