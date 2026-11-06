@@ -44,7 +44,7 @@ import static org.mockito.Mockito.when;
  * The transfer saga on the ledger (wallet-plan 3.4, slice 3c.3): hold, settle and release, with the keys from section 3.4. The
  * account-service ledger is mocked here; its own behaviour (locks, idempotency, funds) is tested in account-service.
  */
-@SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789", "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
+@SpringBootTest(properties = {"transfer.pin-required=false", "internal-auth.jwt-secret=transaction-service-test-secret-0123456789", "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
         "auth.jwt-secret=" + UserTokens.SECRET, "outbox.relay.enabled=false", "transfer.recovery.enabled=false"})
 @Import(TestcontainersConfiguration.class)
 class TransferLedgerTest {

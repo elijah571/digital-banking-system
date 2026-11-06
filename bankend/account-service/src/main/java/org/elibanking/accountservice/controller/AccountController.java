@@ -11,12 +11,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.elibanking.accountservice.dto.AccountResponse;
 import org.elibanking.accountservice.dto.CreateAccountRequest;
+import org.elibanking.accountservice.dto.MoneyJson;
 import org.elibanking.accountservice.security.Caller;
 import org.elibanking.accountservice.service.AccountService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.StringNode;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -77,17 +80,20 @@ public class AccountController {
     }
 
     @GetMapping("/{accountNumber}/balance")
-    @Operation(summary = "Get account balance", description = "Returns the current balance as a plain number, e.g. `9000.00`.")
-    @ApiResponse(responseCode = "200", description = "Current balance")
+    @Operation(summary = "Get account balance",
+            description = "Returns the current balance as a JSON string with two decimal places, e.g. `\"9000.00\"` (wallet-plan D3).")
+    @ApiResponse(responseCode = "200", description = "Current balance, as a string")
     @ApiResponse(responseCode = "403", description = "Account belongs to another user",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "404", description = "Account not found",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    public ResponseEntity<BigDecimal> getBalance(
+    public ResponseEntity<JsonNode> getBalance(
             @Parameter(description = "10-digit account number", example = "3693612260") @PathVariable String accountNumber,
             Caller caller
     ) {
-        return ResponseEntity.ok(accountService.getBalance(accountNumber, caller));
+        // A bare JSON string: a String body would be written unquoted, as a number.
+        BigDecimal balance = accountService.getBalance(accountNumber, caller);
+        return ResponseEntity.ok(StringNode.valueOf(MoneyJson.plain(balance)));
     }
 
     @PutMapping("/{accountNumber}/block")

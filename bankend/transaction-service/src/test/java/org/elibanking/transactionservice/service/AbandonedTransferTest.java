@@ -44,7 +44,7 @@ import static org.mockito.Mockito.when;
  * A claim that a crash left half done is finished from its recorded outcome, never released. A code that arrives after the
  * release is refused.
  */
-@SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789",
+@SpringBootTest(properties = {"transfer.pin-required=false", "internal-auth.jwt-secret=transaction-service-test-secret-0123456789",
         "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
         "auth.jwt-secret=" + UserTokens.SECRET, "outbox.relay.enabled=false", "transfer.recovery.enabled=false"})
 @Import(TestcontainersConfiguration.class)

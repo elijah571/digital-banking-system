@@ -232,7 +232,7 @@ check "POST /accounts/create second account same email -> 409" 409
 call POST /accounts/create '{}' "$Alice_TOKEN";            check "POST /accounts/create invalid body -> 400" 400
 
 call GET "/accounts/$A" "" "$Alice_TOKEN";                 check "GET  /accounts/{n} own" 200 .accountHolderName Alice
-call GET "/accounts/$A/balance" "" "$Alice_TOKEN";         check "GET  /accounts/{n}/balance own" 200 ".==10000" true
+call GET "/accounts/$A/balance" "" "$Alice_TOKEN";         check "GET  /accounts/{n}/balance own" 200 '.=="10000.00"' true
 call GET "/accounts/$B" "" "$Alice_TOKEN";                 check "GET  /accounts/{n} someone else's -> 403" 403
 call GET "/accounts/$B/balance" "" "$Alice_TOKEN";         check "GET  /accounts/{n}/balance someone else's -> 403" 403
 call GET "/accounts/$B" "" "$ADMIN_TOKEN";                 check "GET  /accounts/{n} any account as ADMIN" 200
@@ -251,15 +251,39 @@ call PUT "/accounts/$B/credit?amount=100" "" "$ADMIN_TOKEN";  check "PUT  /accou
 call PUT "/admin/accounts/$B/credit?amount=100&reason=smoke" "" "$ADMIN_TOKEN" "Idempotency-Key: smoke-credit-$RUN_ID"; check "PUT  /admin/accounts/{n}/credit as ADMIN" 201
 call PUT "/admin/accounts/$B/deduct?amount=100&reason=smoke" "" "$ADMIN_TOKEN" "Idempotency-Key: smoke-deduct-$RUN_ID"; check "PUT  /admin/accounts/{n}/deduct as ADMIN" 201
 call PUT "/admin/accounts/$B/deduct?amount=999999&reason=smoke" "" "$ADMIN_TOKEN" "Idempotency-Key: smoke-overdraw-$RUN_ID"; check "PUT  /admin/accounts/{n}/deduct insufficient -> 422" 422
-call GET "/accounts/$B/balance" "" "$Bob_TOKEN";              check "     balance unchanged after credit+deduct" 200 ".==500" true
+call GET "/accounts/$B/balance" "" "$Bob_TOKEN";              check "     balance unchanged after credit+deduct" 200 '.=="500.00"' true
+
+# ================================================================ transfer PIN (wallet-plan 3.5, D2)
+echo "== Wallet — transfer PIN"
+# set_pin NAME -> asks for a code, reads it from the notification log, and sets the PIN to 1234.
+set_pin() {
+  local name=$1 token_var="${1}_TOKEN" token
+  token=${!token_var}
+  local mark; mark=$(log_mark)
+  call POST /wallet/pin/otp "" "$token"
+  check "POST /wallet/pin/otp ($name)" 200 .sent true
+  local code
+  if code=$(otp_after "$mark"); then
+    call PUT /wallet/pin "{\"code\":\"$code\",\"password\":\"$PASSWORD\",\"pin\":\"1234\"}" "$token"
+    check "PUT  /wallet/pin ($name, first PIN)" 200 .status PIN_SET
+  else
+    red "SKIP  PUT /wallet/pin ($name) — could not read the code from notification logs"; SKIP=$((SKIP+1))
+  fi
+}
+set_pin Alice; set_pin Bob; set_pin Carol
+call POST /wallet/pin/otp "" "$Alice_TOKEN"; check "POST /wallet/pin/otp again within a minute -> 429" 429
 
 # ================================================================ transactions
 echo "== Transactions — normal transfer"
-TX='{"senderAccountNumber":"%s","receiverAccountNumber":"%s","amount":%s,"type":"TRANSFER","description":"%s"}'
+TX='{"senderAccountNumber":"%s","receiverAccountNumber":"%s","amount":%s,"type":"TRANSFER","description":"%s","pin":"1234"}'
 # wallet-plan 3.6: every transfer carries a fresh Idempotency-Key, unless the check is about the key itself.
 idem() { echo "smoke-$RUN_ID-$RANDOM$RANDOM$RANDOM"; }
 call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "" "Idempotency-Key: $(idem)"
 check "POST /transactions without token -> 401" 401
+call POST /transactions "$(printf '{"senderAccountNumber":"%s","receiverAccountNumber":"%s","amount":10,"type":"TRANSFER","description":"no pin"}' "$A" "$B")" "$Alice_TOKEN" "Idempotency-Key: $(idem)"
+check "POST /transactions without a PIN -> 400" 400
+call POST /transactions "$(printf '{"senderAccountNumber":"%s","receiverAccountNumber":"%s","amount":10,"type":"TRANSFER","description":"wrong pin","pin":"9999"}' "$A" "$B")" "$Alice_TOKEN" "Idempotency-Key: $(idem)"
+check "POST /transactions with a wrong PIN -> 403" 403 .detail "Wrong PIN"
 call POST /transactions "$(printf "$TX" "$A" "$B" 1000 steal)" "$Bob_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions from someone else's account -> 403" 403
 call POST /transactions "$(printf "$TX" "$A" "$B" 1000 rent)" "$ADMIN_TOKEN" "Idempotency-Key: $(idem)"
@@ -289,19 +313,20 @@ call GET "/transactions/account/$A" "" "$Bob_TOKEN";          check "GET  /trans
 call GET "/transactions" "" "$Alice_TOKEN";                   check "GET  /transactions (all) as USER -> 403" 403
 call GET "/transactions" "" "$ADMIN_TOKEN";                   check "GET  /transactions (all) as ADMIN" 200 'length > 0' true
 sleep 1
-call GET "/accounts/$A/balance" "" "$Alice_TOKEN";            check "     sender debited" 200 ".==9000" true
-call GET "/accounts/$B/balance" "" "$Bob_TOKEN";              check "     receiver credited" 200 ".==1500" true
+call GET "/accounts/$A/balance" "" "$Alice_TOKEN";            check "     sender debited" 200 '.=="9000.00"' true
+call GET "/accounts/$B/balance" "" "$Bob_TOKEN";              check "     receiver credited" 200 '.=="1500.00"' true
 
 echo "== Transactions — suspicious transfer + OTP"
 otp_mark=$(log_mark)
 call POST /transactions "$(printf "$TX" "$A" "$B" 8500 large)" "$Alice_TOKEN" "Idempotency-Key: $(idem)"
 check "POST /transactions (95% of balance)" 201; T2=$(jq -r .id <<<"$BODY")
+check "     transfer amount is the string \"8500.00\"" 201 '.amount=="8500.00"' true
 wait_status "$T2" PENDING_VERIFICATION "$Alice_TOKEN"; check "     flagged -> PENDING_VERIFICATION" 200 .status PENDING_VERIFICATION
 if OTP=$(otp_after "$otp_mark"); then
   call POST "/transactions/$T2/verify?otp=$OTP" "" "$Bob_TOKEN"; check "POST /transactions/{id}/verify by another user -> 403" 403
   call POST "/transactions/$T2/verify?otp=$OTP" "" "$Alice_TOKEN"; check "POST /transactions/{id}/verify (correct OTP)" 200 .status COMPLETED
   sleep 1
-  call GET "/accounts/$B/balance" "" "$Bob_TOKEN";              check "     receiver credited" 200 ".==10000" true
+  call GET "/accounts/$B/balance" "" "$Bob_TOKEN";              check "     receiver credited" 200 '.=="10000.00"' true
   call POST "/transactions/$T2/verify?otp=$OTP" "" "$Alice_TOKEN"; check "POST /transactions/{id}/verify twice -> 409" 409
 else
   yellow "SKIP  OTP verify — could not read OTP from notification logs"; SKIP=$((SKIP+1))
@@ -316,7 +341,7 @@ if wait_status "$T3" PENDING_VERIFICATION "$Carol_TOKEN"; then
   call POST "/transactions/$T3/verify?otp=000000" "" "$Carol_TOKEN"; check "POST /transactions/{id}/verify (wrong OTP 3 of 3) -> FLAGGED" 200 .status FLAGGED
   sleep 2
   call GET "/accounts/$C" "" "$Carol_TOKEN";                  check "     sender account BLOCKED" 200 .status BLOCKED
-  call GET "/accounts/$C/balance" "" "$Carol_TOKEN";          check "     sender refunded" 200 ".==2000" true
+  call GET "/accounts/$C/balance" "" "$Carol_TOKEN";          check "     sender refunded" 200 '.=="2000.00"' true
 else
   check "     flagged -> PENDING_VERIFICATION" 200 .status PENDING_VERIFICATION
 fi

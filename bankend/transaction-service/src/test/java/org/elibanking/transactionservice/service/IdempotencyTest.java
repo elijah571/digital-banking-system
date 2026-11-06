@@ -43,7 +43,7 @@ import static org.mockito.Mockito.when;
  * POST /api/v1/transactions with an Idempotency-Key (wallet-plan 3.6). The ledger is mocked; its own idempotency is tested in
  * account-service. The money-safety case is the crash after the transfer was saved: the retry resumes that transfer.
  */
-@SpringBootTest(properties = {"internal-auth.jwt-secret=transaction-service-test-secret-0123456789", "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
+@SpringBootTest(properties = {"transfer.pin-required=false", "internal-auth.jwt-secret=transaction-service-test-secret-0123456789", "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
         "auth.jwt-secret=" + UserTokens.SECRET, "outbox.relay.enabled=false", "transfer.recovery.enabled=false"})
 @Import(TestcontainersConfiguration.class)
 class IdempotencyTest {

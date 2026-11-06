@@ -1,33 +1,33 @@
 package org.elibanking.transactionservice.service;
 
+import org.elibanking.transactionservice.exception.PinUnavailableException;
 import org.elibanking.transactionservice.security.Caller;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
+
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * The 3c.7 default (wallet-plan 8.32): until wallet-service's PIN check is wired in, a transfer with the requirement on is
- * refused with 503, and nothing is checked or moved. Plain objects, no Spring context.
+ * Fail closed (wallet-plan 8.22, 8.32). While the PIN is required, a PIN that cannot be checked refuses the transfer with 503,
+ * and a transfer with no PIN is refused with 400. With the requirement off, nothing is checked. Plain objects, no context.
  */
 class PinFailsClosedTest {
 
     private static final Caller OWNER = new Caller("owner-1", null, "USER");
 
     @Test
-    void theDefaultVerifierRefusesWhileTheRequirementIsOn() {
-        PinGate gate = new PinGate(new UnavailablePinVerifier(), true);
+    void anUnavailableCheckRefusesWhileTheRequirementIsOn() {
+        PinGate gate = new PinGate(unavailable(), true);
 
-        ResponseStatusException refused = assertThrows(ResponseStatusException.class, () -> gate.check(OWNER, "1234"));
-        assertEquals(HttpStatus.SERVICE_UNAVAILABLE.value(), refused.getStatusCode().value());
+        assertThrows(PinUnavailableException.class, () -> gate.check(OWNER, "1234"));
     }
 
     @Test
     void aTransferWithoutAPinIsRefusedWhileTheRequirementIsOn() {
-        PinGate gate = new PinGate(new UnavailablePinVerifier(), true);
+        PinGate gate = new PinGate(unavailable(), true);
 
         assertThrows(IllegalArgumentException.class, () -> gate.check(OWNER, null));
         assertThrows(IllegalArgumentException.class, () -> gate.check(OWNER, "  "));
@@ -35,9 +35,17 @@ class PinFailsClosedTest {
 
     @Test
     void nothingIsCheckedWhileTheRequirementIsOff() {
-        PinGate gate = new PinGate(new UnavailablePinVerifier(), false);
+        AtomicInteger calls = new AtomicInteger();
+        PinGate gate = new PinGate((userId, pin) -> calls.incrementAndGet(), false);
 
         assertDoesNotThrow(() -> gate.check(OWNER, null));
         assertDoesNotThrow(() -> gate.check(OWNER, "1234"));
+        assertEquals(0, calls.get());
+    }
+
+    private static PinVerifier unavailable() {
+        return (userId, pin) -> {
+            throw new PinUnavailableException();
+        };
     }
 }

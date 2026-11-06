@@ -2,8 +2,10 @@ package org.elibanking.transactionservice.exception;
 
 import feign.FeignException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import tools.jackson.databind.JsonNode;
@@ -44,6 +46,20 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(InvalidOtpException.class)
     public ProblemDetail handleInvalidOtp(InvalidOtpException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
+    /** The transfer PIN is locked: 423, and Retry-After says when to try again (wallet-plan 3.5). */
+    @ExceptionHandler(PinLockedException.class)
+    public ResponseEntity<ProblemDetail> pinLocked(PinLockedException e) {
+        return ResponseEntity.status(HttpStatus.LOCKED)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(e.retryAfterSeconds()))
+                .body(ProblemDetail.forStatusAndDetail(HttpStatus.LOCKED, e.getMessage()));
+    }
+
+    /** wallet-service did not answer the PIN check: the transfer is refused (503, fail closed). */
+    @ExceptionHandler(PinUnavailableException.class)
+    public ProblemDetail pinUnavailable(PinUnavailableException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
