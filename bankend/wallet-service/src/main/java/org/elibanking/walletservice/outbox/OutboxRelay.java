@@ -1,0 +1,60 @@
+package org.elibanking.walletservice.outbox;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Publishes outbox events in order (wallet-plan 3.8). Rows are locked with SKIP LOCKED, so two relays never send the same row. A
+ * row that fails stays unsent, and the batch stops there, so the order holds. Delivery is at least once: consumers deduplicate by
+ * the event id.
+ */
+@Slf4j
+@Component
+public class OutboxRelay {
+
+    private static final int BATCH = 100;
+
+    private final JdbcTemplate jdbc;
+    private final KafkaTemplate<String, Object> kafka;
+    private final ObjectMapper mapper;
+    private final TransactionTemplate tx;
+
+    public OutboxRelay(JdbcTemplate jdbc, KafkaTemplate<String, Object> kafka, ObjectMapper mapper, TransactionTemplate tx) {
+        this.jdbc = jdbc;
+        this.kafka = kafka;
+        this.mapper = mapper;
+        this.tx = tx;
+    }
+
+    public void relay() {
+        tx.executeWithoutResult(status -> publishPending());
+    }
+
+    /** Publishes the unsent events in one batch. Returns how many were sent. */
+    public int publishPending() {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT id, topic, message_key, payload FROM outbox WHERE sent_at IS NULL "
+                        + "ORDER BY id LIMIT ? FOR UPDATE SKIP LOCKED", BATCH);
+        int sent = 0;
+        for (Map<String, Object> row : rows) {
+            try {
+                Object event = mapper.readValue(row.get("payload").toString(), Map.class);
+                kafka.send((String) row.get("topic"), (String) row.get("message_key"), event).get(10, TimeUnit.SECONDS);
+                jdbc.update("UPDATE outbox SET sent_at = NOW(6) WHERE id = ?", row.get("id"));
+                sent++;
+            } catch (Exception e) {
+                log.warn("Outbox row {} not sent, will retry: {}", row.get("id"), e.getClass().getSimpleName());
+                break;
+            }
+        }
+        return sent;
+    }
+}

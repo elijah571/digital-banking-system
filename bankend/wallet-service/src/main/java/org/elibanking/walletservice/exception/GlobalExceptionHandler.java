@@ -41,4 +41,10 @@ public class GlobalExceptionHandler {
     public ProblemDetail badRequest(IllegalArgumentException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
     }
+
+    /** A refusal with its own status: another user's account, an inactive account, a reused key, an outage. */
+    @ExceptionHandler(RequestRefusedException.class)
+    public ProblemDetail refused(RequestRefusedException e) {
+        return ProblemDetail.forStatusAndDetail(e.status(), e.getMessage());
+    }
 }

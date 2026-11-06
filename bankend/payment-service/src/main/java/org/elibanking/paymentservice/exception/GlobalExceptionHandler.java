@@ -35,4 +35,11 @@ public class GlobalExceptionHandler {
         log.error("Stripe error: {}", e.getMessage());
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, "Payment provider error: " + e.getUserMessage());
     }
+
+    /** A deposit event was not recorded. Answer 500 here, so Stripe retries it; the container's error page would answer 401. */
+    @ExceptionHandler(DepositNotRecordedException.class)
+    public ProblemDetail handleDepositNotRecorded(DepositNotRecordedException e) {
+        log.error(e.getMessage(), e);
+        return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "Deposit event not recorded; Stripe will retry");
+    }
 }

@@ -28,6 +28,10 @@ capture_evidence() {
   local dc=(docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE")
   (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps auth-service) > "$OUT/auth-service.log" 2>&1
   (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps notification-service) > "$OUT/notification-service.log" 2>&1
+  # The transfer and PIN path: kept so a failure in any of these services can be read after teardown.
+  for svc in wallet-service transaction-service api-gateway; do
+    (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps "$svc") > "$OUT/$svc.log" 2>&1
+  done
   (cd "$WT/$REL" && "${dc[@]}" exec -T mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -t auth_db -e "SELECT u.email, u.email_verified, t.type, t.token_hash, t.created_at, t.expires_at, t.used_at FROM auth_tokens t JOIN users u ON u.id = t.user_id ORDER BY u.email, t.created_at"') > "$OUT/auth-tokens.txt" 2>&1
 }
 

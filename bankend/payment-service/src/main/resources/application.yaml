@@ -81,6 +81,11 @@ auth:
 
 # Service tokens for calls to account-service (wallet-plan 3.7). The secret is shared with account-service and must be set.
 internal-auth:
+  # Inbound (the internal API): service tokens minted by wallet-service (wallet-plan 3.7).
+  jwt-issuer: elibanking-internal
+  # Shared by both directions: the secret that signs and checks service tokens.
   jwt-secret: ${INTERNAL_JWT_SECRET:}
+  # Outbound (calls to account-service): the token's sub and aud.
   subject: payment-service
   audience: account-service
+  inbound-audience: payment-service

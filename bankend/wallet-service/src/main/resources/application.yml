@@ -24,6 +24,12 @@ spring:
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      # Stripe outcomes from payment-service (wallet-plan 3.8). The values are JSON text, parsed by the listener.
+      group-id: wallet-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
@@ -52,6 +58,20 @@ pin:
 auth-service:
   url: ${AUTH_SERVICE_URL:http://localhost:8083}
   audience: auth-service
+
+# Card deposits (wallet-plan 3.5, 8.19). CARD_DEPOSIT_MIN is in naira. A deposit that is not paid expires after DEPOSIT_EXPIRY.
+wallet:
+  deposits:
+    card-min: ${CARD_DEPOSIT_MIN:20000}
+    expiry: ${DEPOSIT_EXPIRY:PT24H}
+
+# account-service (owner, status, currency) and payment-service (the card intent). Calls carry a SERVICE token whose sub is this service.
+account-service:
+  url: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
+  audience: account-service
+payment-service:
+  url: ${PAYMENT_SERVICE_URL:http://localhost:8085}
+  audience: payment-service
 
 # Authentication (wallet-plan 3.7). Every route needs a verified token.
 auth:

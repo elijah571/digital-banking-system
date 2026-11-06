@@ -21,6 +21,7 @@ import org.elibanking.paymentservice.entity.PaymentStatus;
 import org.elibanking.paymentservice.exception.PaymentAccessDeniedException;
 import org.elibanking.paymentservice.repository.PaymentRepository;
 import org.elibanking.paymentservice.security.Caller;
+import org.elibanking.paymentservice.stripe.DepositEvents;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,7 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final AccountClient accountClient;
+    private final DepositEvents deposits;
 
     @Value("${stripe.secret-key}")
     private String secretKey;
@@ -117,6 +119,13 @@ public class PaymentService {
 
         log.info("Received Stripe webhook: {}", event.getType());
 
+        // A wallet deposit (wallet-plan 3.5) is recorded in the outbox. A failure throws, so Stripe retries the event.
+        PaymentIntent depositIntent = depositIntentOf(event);
+        if (depositIntent != null) {
+            deposits.record(event, depositIntent);
+            return;
+        }
+
         switch (event.getType()) {
             case "payment_intent.succeeded" -> handlePaymentSuccessful(event);
             case "payment_intent.payment_failed" -> handlePaymentFailure(event);
@@ -182,6 +191,18 @@ public class PaymentService {
         } catch (Exception e) {
             log.error("Error handling payment failure: {}", e.getMessage(), e);
         }
+    }
+
+    /** A succeeded or failed PaymentIntent that carries a depositId is a wallet deposit. Anything else is the legacy path. */
+    private PaymentIntent depositIntentOf(Event event) {
+        boolean paymentEvent = "payment_intent.succeeded".equals(event.getType())
+                || "payment_intent.payment_failed".equals(event.getType());
+        if (!paymentEvent) {
+            return null;
+        }
+        PaymentIntent intent = extractPaymentIntent(event);
+        return intent != null && intent.getMetadata() != null && intent.getMetadata().get("depositId") != null
+                ? intent : null;
     }
 
     private PaymentIntent extractPaymentIntent(Event event) {
