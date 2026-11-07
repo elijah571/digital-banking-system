@@ -28,6 +28,7 @@ capture_evidence() {
   local dc=(docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE")
   (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps auth-service) > "$OUT/auth-service.log" 2>&1
   (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps notification-service) > "$OUT/notification-service.log" 2>&1
+  (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps kafka) > "$OUT/kafka.log" 2>&1
   # The transfer and PIN path: kept so a failure in any of these services can be read after teardown.
   for svc in wallet-service transaction-service api-gateway; do
     (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps "$svc") > "$OUT/$svc.log" 2>&1
@@ -65,7 +66,8 @@ echo "commit: $(git -C "$WT" log --oneline -1)"
 
 # 2. Container name overrides, so the throwaway containers do not collide with the stopped dev containers.
 printf '%s\n' 'services:' '  mysql:' '    container_name: smoke-mysql' '  redis:' '    container_name: smoke-redis' \
-  '  kafka:' '    container_name: smoke-kafka' '  wallet-service:' '    environment:' \
+  '  kafka:' '    container_name: smoke-kafka' '    healthcheck:' '      timeout: 30s' '      start_period: 30s' \
+  '  wallet-service:' '    environment:' \
   '      WITHDRAWAL_DAILY_MAX: "5000000.00"' > "$OVERRIDE"
 
 cd "$WT/$REL" || exit 2
