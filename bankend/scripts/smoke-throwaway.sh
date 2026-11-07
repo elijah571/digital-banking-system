@@ -20,6 +20,8 @@ WT=$(mktemp -d /tmp/smoke-src.XXXXXX) && rmdir "$WT"       # git worktree add ne
 OVERRIDE="$OUT/compose.override.yaml"
 TRACE="$OUT/verify-trace.tsv"
 FOLLOWER=""
+GATEWAY_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+export GATEWAY_PORT
 DEV_BEFORE=$(docker volume ls --format '{{.Name}}' | grep -E '^digital-banking-system_mysql' | sort || true)
 
 # Evidence, kept before every teardown, pass or fail (wallet-plan 8.29): both services' logs, and this stack's auth_tokens rows.
@@ -65,20 +67,26 @@ cp "$BANKEND/.env" "$WT/$REL.env"
 echo "commit: $(git -C "$WT" log --oneline -1)"
 
 # 2. Container name overrides, so the throwaway containers do not collide with the stopped dev containers.
-printf '%s\n' 'services:' '  mysql:' '    container_name: smoke-mysql' '  redis:' '    container_name: smoke-redis' \
-  '  kafka:' '    container_name: smoke-kafka' '    healthcheck:' '      timeout: 30s' '      start_period: 30s' \
-  '  wallet-service:' '    environment:' \
-  '      WITHDRAWAL_DAILY_MAX: "5000000.00"' > "$OVERRIDE"
+printf '%s\n' 'services:' '  mysql:' '    container_name: smoke-mysql' '    ports: !reset []' \
+  '  redis:' '    container_name: smoke-redis' '    ports: !reset []' \
+  '  kafka:' '    container_name: smoke-kafka' '    ports: !reset []' '    healthcheck:' '      timeout: 30s' \
+  '      start_period: 30s' '  account-service:' '    ports: !reset []' \
+  '  wallet-service:' '    ports: !reset []' '    environment:' '      WITHDRAWAL_DAILY_MAX: "5000000.00"' \
+  '  transaction-service:' '    ports: !reset []' '  fraud-detection-service:' '    ports: !reset []' \
+  '  payment-service:' '    ports: !reset []' '  auth-service:' '    ports: !reset []' '    environment:' \
+  '      APP_PUBLIC_URL: "http://127.0.0.1:${GATEWAY_PORT}"' \
+  '  notification-service:' '    ports: !reset []' '  api-gateway:' '    ports: !override' \
+  '      - "127.0.0.1:${GATEWAY_PORT}:8080"' > "$OVERRIDE"
 
 cd "$WT/$REL" || exit 2
 
 # 3. Build and start the stack in its own project. Named volumes are prefixed with the project name, so they are fresh.
 docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE" up -d --build > "$OUT/up.log" 2>&1 || { echo "up failed: see $OUT/up.log"; exit 2; }
 for _ in $(seq 1 90); do
-  [[ $(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health) == 200 ]] && break
+  [[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$GATEWAY_PORT/actuator/health") == 200 ]] && break
   sleep 5
 done
-echo "gateway: $(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health)"
+echo "gateway: $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$GATEWAY_PORT/actuator/health")"
 
 # 4. The notification log, followed into a file for the smoke test. The PID is kept, so the kill stops only this process.
 docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE" logs -f --no-log-prefix --timestamps notification-service > "$OUT/notification.log" 2>&1 &
@@ -87,16 +95,16 @@ sleep 2
 
 # 5. The smoke test, through the gateway. Each verify call is traced to $TRACE (see verify_call in smoke-test.sh).
 printf 'call\ttoken_empty\ttoken_len\ttoken_sha256\tstatus\tbody\trequest_sent\temail_logged\tverify_sent\tto_lines_after_mark\tlink_lines_after_mark\n' > "$TRACE"
-NOTIFICATION_LOG="$OUT/notification.log" TRACE_FILE="$TRACE" BASE_URL=http://localhost:8080 ./scripts/smoke-test.sh > "$OUT/smoke.log" 2>&1
+NOTIFICATION_LOG="$OUT/notification.log" TRACE_FILE="$TRACE" BASE_URL="http://127.0.0.1:$GATEWAY_PORT" ./scripts/smoke-test.sh > "$OUT/smoke.log" 2>&1
 SMOKE_RC=$?
 grep -E '^Result' "$OUT/smoke.log" | sed 's/\x1b\[[0-9;]*m//g'
 
 # 6. The reconciliation check, as the admin. The login values come from .env and are not printed.
 ADMIN_EMAIL=$(grep -E '^ADMIN_EMAIL=' "$BANKEND/.env" | tail -1 | cut -d= -f2-)
 ADMIN_PASSWORD=$(grep -E '^ADMIN_PASSWORD=' "$BANKEND/.env" | tail -1 | cut -d= -f2-)
-TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' \
+TOKEN=$(curl -s -X POST "http://127.0.0.1:$GATEWAY_PORT/api/v1/auth/login" -H 'Content-Type: application/json' \
   -d "$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" '{email:$e,password:$p}')" | jq -r '.accessToken // empty')
-curl -s http://localhost:8080/api/v1/admin/ledger/reconciliation -H "Authorization: Bearer $TOKEN" > "$OUT/reconciliation.json"
+curl -s "http://127.0.0.1:$GATEWAY_PORT/api/v1/admin/ledger/reconciliation" -H "Authorization: Bearer $TOKEN" > "$OUT/reconciliation.json"
 echo "reconciliation: $(jq -c '{clean, issues}' "$OUT/reconciliation.json" 2>/dev/null || echo 'no answer')"
 echo "smoke exit: $SMOKE_RC"
 exit "$SMOKE_RC"
