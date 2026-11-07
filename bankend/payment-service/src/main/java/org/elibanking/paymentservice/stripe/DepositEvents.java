@@ -35,7 +35,7 @@ public class DepositEvents {
     private final OutboxWriter outbox;
 
     @Transactional
-    public void record(Event event, PaymentIntent intent) {
+    public void record(Event event, PaymentIntent intent, String providerReceipt) {
         String depositId = intent.getMetadata().get("depositId");
         try {
             jdbc.update("INSERT INTO processed_event (consumer, event_id) VALUES (?, ?)", CONSUMER, event.getId());
@@ -53,6 +53,7 @@ public class DepositEvents {
         body.put("depositId", depositId);
         body.put("amountReceived", toNaira(intent.getAmountReceived()));
         body.put("currency", intent.getCurrency().toUpperCase());
+        body.put("providerReceipt", providerReceipt);
         if (!succeeded) {
             body.put("failureReason", intent.getLastPaymentError() != null
                     ? intent.getLastPaymentError().getMessage() : "Payment failed via Stripe");

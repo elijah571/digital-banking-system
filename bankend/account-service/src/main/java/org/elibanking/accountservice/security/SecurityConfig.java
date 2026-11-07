@@ -17,6 +17,7 @@ import org.springframework.security.web.SecurityFilterChain;
  * <ul>
  *   <li>health, info and API docs: public;</li>
  *   <li>{@code POST /internal/v1/ledger/entries} and {@code …/reverse}: transaction-service and wallet-service;</li>
+ *   <li>{@code POST /internal/v1/ledger/receipts/quarantine}: wallet-service only;</li>
  *   <li>other {@code GET /internal/v1/ledger/**} reads: those two, and fraud-detection-service and payment-service;</li>
  *   <li>any other {@code /internal/v1/**} path: denied;</li>
  *   <li>{@code GET /api/v1/accounts/{n}} and {@code …/balance}: users (ownership is checked in the controller), and the
@@ -48,6 +49,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/internal/v1/ledger/entries",
                                 "/internal/v1/ledger/entries/*/reverse")
                         .access(CallerAllowList.only(CallerAllowList.TRANSACTION, CallerAllowList.WALLET))
+                        .requestMatchers(HttpMethod.POST, "/internal/v1/ledger/receipts/quarantine")
+                        .access(CallerAllowList.only(CallerAllowList.WALLET))
                         .requestMatchers(HttpMethod.GET, "/internal/v1/ledger/**")
                         .access(CallerAllowList.only(CallerAllowList.TRANSACTION, CallerAllowList.WALLET,
                                 CallerAllowList.FRAUD, CallerAllowList.PAYMENT))

@@ -214,8 +214,10 @@ Interactive docs are served at [`/swagger-ui.html`](http://localhost:8080/swagge
 | GET    | `/api/v1/accounts/{accountNumber}/balance`    | Account balance                   | Yes  |
 | POST   | `/api/v1/transactions`                        | Start an internal transfer        | Yes  |
 | POST   | `/api/v1/transactions/{transactionId}/verify` | Verify OTP for a flagged transfer | Yes  |
-| POST   | `/api/v1/payments/create-order`               | Create a card-deposit order       | Yes  |
-| POST   | `/api/v1/payments/webhook`                    | Provider webhook (signed)         | Sig  |
+| POST   | `/api/v1/wallet/deposits`                      | Start an idempotent card deposit | Yes  |
+| GET    | `/api/v1/wallet/deposits/{depositId}`          | Read a card deposit's status     | Yes  |
+| POST   | `/api/v1/payments/create-order`                | Deprecated legacy payment order | Yes  |
+| POST   | `/api/v1/payments/webhook`                     | Provider webhook (signed)        | Sig  |
 
 ## Contributing
 

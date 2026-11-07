@@ -58,6 +58,10 @@ public class AccountServiceClient {
                                  List<LedgerLine> lines) {
     }
 
+    private record ReceiptReviewBody(String source, String providerReference, String depositId, String reason, String currency,
+                                     String amount, JsonNode payload) {
+    }
+
     private final RestClient client;
     private final ObjectMapper mapper;
 
@@ -105,6 +109,30 @@ public class AccountServiceClient {
             throw unavailable();
         }
         return new PostResult(body.path("entryId").asLong(), body.path("replayed").asBoolean());
+    }
+
+    /** Stores a provider receipt that cannot be credited and raises the ledger review alert. */
+    public boolean quarantineReceipt(String source, String providerReference, String depositId, String reason,
+                                     String currency, String amount, String payload) {
+        JsonNode body;
+        try {
+            body = client.post()
+                    .uri("/internal/v1/ledger/receipts/quarantine")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new ReceiptReviewBody(source, providerReference, depositId, reason, currency, amount,
+                            mapper.readTree(payload)))
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (RestClientException e) {
+            log.warn("account-service did not quarantine receipt: {}", e.getClass().getSimpleName());
+            throw unavailable();
+        } catch (tools.jackson.core.JacksonException e) {
+            throw new IllegalArgumentException("receipt payload is not valid JSON", e);
+        }
+        if (body == null || !body.hasNonNull("recorded")) {
+            throw unavailable();
+        }
+        return body.path("recorded").asBoolean();
     }
 
     /** The account's daily transaction limit, as account-service holds it (wallet-plan D13). */

@@ -65,6 +65,7 @@ class DepositWebhookTest {
         JsonNode body = new ObjectMapper().readTree(payload).get("payload");
         assertEquals("20000.00", body.get("amountReceived").asText());
         assertEquals("NGN", body.get("currency").asText());
+        assertEquals(event, body.get("providerReceipt").asString());
     }
 
     @Test

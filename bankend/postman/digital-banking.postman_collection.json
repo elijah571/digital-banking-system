@@ -72,6 +72,10 @@
       "value": ""
     },
     {
+      "key": "depositId",
+      "value": ""
+    },
+    {
       "key": "otp",
       "value": ""
     },
@@ -1409,6 +1413,87 @@
               }
             }
           }
+        },
+        {
+          "name": "Create card deposit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/deposits",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "deposits"
+              ]
+            },
+            "description": "Opens a card deposit for your own account. The amount must be a string with two decimal places and at least 20000.00 NGN. Confirm the returned clientSecret with Stripe.js; the deposit completes after the signed Stripe webhook.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"{{senderAccount}}\",\n  \"amount\": \"20000.00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('depositId', pm.response.json().depositId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get card deposit",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/deposits/{{depositId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "deposits",
+                "{{depositId}}"
+              ]
+            },
+            "description": "Reads the current status of the deposit created above."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
         }
       ]
     }

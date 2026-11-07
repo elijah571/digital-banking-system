@@ -1,20 +1,22 @@
 package org.elibanking.paymentservice.outbox;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /** Runs the outbox relay on a schedule. Tests turn it off and call the relay themselves, so runs are deterministic. */
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "outbox.relay.enabled", havingValue = "true", matchIfMissing = true)
 public class OutboxRelayJob {
 
     private final OutboxRelay relay;
+    private final Environment environment;
 
     @Scheduled(fixedDelayString = "${outbox.relay.delay-ms:1000}")
     public void run() {
-        relay.relay();
+        if (environment.getProperty("outbox.relay.enabled", Boolean.class, true)) {
+            relay.relay();
+        }
     }
 }

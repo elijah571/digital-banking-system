@@ -122,7 +122,7 @@ public class PaymentService {
         // A wallet deposit (wallet-plan 3.5) is recorded in the outbox. A failure throws, so Stripe retries the event.
         PaymentIntent depositIntent = depositIntentOf(event);
         if (depositIntent != null) {
-            deposits.record(event, depositIntent);
+            deposits.record(event, depositIntent, payload);
             return;
         }
 

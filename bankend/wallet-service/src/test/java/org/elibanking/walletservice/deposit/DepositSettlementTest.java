@@ -31,6 +31,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -181,12 +182,42 @@ class DepositSettlementTest {
     @Test
     void aReceiptInAnotherCurrencyIsNotPostedAndTheDepositFails() throws Exception {
         Deposit deposit = openDeposit("20000.00");
+        String evt = newEventId();
 
-        settlement.apply(outcome(SUCCEEDED, newEventId(), deposit.getId(), "20000.00", "USD", null));
+        String message = outcome(SUCCEEDED, evt, deposit.getId(), "20000.00", "USD", null);
+        settlement.apply(message);
 
-        verifyNoInteractions(accounts);
+        ArgumentCaptor<String> providerReference = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> receipt = ArgumentCaptor.forClass(String.class);
+        verify(accounts).quarantineReceipt(eq("STRIPE"), providerReference.capture(), eq(deposit.getId()),
+                eq("CURRENCY_MISMATCH"), eq("USD"), eq("20000.00"), receipt.capture());
+        assertTrue(providerReference.getValue().startsWith("pi_"));
+        assertEquals("usd", mapper.readTree(receipt.getValue()).path("currency").asString());
+        verify(accounts, never()).postEntry(anyString(), anyString(), anyString(), anyString(), anyList());
         assertEquals("FAILED", statusOf(deposit.getId()));
         assertEquals(1, auditRows(deposit.getId(), "DEPOSIT_ALERT"));
+    }
+
+    @Test
+    void aQuarantineOutageLeavesTheDepositPendingUntilTheReceiptIsRecorded() throws Exception {
+        Deposit deposit = openDeposit("20000.00");
+        String evt = newEventId();
+        String message = outcome(SUCCEEDED, evt, deposit.getId(), "20000.00", "USD", null);
+        when(accounts.quarantineReceipt(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyString()))
+                .thenThrow(new RequestRefusedException(HttpStatus.SERVICE_UNAVAILABLE, "down"))
+                .thenReturn(false);
+
+        assertThrows(RequestRefusedException.class, () -> settlement.apply(message));
+        assertEquals("PENDING", statusOf(deposit.getId()));
+        assertEquals(0, processedEvents(evt));
+
+        settlement.apply(message);
+
+        assertEquals("FAILED", statusOf(deposit.getId()));
+        assertEquals(1, processedEvents(evt));
+        verify(accounts, times(2)).quarantineReceipt(eq("STRIPE"), anyString(), eq(deposit.getId()),
+                eq("CURRENCY_MISMATCH"), eq("USD"), eq("20000.00"), anyString());
     }
 
     @Test
@@ -243,6 +274,8 @@ class DepositSettlementTest {
         payload.put("depositId", depositId);
         payload.put("amountReceived", received);
         payload.put("currency", currency);
+        payload.put("providerReceipt", "{\"id\":\"" + eventId + "\",\"currency\":\""
+                + currency.toLowerCase() + "\",\"amount_received\":\"" + received + "\"}");
         if (reason != null) {
             payload.put("failureReason", reason);
         }

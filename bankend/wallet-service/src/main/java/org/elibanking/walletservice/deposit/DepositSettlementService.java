@@ -105,6 +105,12 @@ public class DepositSettlementService {
         }
         if (!DepositService.CURRENCY.equals(currency) || !deposit.getCurrency().equals(currency)) {
             String reason = "the receipt is in " + currency + ", not " + deposit.getCurrency() + ": nothing was credited";
+            JsonNode paymentIntentId = body.get("paymentIntentId");
+            String providerReceipt = body.hasNonNull("providerReceipt")
+                    ? body.get("providerReceipt").asString() : message;
+            accounts.quarantineReceipt("STRIPE", paymentIntentId == null ? stripeEventId : paymentIntentId.asString(), depositId,
+                    "CURRENCY_MISMATCH", currency, received.toPlainString(),
+                    providerReceipt);
             fail(deposit, reason, stripeEventId);
             alert(depositId, reason, received, stripeEventId);
             return;
