@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** Withdrawals to another bank (wallet-plan 8.3). A user token is required for every /api route. */
 @RestController
-@RequestMapping("/api/v1/wallet/withdrawals")
+@RequestMapping("/api/v1/wallet")
 public class WithdrawalController {
 
     private final WithdrawalService withdrawals;
@@ -28,7 +28,7 @@ public class WithdrawalController {
     }
 
     /** 202 with the REQUESTED payout once its money is held. A repeat with the same key gets the same answer. */
-    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = "/withdrawals", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> request(
             @RequestHeader(value = "Idempotency-Key", required = false) String key,
             @Valid @RequestBody WithdrawalRequest body,
@@ -37,14 +37,14 @@ public class WithdrawalController {
             throw new RequestRefusedException(HttpStatus.BAD_REQUEST,
                     "An Idempotency-Key header of 1 to 255 characters is required");
         }
-        WithdrawalService.Reply reply = withdrawals.request(caller.userId(), key, body);
+        WithdrawalService.Reply reply = withdrawals.request(caller, key, body);
         return ResponseEntity.status(reply.status()).contentType(MediaType.APPLICATION_JSON).body(reply.body());
     }
 
     /** One of the caller's withdrawals, with its status. Another user's withdrawal is 404. */
-    @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    @GetMapping(value = {"/withdrawals/{id}", "/payouts/{id}"}, produces = MediaType.APPLICATION_JSON_VALUE)
     public WithdrawalResponse get(@PathVariable long id, Caller caller) {
-        return withdrawals.view(caller.userId(), id);
+        return withdrawals.view(caller, id);
     }
 
     /** The reason an admin gives for rejecting a withdrawal. */
@@ -52,19 +52,19 @@ public class WithdrawalController {
     }
 
     /** An admin approves a withdrawal that is waiting. The requester cannot approve their own (wallet-plan 8.3). */
-    @PostMapping(value = "/{id}/approve", produces = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = "/withdrawals/{id}/approve", produces = MediaType.APPLICATION_JSON_VALUE)
     public WithdrawalResponse approve(@PathVariable long id, Caller caller) {
         return withdrawals.approve(caller, id);
     }
 
     /** An admin rejects a withdrawal that is waiting, and its money is released to the user. */
-    @PostMapping(value = "/{id}/reject", produces = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = "/withdrawals/{id}/reject", produces = MediaType.APPLICATION_JSON_VALUE)
     public WithdrawalResponse reject(@PathVariable long id, @Valid @RequestBody Decision body, Caller caller) {
         return withdrawals.reject(caller, id, body.reason());
     }
 
     /** The user cancels their own withdrawal while it is waiting, and its money is released. */
-    @PostMapping(value = "/{id}/cancel", produces = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = "/withdrawals/{id}/cancel", produces = MediaType.APPLICATION_JSON_VALUE)
     public WithdrawalResponse cancel(@PathVariable long id, Caller caller) {
         return withdrawals.cancel(caller.userId(), id);
     }

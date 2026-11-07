@@ -92,6 +92,7 @@ class PayoutTransitionsTest {
         OutboundPayout p = new OutboundPayout();
         p.setType(PayoutType.WITHDRAWAL);
         p.setUserId("user-" + account);
+        p.setIdempotencyKey("test-" + account);
         p.setAccountNumber(account);
         p.setAmount(new BigDecimal(amount));
         p.setFee(BigDecimal.ZERO);

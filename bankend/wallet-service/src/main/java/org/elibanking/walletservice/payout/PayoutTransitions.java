@@ -14,10 +14,9 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * The one place a payout changes state (wallet-plan 8.3, the review's "one WithdrawalStateMachine"). Every move is checked against the
- * table, and in the same transaction it writes the audit row and the outbox event {@code wallet.payout.<state>}. A move into a
- * give-back state also returns the amount to the day's usage. Callers run inside their own transaction (MANDATORY), so a move and its
- * audit and event commit or roll back together.
+ * The one place a payout changes state (wallet-plan 8.3). Every move is checked against the table, and in the same transaction it
+ * writes the audit row and the outbox event {@code wallet.payout.<state>}. A move into a give-back state also returns the amount to the
+ * day's usage. Callers run inside their own transaction (MANDATORY), so a move and its audit and event commit or roll back together.
  */
 @Service
 public class PayoutTransitions {
@@ -34,15 +33,27 @@ public class PayoutTransitions {
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
+    public void requested(OutboundPayout payout, String actor) {
+        jdbc.update("INSERT INTO audit_log (actor, action, entity_type, entity_id, details)"
+                        + " VALUES (?, 'PAYOUT_REQUESTED', 'outbound_payout', ?, JSON_OBJECT('amount', ?, 'currency', ?))",
+                actor, String.valueOf(payout.getId()), payout.getAmount().toPlainString(), payout.getCurrency());
+        appendEvent(payout, null, PayoutState.REQUESTED, "outbound payout requested");
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
     public void move(OutboundPayout payout, PayoutState to, String reason) {
         PayoutState from = payout.getState();
-        WithdrawalStateMachine.require(from, to);
+        OutboundPayoutStateMachine.require(from, to);
         payout.setState(to);
         payout.setUpdatedAt(Instant.now());
-        if (WithdrawalStateMachine.GIVE_BACK.contains(to) && !WithdrawalStateMachine.GIVE_BACK.contains(from)) {
+        if (OutboundPayoutStateMachine.GIVE_BACK.contains(to) && !OutboundPayoutStateMachine.GIVE_BACK.contains(from)) {
             giveBack(payout);
         }
         audit(payout, from, to, reason);
+        appendEvent(payout, from, to, reason);
+    }
+
+    private void appendEvent(OutboundPayout payout, PayoutState from, PayoutState to, String reason) {
         String key = payout.ledgerKey();
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("eventId", UUID.randomUUID().toString());
@@ -52,7 +63,7 @@ public class PayoutTransitions {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("payoutId", payout.getId());
         body.put("type", payout.getType().name());
-        body.put("from", from.name());
+        body.put("from", from == null ? null : from.name());
         body.put("to", to.name());
         body.put("reason", reason == null ? "" : reason);
         envelope.put("payload", body);

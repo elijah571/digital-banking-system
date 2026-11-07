@@ -81,6 +81,14 @@ class FraudCheckControllerTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void aWrongAudienceIsUnauthorized() throws Exception {
+        String wrongAudience = new ServiceTokens(SECRET, "wallet-service", "payment-service").token();
+
+        mvc.perform(check(wrongAudience, "WITHDRAWAL", account(), "10.00"))
+                .andExpect(status().isUnauthorized());
+    }
+
     private static String token(String subject) {
         return new ServiceTokens(SECRET, subject, "fraud-detection-service").token();
     }

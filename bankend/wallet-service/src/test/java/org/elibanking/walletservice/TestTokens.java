@@ -26,11 +26,15 @@ public final class TestTokens {
     }
 
     public static String userToken(String userId, String role) {
-        return sign(USER_SECRET, USER_ISSUER, null, userId, role, Duration.ofMinutes(10));
+        return userToken(userId, role, "Bob Example");
+    }
+
+    public static String userToken(String userId, String role, String fullName) {
+        return sign(USER_SECRET, USER_ISSUER, null, userId, role, fullName, Duration.ofMinutes(10));
     }
 
     public static String expiredUserToken(String userId) {
-        return sign(USER_SECRET, USER_ISSUER, null, userId, "USER", Duration.ofMinutes(-5));
+        return sign(USER_SECRET, USER_ISSUER, null, userId, "USER", "Bob Example", Duration.ofMinutes(-5));
     }
 
     /** A service token for wallet-service, the way a calling service would mint it. */
@@ -39,26 +43,26 @@ public final class TestTokens {
     }
 
     public static String serviceTokenFor(String audience) {
-        return sign(SERVICE_SECRET, SERVICE_ISSUER, audience, "transaction-service", "SERVICE", Duration.ofMinutes(5));
+        return sign(SERVICE_SECRET, SERVICE_ISSUER, audience, "transaction-service", "SERVICE", null, Duration.ofMinutes(5));
     }
 
     /** A valid service token whose subject is the named service (for the allow-list tests). */
     public static String serviceTokenAs(String subject) {
-        return sign(SERVICE_SECRET, SERVICE_ISSUER, AUDIENCE, subject, "SERVICE", Duration.ofMinutes(5));
+        return sign(SERVICE_SECRET, SERVICE_ISSUER, AUDIENCE, subject, "SERVICE", null, Duration.ofMinutes(5));
     }
 
     /** A valid service token with no subject: it has no actor, so wallet-service must refuse it. */
     public static String serviceTokenWithoutSubject() {
-        return sign(SERVICE_SECRET, SERVICE_ISSUER, AUDIENCE, null, "SERVICE", Duration.ofMinutes(5));
+        return sign(SERVICE_SECRET, SERVICE_ISSUER, AUDIENCE, null, "SERVICE", null, Duration.ofMinutes(5));
     }
 
     /** A user-issuer token signed with the service secret: the signature does not match the user decoder. */
     public static String userTokenWithTheWrongSecret(String userId) {
-        return sign(SERVICE_SECRET, USER_ISSUER, null, userId, "ADMIN", Duration.ofMinutes(10));
+        return sign(SERVICE_SECRET, USER_ISSUER, null, userId, "ADMIN", "Bob Example", Duration.ofMinutes(10));
     }
 
     private static String sign(String secret, String issuer, String audience, String subject, String role,
-                               Duration lifetime) {
+                               String fullName, Duration lifetime) {
         Instant now = Instant.now();
         JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder()
                 .issuer(issuer)
@@ -67,6 +71,9 @@ public final class TestTokens {
                 .expirationTime(Date.from(now.plus(lifetime)))
                 .claim("role", role)
                 .claim("email", subject + "@example.test");
+        if (fullName != null) {
+            claims.claim("name", fullName);
+        }
         if (audience != null) {
             claims.audience(audience);
         }

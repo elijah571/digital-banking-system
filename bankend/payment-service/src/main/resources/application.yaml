@@ -74,6 +74,12 @@ account:
   service:
     url: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
 
+payout:
+  provider: ${PAYOUT_PROVIDER:simulator}
+  sim:
+    default-outcome: ${PAYOUT_SIM_DEFAULT_OUTCOME:success}
+    delay-ms: ${PAYOUT_SIM_DELAY_MS:0}
+
 # Verifies the user tokens that auth-service issues (wallet-plan 3.7, D8). The gateway and auth-service share this secret.
 auth:
   jwt-secret: ${JWT_SECRET:}

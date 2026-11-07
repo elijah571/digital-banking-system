@@ -133,6 +133,21 @@ class PayoutProcessorTest {
     }
 
     @Test
+    void recoveryAfterSendChecksStatusBeforeRetryingAndSettlesOnlyOnSuccess() {
+        long id = approvedPayout(newAccount(), "5000.00");
+        tx.executeWithoutResult(status -> transitions.move(payouts.findById(id).orElseThrow(), PayoutState.PROCESSING,
+                "send may have reached the provider before the worker stopped"));
+        when(payments.payoutStatus("out-" + id)).thenReturn("SUCCESS");
+
+        processor.advance(id);
+
+        assertEquals("COMPLETED", stateOf(id));
+        verify(payments, times(1)).payoutStatus("out-" + id);
+        verify(payments, never()).sendPayout(anyString(), anyString(), anyString(), anyString(), any(), any());
+        verify(accounts, times(1)).postEntry(eq("OUTBOUND_SETTLE"), eq("out-" + id + "-settle"), anyString(), anyString(), anyList());
+    }
+
+    @Test
     void aReversalBeforeSettleReleasesWithoutSettling() {
         String account = newAccount();
         long id = approvedPayout(account, "5000.00");
@@ -189,6 +204,7 @@ class PayoutProcessorTest {
         OutboundPayout payout = new OutboundPayout();
         payout.setType(PayoutType.WITHDRAWAL);
         payout.setUserId("user-" + newAccount());
+        payout.setIdempotencyKey("test-" + newAccount());
         payout.setAccountNumber(newAccount());
         payout.setAmount(new BigDecimal("5000.00"));
         payout.setFee(BigDecimal.ZERO);
@@ -211,6 +227,7 @@ class PayoutProcessorTest {
         OutboundPayout payout = new OutboundPayout();
         payout.setType(PayoutType.WITHDRAWAL);
         payout.setUserId("user-" + account);
+        payout.setIdempotencyKey("test-" + account);
         payout.setAccountNumber(account);
         payout.setAmount(new BigDecimal(amount));
         payout.setFee(BigDecimal.ZERO);

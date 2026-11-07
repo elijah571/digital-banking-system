@@ -24,6 +24,10 @@ PASSWORD="Secret123"
 env_value() { grep -E "^$1=" "$ROOT_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2-; }
 ADMIN_EMAIL="${ADMIN_EMAIL:-$(env_value ADMIN_EMAIL)}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(env_value ADMIN_PASSWORD)}"
+WITHDRAWAL_MIN="${WITHDRAWAL_MIN:-$(env_value WITHDRAWAL_MIN)}"
+OWN_BANK_CODE="${OWN_BANK_CODE:-$(env_value OWN_BANK_CODE)}"
+SIM_BANK_CODE=001
+[[ "$OWN_BANK_CODE" == "$SIM_BANK_CODE" ]] && SIM_BANK_CODE=002
 
 PASS=0; FAIL=0; SKIP=0
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -128,12 +132,26 @@ wait_status() { # TX_ID WANTED TOKEN
   return 1
 }
 
-# signup NAME -> registers, verifies via emailed link, logs in; sets <NAME>_TOKEN, <NAME>_REFRESH, <NAME>_ID, <NAME>_EMAIL
+# wait_payout PAYOUT_ID TOKEN -> waits for a provider-confirmed completion, leaving STATUS and BODY set.
+wait_payout() {
+  local id=$1 token=$2 state=""
+  for _ in $(seq 1 180); do
+    call GET "/wallet/payouts/$id" "" "$token"
+    [[ "$STATUS" == 200 ]] || { sleep 1; continue; }
+    state=$(jq -r '.status' <<<"$BODY")
+    [[ "$state" == COMPLETED ]] && return 0
+    [[ "$state" == FAILED || "$state" == REVERSED || "$state" == REJECTED || "$state" == CANCELLED || "$state" == EXPIRED ]] && return 1
+    sleep 1
+  done
+  return 1
+}
+
+# signup NAME [FULL_NAME] -> registers, verifies via emailed link, logs in; sets <NAME>_TOKEN, <NAME>_REFRESH, <NAME>_ID, <NAME>_EMAIL
 signup() {
-  local name=$1 email; email="$(tr '[:upper:]' '[:lower:]' <<<"$1").$RUN_ID@test.com"
+  local name=$1 full_name=${2:-"$1 Tester"} email; email="$(tr '[:upper:]' '[:lower:]' <<<"$1").$RUN_ID@test.com"
   local mark; mark=$(log_mark)
   local sent; sent=$(now_ts)
-  call POST /auth/register "{\"fullName\":\"$name Tester\",\"email\":\"$email\",\"password\":\"$PASSWORD\"}"
+  call POST /auth/register "{\"fullName\":\"$full_name\",\"email\":\"$email\",\"password\":\"$PASSWORD\"}"
   check "POST /auth/register ($name)" 201 .emailVerified false
   local token; token=$(link_after "$mark" "$email" 'verify-email\?token=\K[A-Za-z0-9_-]+')
   verify_call "$name (link from email)" "$token" "$sent" "$(logged_ts_after "$mark" "$email")" "$mark" "$email"
@@ -183,6 +201,7 @@ check "GET  /auth/verify-email bad token -> 400" 400
 signup Alice
 signup Bob
 signup Carol
+signup Simulator "SIMULATED ACCOUNT"
 
 call POST /auth/login "{\"email\":\"$Alice_EMAIL\",\"password\":\"Wrong999\"}"
 check "POST /auth/login wrong password -> 401" 401
@@ -229,6 +248,8 @@ call POST /accounts/create "$(printf "$ACC" Carol "3$RANDOM$RUN_ID" SAVINGS 2000
 check "POST /accounts/create (Carol)" 201; C=$(jq -r .accountNumber <<<"$BODY")
 call POST /accounts/create "$(printf "$ACC" Alice "4$RANDOM$RUN_ID" CURRENT 50)" "$Alice_TOKEN"
 check "POST /accounts/create second account same email -> 409" 409
+call POST /accounts/create "$(printf "$ACC" "SIMULATED ACCOUNT" "5$RANDOM$RUN_ID" CURRENT 10000000)" "$Simulator_TOKEN"
+check "POST /accounts/create (simulator payout user)" 201 .ownerId "$Simulator_ID"; S=$(jq -r .accountNumber <<<"$BODY")
 call POST /accounts/create '{}' "$Alice_TOKEN";            check "POST /accounts/create invalid body -> 400" 400
 
 call GET "/accounts/$A" "" "$Alice_TOKEN";                 check "GET  /accounts/{n} own" 200 .accountHolderName Alice
@@ -270,8 +291,88 @@ set_pin() {
     red "SKIP  PUT /wallet/pin ($name) — could not read the code from notification logs"; SKIP=$((SKIP+1))
   fi
 }
-set_pin Alice; set_pin Bob; set_pin Carol
+set_pin Alice; set_pin Bob; set_pin Carol; set_pin Simulator
 call POST /wallet/pin/otp "" "$Alice_TOKEN"; check "POST /wallet/pin/otp again within a minute -> 429" 429
+
+# ================================================================ withdrawal payout
+echo "== Wallet — withdrawal payout"
+if [[ -n "$WITHDRAWAL_MIN" ]]; then
+  call POST /transfers/name-enquiry "{\"bankCode\":\"$SIM_BANK_CODE\",\"accountNumber\":\"0123456781\"}" "$Simulator_TOKEN"
+  check "POST /transfers/name-enquiry for simulator destination" 200 .accountName "SIMULATED ACCOUNT 6781"
+  local_enquiry=$(jq -r '.nameEnquiryRef // empty' <<<"$BODY")
+  withdrawal_body=$(jq -cn --arg account "$S" --arg amount "$WITHDRAWAL_MIN" --arg bank "$SIM_BANK_CODE" --arg enquiry "$local_enquiry" \
+    '{accountNumber:$account, amount:$amount, bankCode:$bank, destinationAccountNumber:"0123456781", nameEnquiryRef:$enquiry, narration:"throwaway smoke withdrawal", pin:"1234"}')
+  payout_tmp=$(mktemp -d /tmp/smoke-withdrawal.XXXXXX)
+  payout_pids=(); payout_keys=(); payout_ids=(); payout_states=()
+  for i in $(seq 1 50); do
+    payout_key="smoke-withdrawal-$RUN_ID-$i"
+    payout_keys+=("$payout_key")
+    (
+      for attempt in 1 2 3 4 5 6; do
+        response_code=$(curl -s -o "$payout_tmp/$i.body" -w '%{http_code}' -X POST "$API/wallet/withdrawals" \
+          -H 'Content-Type: application/json' -H "Authorization: Bearer $Simulator_TOKEN" \
+          -H "Idempotency-Key: $payout_key" -d "$withdrawal_body")
+        printf '%s' "$response_code" > "$payout_tmp/$i.status"
+        [[ "$response_code" != 429 ]] && exit 0
+        sleep 1
+      done
+    ) &
+    payout_pids+=("$!")
+  done
+  parallel_failed=0
+  for pid in "${payout_pids[@]}"; do wait "$pid" || parallel_failed=1; done
+
+  accepted=0
+  for i in $(seq 1 50); do
+    response_code=$(cat "$payout_tmp/$i.status")
+    if [[ "$response_code" == 202 ]]; then
+      accepted=$((accepted+1))
+      payout_ids+=("$(jq -r '.payoutId // empty' "$payout_tmp/$i.body")")
+      payout_states+=("$(jq -r '.status // empty' "$payout_tmp/$i.body")")
+    fi
+  done
+  if [[ "$accepted" == 50 && "$parallel_failed" == 0 ]]; then
+    green "PASS  50 parallel withdrawals on one wallet are accepted"; PASS=$((PASS+1))
+  else
+    red "FAIL  50 parallel withdrawals — accepted $accepted, expected 50"; FAIL=$((FAIL+1))
+  fi
+
+  if [[ "$accepted" == 50 ]]; then
+    S_PAYOUT=${payout_ids[0]}
+    call POST /wallet/withdrawals "$withdrawal_body" "$Simulator_TOKEN" "Idempotency-Key: ${payout_keys[0]}"
+    check "POST /wallet/withdrawals replay returns the same resource" 202 .payoutId "$S_PAYOUT"
+  fi
+
+  completed=0
+  for index in "${!payout_ids[@]}"; do
+    payout_id=${payout_ids[$index]}
+    if [[ "${payout_states[$index]}" == PENDING_APPROVAL ]]; then
+      call POST "/wallet/withdrawals/$payout_id/approve" "" "$ADMIN_TOKEN"
+      check "POST /wallet/withdrawals/{id}/approve as a different ADMIN" 200 .status APPROVED
+    fi
+    if wait_payout "$payout_id" "$Simulator_TOKEN"; then
+      completed=$((completed+1))
+    fi
+  done
+  if [[ "$accepted" == 50 && "$completed" == 50 ]]; then
+    STATUS=200; BODY=""
+    check "50 payouts complete after provider-confirmed SUCCESS" 200
+  else
+    red "FAIL  only $completed of $accepted parallel payouts completed"; FAIL=$((FAIL+1))
+  fi
+
+  if [[ -n "${S_PAYOUT:-}" ]]; then
+    call GET "/wallet/payouts/$S_PAYOUT" "" "$Alice_TOKEN"
+    check "GET /wallet/payouts/{id} for another user -> 404" 404
+    call GET "/wallet/payouts/$S_PAYOUT" "" "$ADMIN_TOKEN"
+    check "GET /wallet/payouts/{id} as ADMIN" 200 .payoutId "$S_PAYOUT"
+  fi
+  rm -r -- "$payout_tmp"
+  call GET "/accounts/$S/balance" "" "$Simulator_TOKEN"
+  check "withdrawals leave a non-negative wallet balance" 200 '. | tonumber >= 0' true
+else
+  red "FAIL  WITHDRAWAL_MIN is missing from the environment/.env"; FAIL=$((FAIL+1))
+fi
 
 # ================================================================ transactions
 echo "== Transactions — normal transfer"

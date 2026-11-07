@@ -36,6 +36,9 @@ public class OutboundPayout {
     @Column(name = "user_id", nullable = false, length = 100)
     private String userId;
 
+    @Column(name = "idempotency_key", nullable = false, length = 255)
+    private String idempotencyKey;
+
     @Column(name = "account_number", nullable = false, length = 20)
     private String accountNumber;
 

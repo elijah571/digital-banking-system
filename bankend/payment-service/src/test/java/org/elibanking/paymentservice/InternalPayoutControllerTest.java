@@ -97,6 +97,13 @@ class InternalPayoutControllerTest {
     }
 
     @Test
+    void aWalletTokenForTheWrongAudienceIsUnauthorizedForPayoutCalls() throws Exception {
+        mvc.perform(get("/internal/v1/payouts/out-910003")
+                        .header("Authorization", "Bearer " + TestTokens.serviceTokenFor("account-service")))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void aKeyThatIsNotAPayoutIdIsRefused() throws Exception {
         send("payout-1", "0123456785", "1000.00").andExpect(status().isBadRequest());
     }

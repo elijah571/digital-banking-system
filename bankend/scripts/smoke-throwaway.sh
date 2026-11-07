@@ -65,7 +65,8 @@ echo "commit: $(git -C "$WT" log --oneline -1)"
 
 # 2. Container name overrides, so the throwaway containers do not collide with the stopped dev containers.
 printf '%s\n' 'services:' '  mysql:' '    container_name: smoke-mysql' '  redis:' '    container_name: smoke-redis' \
-  '  kafka:' '    container_name: smoke-kafka' > "$OVERRIDE"
+  '  kafka:' '    container_name: smoke-kafka' '  wallet-service:' '    environment:' \
+  '      WITHDRAWAL_DAILY_MAX: "5000000.00"' > "$OVERRIDE"
 
 cd "$WT/$REL" || exit 2
 

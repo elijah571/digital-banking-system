@@ -35,7 +35,8 @@ public class CallerArgumentResolver implements HandlerMethodArgumentResolver, We
             if ("SERVICE".equals(role)) {
                 return Caller.internal();
             }
-            return new Caller(jwt.getToken().getSubject(), jwt.getToken().getClaimAsString("email"), role);
+            return new Caller(jwt.getToken().getSubject(), jwt.getToken().getClaimAsString("email"),
+                    jwt.getToken().getClaimAsString("name"), role);
         }
         // Fail closed. Headers are not identity, and no other authentication reaches a controller.
         throw new AccessDeniedException("no verified token");

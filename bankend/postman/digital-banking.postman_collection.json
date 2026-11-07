@@ -88,6 +88,26 @@
       "key": "pinCode",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "bankCode",
+      "value": "001"
+    },
+    {
+      "key": "destinationAccount",
+      "value": "0123456785"
+    },
+    {
+      "key": "nameEnquiryRef",
+      "value": ""
+    },
+    {
+      "key": "withdrawalId",
+      "value": ""
+    },
+    {
+      "key": "withdrawalAmount",
+      "value": "5000.00"
     }
   ],
   "item": [
@@ -1496,6 +1516,221 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Resolve withdrawal destination",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/transfers/name-enquiry",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "transfers",
+            "name-enquiry"
+          ]
+        },
+        "description": "Set the returned reference before requesting a withdrawal. The simulator recognizes bank code 001 and this 10-digit destination.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"bankCode\": \"{{bankCode}}\",\n  \"accountNumber\": \"{{destinationAccount}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "pm.collectionVariables.set('nameEnquiryRef', pm.response.json().nameEnquiryRef);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Request withdrawal",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{$guid}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/wallet/withdrawals",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "wallet",
+            "withdrawals"
+          ]
+        },
+        "description": "Requires a PIN set for the signed-in user and the destination reference from the preceding name-enquiry request.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"accountNumber\": \"{{senderAccount}}\",\n  \"amount\": \"{{withdrawalAmount}}\",\n  \"bankCode\": \"{{bankCode}}\",\n  \"destinationAccountNumber\": \"{{destinationAccount}}\",\n  \"nameEnquiryRef\": \"{{nameEnquiryRef}}\",\n  \"narration\": \"rent\",\n  \"pin\": \"{{pin}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 202', () => pm.response.to.have.status(202));",
+              "pm.collectionVariables.set('withdrawalId', pm.response.json().payoutId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get payout",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/wallet/payouts/{{withdrawalId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "wallet",
+            "payouts",
+            "{{withdrawalId}}"
+          ]
+        },
+        "description": "Read the payout's current status. The owner or an ADMIN token may use this route."
+      }
+    },
+    {
+      "name": "Cancel pending withdrawal",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/wallet/withdrawals/{{withdrawalId}}/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "wallet",
+            "withdrawals",
+            "{{withdrawalId}}",
+            "cancel"
+          ]
+        },
+        "description": "Cancels only while the payout is waiting for admin approval; otherwise the service returns a conflict."
+      }
+    },
+    {
+      "name": "Approve withdrawal (admin)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/wallet/withdrawals/{{withdrawalId}}/approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "wallet",
+            "withdrawals",
+            "{{withdrawalId}}",
+            "approve"
+          ]
+        },
+        "description": "Uses an ADMIN token; the requester cannot approve their own payout.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reject withdrawal (admin)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/wallet/withdrawals/{{withdrawalId}}/reject",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "wallet",
+            "withdrawals",
+            "{{withdrawalId}}",
+            "reject"
+          ]
+        },
+        "description": "Uses an ADMIN token; rejection releases the hold and daily allowance.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reason\": \"Unable to verify this withdrawal\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
     }
   ]
 }

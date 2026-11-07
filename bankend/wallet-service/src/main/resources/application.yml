@@ -89,11 +89,11 @@ wallet:
       delay-ms: ${WITHDRAWAL_EXPIRY_JOB_DELAY_MS:60000}
   # The flat fee on an outbound payout, in naira, for both kinds of payout (8.3). Zero until the business sets it.
   outbound-fee: ${OUTBOUND_FEE:0.00}
-  # Sends the approved payouts, and settles or releases them once the provider answers (wallet-plan 8.3). Every 10 seconds by default.
+  # Sends the approved payouts, and settles or releases them once the provider answers (wallet-plan 8.3). Runs every minute by default.
   payouts:
     process-job:
       enabled: ${PAYOUT_PROCESS_JOB_ENABLED:true}
-      delay-ms: ${PAYOUT_PROCESS_JOB_DELAY_MS:10000}
+      delay-ms: ${PAYOUT_PROCESS_JOB_DELAY_MS:60000}
 
 # account-service (owner, status, currency) and payment-service (the card intent). Calls carry a SERVICE token whose sub is this service.
 account-service:

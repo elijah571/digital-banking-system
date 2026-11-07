@@ -10,7 +10,7 @@ import java.util.Set;
  * in the table is refused. REVERSED is reached only from PROCESSING (release only, nothing was settled) or from COMPLETED (the
  * reversal entry). The states in {@link #GIVE_BACK} end the payout without a settle, so the daily usage is given back (fix 5, D21).
  */
-public final class WithdrawalStateMachine {
+public final class OutboundPayoutStateMachine {
 
     private static final Map<PayoutState, Set<PayoutState>> LEGAL = new EnumMap<>(PayoutState.class);
 
@@ -28,7 +28,7 @@ public final class WithdrawalStateMachine {
         // REJECTED, CANCELLED, EXPIRED, FAILED and REVERSED end the payout: they have no moves out.
     }
 
-    private WithdrawalStateMachine() {
+    private OutboundPayoutStateMachine() {
     }
 
     public static boolean allowed(PayoutState from, PayoutState to) {

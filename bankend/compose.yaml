@@ -136,6 +136,7 @@ services:
       WITHDRAWAL_MAX: ${WITHDRAWAL_MAX:?set WITHDRAWAL_MAX in .env}
       WITHDRAWAL_DAILY_MAX: ${WITHDRAWAL_DAILY_MAX:?set WITHDRAWAL_DAILY_MAX in .env}
       WITHDRAWAL_APPROVAL_THRESHOLD: ${WITHDRAWAL_APPROVAL_THRESHOLD:?set WITHDRAWAL_APPROVAL_THRESHOLD in .env}
+      OUTBOUND_FEE: ${OUTBOUND_FEE:-0.00}
       # The fraud check for a payout, called before it is approved (wallet-plan 3.5, step 3).
       FRAUD_SERVICE_URL: http://fraud-detection-service:8084
       # Verifies the user tokens from auth-service, and the SERVICE tokens from transaction-service and auth-service's callers.
@@ -210,6 +211,9 @@ services:
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      PAYOUT_PROVIDER: ${PAYOUT_PROVIDER:-simulator}
+      PAYOUT_SIM_DEFAULT_OUTCOME: ${PAYOUT_SIM_DEFAULT_OUTCOME:-success}
+      PAYOUT_SIM_DELAY_MS: ${PAYOUT_SIM_DELAY_MS:-0}
       # Signs this service's calls to account-service (wallet-plan 3.7). The same value as account-service's.
       INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
     depends_on:

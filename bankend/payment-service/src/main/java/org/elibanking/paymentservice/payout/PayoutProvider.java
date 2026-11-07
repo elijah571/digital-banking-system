@@ -4,8 +4,8 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * The payout provider (wallet-plan 8.7). This slice needs the bank list and the name enquiry. Sending money and checking its status
- * come with the payout slice, and the Paystack adapter comes in phase 6b.
+ * The payout provider contract shared by withdrawals and external transfers (wallet-plan 8.7). Phase 6 supplies the simulator; the
+ * Paystack adapter is deferred to phase 6b.
  */
 public interface PayoutProvider {
 

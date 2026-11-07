@@ -1,5 +1,6 @@
 package org.elibanking.walletservice.withdrawal;
 
+import jakarta.servlet.ServletException;
 import org.elibanking.walletservice.TestTokens;
 import org.elibanking.walletservice.TestcontainersConfiguration;
 import org.elibanking.walletservice.client.AccountServiceClient;
@@ -22,9 +23,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -34,15 +37,19 @@ import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -81,6 +88,9 @@ class WithdrawalTest {
     @MockitoBean
     FraudClient fraud;
 
+    @MockitoSpyBean
+    org.elibanking.walletservice.idempotency.IdempotencyService idempotency;
+
     @Test
     void aWithdrawalIsHeldOnceAndAClearSmallOneIsApproved() throws Exception {
         Fixture f = new Fixture();
@@ -102,6 +112,8 @@ class WithdrawalTest {
         assertEquals("PAYOUT_PAYABLE:NGN", lines.getValue().get(1).systemAccount());
         assertEquals("5000.00", usage(f.account));
         assertEquals(1, auditRows(payoutId, "PAYOUT_REQUESTED"));
+        assertEquals(1, payoutEvents(payoutId, "wallet.payout.requested"),
+                "opening a payout writes its initial state event in the same transaction");
     }
 
     @Test
@@ -169,6 +181,30 @@ class WithdrawalTest {
     }
 
     @Test
+    void aWithdrawalRequiresEveryUserNameTokenInTheEnquiryLabel() throws Exception {
+        Fixture f = new Fixture("Alice Smith");
+        f.accountIsActive(new BigDecimal("1000000.00"));
+
+        mvc.perform(f.withdrawWithFullName("Bob Example", f.key(), "5000.00", OTHER_BANK))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("The destination account name does not match your name"));
+
+        assertEquals(0, payoutsFor(f.user));
+        verify(pins, never()).check(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void theNameLabelCheckIgnoresCaseAndAccents() throws Exception {
+        Fixture f = new Fixture("ÉLODIE EXAMPLE");
+        f.accountIsActive(new BigDecimal("1000000.00"));
+        when(accounts.postEntry(anyString(), anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(new PostResult(1L, false));
+
+        mvc.perform(f.withdrawWithFullName("Elodie Example", f.key(), "5000.00", OTHER_BANK))
+                .andExpect(status().isAccepted());
+    }
+
+    @Test
     void anAmountBelowTheMinimumIsRefused() throws Exception {
         Fixture f = new Fixture();
 
@@ -202,6 +238,46 @@ class WithdrawalTest {
 
         assertEquals(first, second);
         verify(accounts, times(1)).postEntry(anyString(), anyString(), anyString(), anyString(), anyList());
+        assertEquals(key, jdbc.queryForObject("SELECT idempotency_key FROM outbound_payout WHERE id = ?", String.class, first));
+    }
+
+    @Test
+    void aPayoutKeyIsUniqueForItsOwnerInThePayoutTable() throws Exception {
+        Fixture f = new Fixture();
+        f.accountIsActive(new BigDecimal("1000000.00"));
+        when(accounts.postEntry(anyString(), anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(new PostResult(1L, false));
+
+        String key = f.key();
+        long first = payoutIdOf(mvc.perform(f.withdraw(key, "5000.00", OTHER_BANK)).andExpect(status().isAccepted()).andReturn());
+        long second = payoutIdOf(mvc.perform(f.withdraw(f.key(), "2000.00", OTHER_BANK))
+                .andExpect(status().isAccepted()).andReturn());
+
+        assertThrows(DuplicateKeyException.class, () -> jdbc.update(
+                "UPDATE outbound_payout SET idempotency_key = ? WHERE id = ?", key, second));
+        assertEquals(key, jdbc.queryForObject("SELECT idempotency_key FROM outbound_payout WHERE id = ?", String.class, first));
+    }
+
+    @Test
+    void theOwnerAndAnAdminCanReadAPayoutAtThePayoutRoute() throws Exception {
+        Fixture f = new Fixture();
+        f.accountIsActive(new BigDecimal("1000000.00"));
+        when(accounts.postEntry(anyString(), anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(new PostResult(1L, false));
+        long id = payoutIdOf(mvc.perform(f.withdraw(f.key(), "5000.00", OTHER_BANK))
+                .andExpect(status().isAccepted()).andReturn());
+
+        mvc.perform(get("/api/v1/wallet/payouts/" + id)
+                        .header("Authorization", "Bearer " + TestTokens.userToken(f.user, "USER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payoutId").value(id));
+        mvc.perform(get("/api/v1/wallet/withdrawals/" + id)
+                        .header("Authorization", "Bearer " + TestTokens.userToken("another-user", "USER")))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/wallet/payouts/" + id)
+                        .header("Authorization", "Bearer " + TestTokens.userToken("an-admin", "ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payoutId").value(id));
     }
 
     @Test
@@ -221,6 +297,29 @@ class WithdrawalTest {
         assertEquals(1, payoutsFor(f.user), "the retry resumes the payout it opened");
         verify(accounts, times(2)).postEntry(eq("OUTBOUND_HOLD"), eq("out-" + payoutId + "-hold"), anyString(), anyString(),
                 anyList());
+    }
+
+    @Test
+    void aRetryAfterCommitBeforeDoneResumesTheSamePayoutWithoutASecondHold() throws Exception {
+        Fixture f = new Fixture();
+        f.accountIsActive(new BigDecimal("1000000.00"));
+        when(accounts.postEntry(anyString(), anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(new PostResult(1L, false));
+        String key = f.key();
+        doThrow(new IllegalStateException("simulated crash before DONE")).doCallRealMethod()
+                .when(idempotency).complete(anyString(), eq(key), anyInt(), anyString());
+
+        assertThrows(ServletException.class, () -> mvc.perform(f.withdraw(key, "5000.00", OTHER_BANK)),
+                "the injected post-commit crash is surfaced by MockMvc");
+        long first = payoutIdOf(mvc.perform(get("/api/v1/wallet/payouts/" + payoutIdOfStoredKey(f.user, key))
+                        .header("Authorization", "Bearer " + TestTokens.userToken(f.user, "USER")))
+                .andExpect(status().isOk()).andReturn());
+        long second = payoutIdOf(mvc.perform(f.withdraw(key, "5000.00", OTHER_BANK))
+                .andExpect(status().isAccepted()).andReturn());
+
+        assertEquals(first, second, "the retry resumes the resource committed with the key");
+        assertEquals(1, payoutsFor(f.user));
+        verify(accounts, times(1)).postEntry(eq("OUTBOUND_HOLD"), eq("out-" + first + "-hold"), anyString(), anyString(), anyList());
     }
 
     // ------------------------------------------------------------------ helpers
@@ -245,8 +344,17 @@ class WithdrawalTest {
                 + " AND action = ?", Integer.class, String.valueOf(payoutId), action);
     }
 
+    private int payoutEvents(long payoutId, String topic) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM outbox WHERE message_key = ? AND topic = ?",
+                Integer.class, "out-" + payoutId, topic);
+    }
+
     private String stateOfLatest(String user) {
         return jdbc.queryForObject("SELECT state FROM outbound_payout WHERE user_id = ? ORDER BY id DESC LIMIT 1", String.class, user);
+    }
+
+    private long payoutIdOfStoredKey(String user, String key) {
+        return jdbc.queryForObject("SELECT id FROM outbound_payout WHERE user_id = ? AND idempotency_key = ?", Long.class, user, key);
     }
 
     /** One user, one account, one valid name enquiry, and the request builder. */
@@ -257,7 +365,11 @@ class WithdrawalTest {
         final String ref;
 
         Fixture() {
-            when(payments.resolveAccount(eq(OTHER_BANK), eq(destination))).thenReturn(new Resolution("FOUND", "Bob Example"));
+            this("Bob Example");
+        }
+
+        Fixture(String destinationName) {
+            when(payments.resolveAccount(eq(OTHER_BANK), eq(destination))).thenReturn(new Resolution("FOUND", destinationName));
             when(pins.check(eq(user), anyString(), eq(user))).thenReturn(new PinService.Check(PinService.Outcome.VALID, 0));
             when(fraud.check(anyString(), anyString(), any())).thenReturn(Optional.of(new FraudClient.FraudResult(false, null)));
             ref = enquiries.enquire(user, OTHER_BANK, destination).ref();
@@ -273,12 +385,20 @@ class WithdrawalTest {
         }
 
         MockHttpServletRequestBuilder withdraw(String key, String amount, String bank) {
-            return withdrawWithReference(key, ref, amount, bank);
+            return withdrawWithFullName("Bob Example", key, amount, bank);
         }
 
         MockHttpServletRequestBuilder withdrawWithReference(String key, String reference, String amount, String bank) {
+            return request(TestTokens.userToken(user, "USER"), key, reference, amount, bank);
+        }
+
+        MockHttpServletRequestBuilder withdrawWithFullName(String fullName, String key, String amount, String bank) {
+            return request(TestTokens.userToken(user, "USER", fullName), key, ref, amount, bank);
+        }
+
+        private MockHttpServletRequestBuilder request(String token, String key, String reference, String amount, String bank) {
             return post(PATH)
-                    .header("Authorization", "Bearer " + TestTokens.userToken(user, "USER"))
+                    .header("Authorization", "Bearer " + token)
                     .header("Idempotency-Key", key)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("{\"accountNumber\":\"" + account + "\",\"amount\":\"" + amount + "\",\"bankCode\":\"" + bank

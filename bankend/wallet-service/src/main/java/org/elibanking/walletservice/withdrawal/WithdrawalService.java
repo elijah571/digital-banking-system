@@ -20,28 +20,32 @@ import org.elibanking.walletservice.pin.PinService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
+import java.text.Normalizer;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * Requests a withdrawal (wallet-plan 8.3, the steps of 3.5 for a withdrawal). The checks run in this order: the destination is not our own
- * bank, the amount is in range, the key is free, the account is the caller's, ACTIVE and in NGN, the name enquiry is valid, the PIN is
- * right, and the day's usage has room. Then, in one transaction, the usage is counted and the payout is REQUESTED. Then the ledger holds
- * the money under {@code out-{id}-hold}.
+ * Requests a withdrawal (wallet-plan 8.3, the steps of 3.5 for a withdrawal). The destination, amount, account ownership, status,
+ * currency and name are checked first. In Tx A, the PIN is checked, the day's usage is counted and the payout is opened as REQUESTED.
+ * Then the ledger holds the money under {@code out-{id}-hold}.
  *
  * <p>A ledger that refuses the hold (insufficient funds) fails the payout, gives the usage back, and answers 422. A ledger that cannot be
  * reached leaves the payout REQUESTED, and the retry holds it again. The hold key makes that safe: it is posted once.
@@ -58,6 +62,9 @@ public class WithdrawalService {
 
     /** The status and JSON body to send, for a new response or a replay. */
     public record Reply(int status, String body) {
+    }
+
+    private record OpenResult(String resourceId, HttpStatusCode refusalStatus, String refusalReason) {
     }
 
     private final OutboundPayoutRepository payouts;
@@ -106,7 +113,8 @@ public class WithdrawalService {
         this.fee = fee;
     }
 
-    public Reply request(String userId, String key, WithdrawalRequest body) {
+    public Reply request(Caller caller, String key, WithdrawalRequest body) {
+        String userId = caller.userId();
         if (ownBankCode.equals(body.bankCode())) {
             throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY, "Use a transfer for an account at our bank");
         }
@@ -125,13 +133,19 @@ public class WithdrawalService {
 
         String payoutId = begin.resourceId();
         if (payoutId == null) {
+            OpenResult opened;
             try {
-                payoutId = open(scope, key, userId, body, amount);
+                opened = open(scope, key, userId, caller.fullName(), body, amount);
             } catch (RuntimeException refused) {
                 // Nothing was linked to the key, so a retry starts again.
                 idempotency.release(scope, key);
                 throw refused;
             }
+            if (opened.refusalStatus() != null) {
+                idempotency.release(scope, key);
+                throw new RequestRefusedException(opened.refusalStatus(), opened.refusalReason());
+            }
+            payoutId = opened.resourceId();
         }
         // The key now names a payout. A failure below ends the lease, so a retry holds this same payout.
         try {
@@ -143,15 +157,15 @@ public class WithdrawalService {
     }
 
     /** The caller's withdrawal, with its status. Another user's withdrawal is not found, so its existence is not revealed. */
-    public WithdrawalResponse view(String userId, long id) {
+    public WithdrawalResponse view(Caller caller, long id) {
         OutboundPayout payout = payouts.findById(id)
-                .filter(found -> found.getType() == PayoutType.WITHDRAWAL && found.getUserId().equals(userId))
+                .filter(found -> found.getType() == PayoutType.WITHDRAWAL && caller.canAccess(found.getUserId()))
                 .orElseThrow(() -> new RequestRefusedException(HttpStatus.NOT_FOUND, "Withdrawal not found"));
         return respond(payout);
     }
 
     /** The checks, then the usage and the REQUESTED payout, in one transaction. Returns the new payout's id. */
-    private String open(String scope, String key, String userId, WithdrawalRequest body, BigDecimal amount) {
+    private OpenResult open(String scope, String key, String userId, String fullName, WithdrawalRequest body, BigDecimal amount) {
         AccountCheck account = accounts.check(body.accountNumber());
         if (!userId.equals(account.ownerId())) {
             throw new RequestRefusedException(HttpStatus.FORBIDDEN, "This account belongs to another user");
@@ -163,7 +177,7 @@ public class WithdrawalService {
             throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY, "Withdrawals are only from NGN accounts");
         }
         NameEnquiry enquiry = enquiries.validate(userId, body.nameEnquiryRef(), body.bankCode(), body.destinationAccountNumber());
-        requirePin(userId, body.pin());
+        requireNameMatch(fullName, enquiry.getAccountName());
         BigDecimal limit = dailyMax.min(accounts.dailyLimit(body.accountNumber()));
 
         LocalDate today = LocalDate.now(PayoutTransitions.BUSINESS_ZONE);
@@ -172,12 +186,16 @@ public class WithdrawalService {
                 "INSERT IGNORE INTO outbound_daily_usage (account_number, usage_day, total, version) VALUES (?, ?, 0, 0)",
                 body.accountNumber(), today)));
         return retryOnDeadlock(() -> tx.execute(status -> {
+            RequestRefusedException pinRefusal = pinRefusal(pins.check(userId, body.pin(), userId));
+            if (pinRefusal != null) {
+                return new OpenResult(null, pinRefusal.status(), pinRefusal.getMessage());
+            }
             String sourceAccount = body.accountNumber();
             // The row is locked, so two requests cannot both pass the check for the day (8.3, step 3).
             BigDecimal used = jdbc.queryForObject("SELECT total FROM outbound_daily_usage WHERE account_number = ? AND usage_day = ?"
                     + " FOR UPDATE", BigDecimal.class, sourceAccount, today);
             if (used.add(amount).compareTo(limit) > 0) {
-                throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY,
+                return new OpenResult(null, HttpStatus.UNPROCESSABLE_ENTITY,
                         "This withdrawal would go over the daily limit of " + limit.toPlainString() + " " + CURRENCY);
             }
             jdbc.update("UPDATE outbound_daily_usage SET total = total + ?, version = version + 1"
@@ -186,6 +204,7 @@ public class WithdrawalService {
             OutboundPayout payout = new OutboundPayout();
             payout.setType(PayoutType.WITHDRAWAL);
             payout.setUserId(userId);
+            payout.setIdempotencyKey(key);
             payout.setAccountNumber(sourceAccount);
             payout.setAmount(amount);
             payout.setFee(fee);
@@ -198,12 +217,33 @@ public class WithdrawalService {
             payout.setCreatedAt(Instant.now());
             payout.setUpdatedAt(payout.getCreatedAt());
             OutboundPayout saved = payouts.save(payout);
-            jdbc.update("INSERT INTO audit_log (actor, action, entity_type, entity_id, details)"
-                            + " VALUES (?, 'PAYOUT_REQUESTED', 'outbound_payout', ?, JSON_OBJECT('amount', ?, 'currency', ?))",
-                    userId, String.valueOf(saved.getId()), amount.toPlainString(), CURRENCY);
+            transitions.requested(saved, userId);
             idempotency.recordResource(scope, key, String.valueOf(saved.getId()));
-            return String.valueOf(saved.getId());
+            return new OpenResult(String.valueOf(saved.getId()), null, null);
         }));
+    }
+
+    /** D19 is a typo check, not an ownership proof: the provider's account name must include each token of the user's name. */
+    private static void requireNameMatch(String fullName, String destinationName) {
+        if (fullName == null || fullName.isBlank() || destinationName == null || destinationName.isBlank()) {
+            throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "The destination account name does not match your name");
+        }
+        Set<String> destinationTokens = nameTokens(destinationName);
+        Set<String> userTokens = nameTokens(fullName);
+        if (destinationTokens.isEmpty() || userTokens.isEmpty() || !destinationTokens.containsAll(userTokens)) {
+            throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "The destination account name does not match your name");
+        }
+    }
+
+    private static Set<String> nameTokens(String value) {
+        String normalized = Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .toLowerCase(Locale.ROOT);
+        return Arrays.stream(normalized.split("[^\\p{L}\\p{N}]+"))
+                .filter(token -> !token.isBlank())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     /**
@@ -292,16 +332,14 @@ public class WithdrawalService {
     }
 
     /** The PIN check (wallet-plan D-P2). A wrong PIN counts toward the lock, and a locked PIN is refused until the lock ends. */
-    private void requirePin(String userId, String pin) {
-        PinService.Check check = pins.check(userId, pin, userId);
-        switch (check.outcome()) {
-            case VALID -> {
-            }
-            case WRONG -> throw new RequestRefusedException(HttpStatus.FORBIDDEN, "Wrong PIN");
-            case NOT_SET -> throw new RequestRefusedException(HttpStatus.FORBIDDEN, "Set a PIN first");
-            case LOCKED -> throw new RequestRefusedException(HttpStatus.LOCKED,
+    private static RequestRefusedException pinRefusal(PinService.Check check) {
+        return switch (check.outcome()) {
+            case VALID -> null;
+            case WRONG -> new RequestRefusedException(HttpStatus.FORBIDDEN, "Wrong PIN");
+            case NOT_SET -> new RequestRefusedException(HttpStatus.FORBIDDEN, "Set a PIN first");
+            case LOCKED -> new RequestRefusedException(HttpStatus.LOCKED,
                     "Too many wrong PINs. Try again in " + check.retryAfterSeconds() + " seconds");
-        }
+        };
     }
 
     /**

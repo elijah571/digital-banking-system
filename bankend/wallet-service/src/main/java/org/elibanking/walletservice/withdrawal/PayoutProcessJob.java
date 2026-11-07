@@ -19,7 +19,7 @@ public class PayoutProcessJob {
         this.environment = environment;
     }
 
-    @Scheduled(fixedDelayString = "${wallet.payouts.process-job.delay-ms:10000}")
+    @Scheduled(fixedDelayString = "${wallet.payouts.process-job.delay-ms:60000}")
     public void run() {
         if (environment.getProperty("wallet.payouts.process-job.enabled", Boolean.class, true)) {
             processor.processDue();
