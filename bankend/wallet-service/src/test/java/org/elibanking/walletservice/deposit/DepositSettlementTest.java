@@ -243,6 +243,7 @@ class DepositSettlementTest {
 
     @Test
     void aCompletedDepositIsPublishedOnceAndMarkedSent() throws Exception {
+        jdbc.update("UPDATE outbox SET sent_at = NOW(6) WHERE sent_at IS NULL");
         Deposit deposit = openDeposit("20000.00");
         settlement.apply(outcome(SUCCEEDED, newEventId(), deposit.getId(), "20000.00", "NGN", null));
         when(kafka.send(anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
