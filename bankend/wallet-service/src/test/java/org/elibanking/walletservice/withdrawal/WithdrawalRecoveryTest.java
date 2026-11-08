@@ -17,6 +17,7 @@ import org.elibanking.walletservice.exception.RequestRefusedException;
 import org.elibanking.walletservice.payout.PayoutTransitions;
 import org.elibanking.walletservice.pin.PinService;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -39,18 +40,22 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Recovery of a stuck payout, and the daily limit under parallel requests (wallet-plan 8.3), over HTTP with real MySQL. The ledger, the
@@ -121,6 +126,80 @@ class WithdrawalRecoveryTest {
 
         assertEquals("REQUESTED", stateOf(id), "its request may still be running, so recovery waits");
         verify(accounts, times(1)).postEntry(eq("OUTBOUND_HOLD"), eq("out-" + id + "-hold"), anyString(), anyString(), anyList());
+    }
+
+    @Test
+    void recoveryAfterSendCrashChecksProviderAndDoesNotPayTwice() throws Exception {
+        Requester r = new Requester(new BigDecimal("1000000.00"));
+        when(fraud.check(eq("WITHDRAWAL"), eq(r.account), any())).thenReturn(Optional.of(new FraudResult(false, null)));
+        when(accounts.postEntry(anyString(), anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(new PostResult(1L, false));
+        mvc.perform(r.withdraw(UUID.randomUUID().toString(), "5000.00")).andExpect(status().isAccepted());
+        long id = payoutId(r.user);
+        String key = "out-" + id;
+
+        RecordingProvider provider = new RecordingProvider();
+        provider.crashAfterFirstRecordedSend.set(true);
+        when(payments.sendPayout(eq(key), anyString(), anyString(), anyString(), anyString(), any()))
+                .thenAnswer(invocation -> provider.send(key));
+        when(payments.payoutStatus(key)).thenAnswer(invocation -> provider.status(key));
+
+        assertThrows(IllegalStateException.class, () -> processor.advance(id), "the provider recorded the send before the worker crashed");
+        assertEquals("PROCESSING", stateOf(id));
+
+        processor.advance(id);
+
+        assertEquals("COMPLETED", stateOf(id));
+        assertEquals(1, provider.recordedPayouts());
+        assertEquals(1, provider.sendCount(key));
+        verify(payments, times(1)).sendPayout(eq(key), anyString(), anyString(), anyString(), anyString(), any());
+        verify(payments, times(1)).payoutStatus(key);
+        verify(accounts, times(1)).postEntry(eq("OUTBOUND_HOLD"), eq(key + "-hold"), anyString(), anyString(), anyList());
+        verify(accounts, times(1)).postEntry(eq("OUTBOUND_SETTLE"), eq(key + "-settle"), anyString(), anyString(), anyList());
+
+        InOrder recoveryOrder = inOrder(payments);
+        recoveryOrder.verify(payments).sendPayout(eq(key), anyString(), anyString(), anyString(), anyString(), any());
+        recoveryOrder.verify(payments).payoutStatus(key);
+    }
+
+    @Test
+    void recoveryResendsTheSameKeyWhenProviderHasNoRecord() throws Exception {
+        Requester r = new Requester(new BigDecimal("1000000.00"));
+        when(fraud.check(eq("WITHDRAWAL"), eq(r.account), any())).thenReturn(Optional.of(new FraudResult(false, null)));
+        when(accounts.postEntry(anyString(), anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(new PostResult(1L, false));
+        mvc.perform(r.withdraw(UUID.randomUUID().toString(), "5000.00")).andExpect(status().isAccepted());
+        long id = payoutId(r.user);
+        String key = "out-" + id;
+
+        RecordingProvider provider = new RecordingProvider();
+        AtomicBoolean failBeforeProviderRecordsSend = new AtomicBoolean(true);
+        when(payments.sendPayout(eq(key), anyString(), anyString(), anyString(), anyString(), any()))
+                .thenAnswer(invocation -> {
+                    if (failBeforeProviderRecordsSend.compareAndSet(true, false)) {
+                        throw new IllegalStateException("simulated failure before provider recorded the send");
+                    }
+                    return provider.send(key);
+                });
+        when(payments.payoutStatus(key)).thenAnswer(invocation -> provider.status(key));
+
+        assertThrows(IllegalStateException.class, () -> processor.advance(id));
+        processor.advance(id);
+        processor.advance(id);
+
+        assertEquals("COMPLETED", stateOf(id));
+        assertEquals(1, provider.recordedPayouts());
+        assertEquals(1, provider.sendCount(key));
+        verify(payments, times(2)).sendPayout(eq(key), anyString(), anyString(), anyString(), anyString(), any());
+        verify(payments, times(2)).payoutStatus(key);
+        verify(accounts, times(1)).postEntry(eq("OUTBOUND_HOLD"), eq(key + "-hold"), anyString(), anyString(), anyList());
+        verify(accounts, times(1)).postEntry(eq("OUTBOUND_SETTLE"), eq(key + "-settle"), anyString(), anyString(), anyList());
+
+        InOrder recoveryOrder = inOrder(payments);
+        recoveryOrder.verify(payments).sendPayout(eq(key), anyString(), anyString(), anyString(), anyString(), any());
+        recoveryOrder.verify(payments).payoutStatus(key);
+        recoveryOrder.verify(payments).sendPayout(eq(key), anyString(), anyString(), anyString(), anyString(), any());
+        recoveryOrder.verify(payments).payoutStatus(key);
     }
 
     @Test
@@ -236,6 +315,34 @@ class WithdrawalRecoveryTest {
 
     private String stateOf(long id) {
         return jdbc.queryForObject("SELECT state FROM outbound_payout WHERE id = ?", String.class, id);
+    }
+
+    private static final class RecordingProvider {
+        private final Map<String, Send> sends = new ConcurrentHashMap<>();
+        private final Map<String, AtomicInteger> sendCounts = new ConcurrentHashMap<>();
+        private final AtomicBoolean crashAfterFirstRecordedSend = new AtomicBoolean();
+
+        Send send(String key) {
+            sendCounts.computeIfAbsent(key, ignored -> new AtomicInteger()).incrementAndGet();
+            Send result = sends.computeIfAbsent(key, value -> new Send("SIM-" + value, "ACCEPTED"));
+            if (crashAfterFirstRecordedSend.compareAndSet(true, false)) {
+                throw new IllegalStateException("simulated worker crash after provider recorded the send");
+            }
+            return result;
+        }
+
+        String status(String key) {
+            return sends.containsKey(key) ? "SUCCESS" : "NOT_FOUND";
+        }
+
+        int recordedPayouts() {
+            return sends.size();
+        }
+
+        int sendCount(String key) {
+            AtomicInteger count = sendCounts.get(key);
+            return count == null ? 0 : count.get();
+        }
     }
 
     /** A user with one account, a daily limit, and a valid name enquiry, who can ask for withdrawals. */
