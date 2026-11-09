@@ -310,7 +310,7 @@ if [[ -n "$WITHDRAWAL_MIN" ]]; then
     payout_key="smoke-withdrawal-$RUN_ID-$i"
     payout_keys+=("$payout_key")
     (
-      for attempt in 1 2 3 4 5 6; do
+      for attempt in $(seq 1 30); do
         response_code=$(curl -s -o "$payout_tmp/$i.body" -w '%{http_code}' -X POST "$API/wallet/withdrawals" \
           -H 'Content-Type: application/json' -H "Authorization: Bearer $Simulator_TOKEN" \
           -H "Idempotency-Key: $payout_key" -d "$withdrawal_body")
@@ -346,12 +346,17 @@ if [[ -n "$WITHDRAWAL_MIN" ]]; then
   fi
 
   completed=0
+  # Approve the whole batch before waiting. The worker scans approved payouts once per minute;
+  # waiting after each approval would serialize the batch across many worker runs.
   for index in "${!payout_ids[@]}"; do
     payout_id=${payout_ids[$index]}
     if [[ "${payout_states[$index]}" == PENDING_APPROVAL ]]; then
       call POST "/wallet/withdrawals/$payout_id/approve" "" "$ADMIN_TOKEN"
       check "POST /wallet/withdrawals/{id}/approve as a different ADMIN" 200 .status APPROVED
     fi
+  done
+  for index in "${!payout_ids[@]}"; do
+    payout_id=${payout_ids[$index]}
     if wait_payout "$payout_id" "$Simulator_TOKEN"; then
       completed=$((completed+1))
     fi
