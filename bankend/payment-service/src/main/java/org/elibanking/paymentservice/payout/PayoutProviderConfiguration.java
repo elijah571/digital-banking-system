@@ -37,10 +37,15 @@ public class PayoutProviderConfiguration {
         if (!production && !testKey) {
             throw new IllegalStateException("dev and test profiles require a Paystack test secret key");
         }
-        RestClient client = RestClient.builder().baseUrl(paystackBaseUrl)
+        RestClient client = paystackClient(RestClient.builder(), paystackSecret, paystackBaseUrl);
+        return new PaystackPayoutProvider(client, recipients);
+    }
+
+    static RestClient paystackClient(RestClient.Builder builder, String paystackSecret, String paystackBaseUrl) {
+        return builder.baseUrl(paystackBaseUrl)
                 .defaultHeader("Authorization", "Bearer " + paystackSecret)
                 .defaultHeader("Accept", "application/json")
+                .defaultHeader("User-Agent", "EliBanking-Payment-Service/1.0")
                 .build();
-        return new PaystackPayoutProvider(client, recipients);
     }
 }

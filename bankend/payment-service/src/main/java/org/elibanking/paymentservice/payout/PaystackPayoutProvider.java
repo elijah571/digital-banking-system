@@ -8,8 +8,10 @@ import tools.jackson.databind.JsonNode;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Paystack's Nigerian bank transfer adapter. Provider failures are allowed to reach the caller for retry. */
 public class PaystackPayoutProvider implements PayoutProvider {
@@ -25,11 +27,19 @@ public class PaystackPayoutProvider implements PayoutProvider {
     @Override
     public List<Bank> listBanks() {
         List<Bank> banks = new ArrayList<>();
-        for (int page = 1; ; page++) {
-            int currentPage = page;
-            JsonNode data = requiredData(client.get().uri(uri -> uri.path("/bank").queryParam("currency", "NGN")
-                            .queryParam("country", "nigeria").queryParam("perPage", 100).queryParam("page", currentPage).build())
-                    .retrieve().body(JsonNode.class));
+        Set<String> seenCursors = new HashSet<>();
+        String cursor = null;
+        do {
+            String currentCursor = cursor;
+            JsonNode envelope = client.get().uri(uri -> {
+                var builder = uri.path("/bank").queryParam("currency", "NGN").queryParam("country", "nigeria")
+                        .queryParam("use_cursor", true).queryParam("perPage", 100);
+                if (currentCursor != null) {
+                    builder.queryParam("next", currentCursor);
+                }
+                return builder.build();
+            }).retrieve().body(JsonNode.class);
+            JsonNode data = requiredData(envelope);
             if (!data.isArray()) {
                 throw new IllegalStateException("Paystack bank list response was not an array");
             }
@@ -40,10 +50,15 @@ public class PaystackPayoutProvider implements PayoutProvider {
                     banks.add(new Bank(name, code));
                 }
             }
-            if (data.size() < 100) {
+            JsonNode next = envelope.path("meta").path("next");
+            cursor = next.isMissingNode() || next.isNull() || next.asText().isBlank() ? null : next.asText();
+            if (cursor != null && !seenCursors.add(cursor)) {
+                throw new IllegalStateException("Paystack bank list returned a repeated cursor");
+            }
+            if (cursor == null) {
                 break;
             }
-        }
+        } while (true);
         return List.copyOf(banks);
     }
 

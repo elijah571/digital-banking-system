@@ -6,6 +6,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -13,12 +14,52 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import org.springframework.http.HttpMethod;
 
 class PaystackPayoutProviderTest {
+
+    @Test
+    void configuredPaystackClientUsesAnIdentifyingUserAgent() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://api.paystack.co/bank"))
+                .andExpect(header("User-Agent", "EliBanking-Payment-Service/1.0"))
+                .andExpect(header("Authorization", "Bearer sk_test_example"))
+                .andRespond(withSuccess("{\"status\":true,\"data\":[]}", MediaType.APPLICATION_JSON));
+
+        PayoutProviderConfiguration.paystackClient(builder, "sk_test_example", "https://api.paystack.co")
+                .get().uri("/bank").retrieve().body(String.class);
+
+        server.verify();
+    }
+
+    @Test
+    void listsBanksUsingPaystacksCursorPagination() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://api.paystack.co/bank?currency=NGN&country=nigeria&use_cursor=true&perPage=100"))
+                .andExpect(queryParam("use_cursor", "true"))
+                .andRespond(withSuccess("""
+                        {"status":true,"data":[{"name":"Bank A","code":"001"},{"name":"Bank B","code":"002"}],
+                        "meta":{"next":"cursor-2"}}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.paystack.co/bank?currency=NGN&country=nigeria&use_cursor=true&perPage=100&next=cursor-2"))
+                .andExpect(queryParam("next", "cursor-2"))
+                .andRespond(withSuccess("""
+                        {"status":true,"data":[{"name":"Bank C","code":"003"}],"meta":{"next":null}}
+                        """, MediaType.APPLICATION_JSON));
+        PaystackPayoutProvider provider = new PaystackPayoutProvider(builder.baseUrl("https://api.paystack.co").build(),
+                mock(PaystackRecipientRepository.class));
+
+        assertEquals(List.of(new PayoutProvider.Bank("Bank A", "001"), new PayoutProvider.Bank("Bank B", "002"),
+                new PayoutProvider.Bank("Bank C", "003")), provider.listBanks());
+        server.verify();
+    }
 
     @Test
     void createsTransfersWithPaddedReferenceAndKoboAmount() {
