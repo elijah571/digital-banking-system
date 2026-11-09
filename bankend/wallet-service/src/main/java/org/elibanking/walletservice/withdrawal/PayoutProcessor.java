@@ -35,12 +35,6 @@ import java.util.List;
 public class PayoutProcessor {
 
     static final int BATCH = 50;
-    /**
-     * The clearing account of the simulated provider (wallet-plan D22). account-service seeds it in V8. When Paystack is added,
-     * its clearing account is PROVIDER_CLEARING:PAYSTACK:NGN, and this becomes the provider's name.
-     */
-    static final String CLEARING = "PROVIDER_CLEARING:SIMULATOR:NGN";
-
     private final OutboundPayoutRepository payouts;
     private final PaymentServiceClient payments;
     private final AccountServiceClient accounts;
@@ -48,10 +42,12 @@ public class PayoutProcessor {
     private final WithdrawalService withdrawals;
     private final TransactionTemplate tx;
     private final Duration recoveryAfter;
+    private final String clearingAccount;
 
     public PayoutProcessor(OutboundPayoutRepository payouts, PaymentServiceClient payments, AccountServiceClient accounts,
                            PayoutTransitions transitions, WithdrawalService withdrawals, TransactionTemplate tx,
-                           @Value("${wallet.withdrawals.recovery-after}") Duration recoveryAfter) {
+                           @Value("${wallet.withdrawals.recovery-after}") Duration recoveryAfter,
+                           @Value("${payout.provider:simulator}") String provider) {
         this.recoveryAfter = recoveryAfter;
         this.payouts = payouts;
         this.payments = payments;
@@ -59,6 +55,7 @@ public class PayoutProcessor {
         this.transitions = transitions;
         this.withdrawals = withdrawals;
         this.tx = tx;
+        this.clearingAccount = "PROVIDER_CLEARING:" + provider.toUpperCase(java.util.Locale.ROOT) + ":NGN";
     }
 
     /** Advances the payouts that are waiting to be sent, or for the provider's answer. One that fails is left for the next run. */
@@ -95,11 +92,11 @@ public class PayoutProcessor {
      */
     public boolean reverseIfReversed(long id) {
         OutboundPayout payout = current(id);
-        if (payout.getState() != PayoutState.COMPLETED || !"REVERSED".equals(payments.payoutStatus(payout.ledgerKey()))) {
+        if (payout.getState() != PayoutState.COMPLETED || statusFor(payout) != ProviderStatus.REVERSED) {
             return false;
         }
         List<LedgerLine> lines = new ArrayList<>();
-        lines.add(new LedgerLine(null, CLEARING, "DEBIT", payout.getAmount().toPlainString(), WithdrawalService.CURRENCY));
+        lines.add(new LedgerLine(null, clearingAccount, "DEBIT", payout.getAmount().toPlainString(), WithdrawalService.CURRENCY));
         if (payout.getFee().signum() > 0) {
             lines.add(new LedgerLine(null, WithdrawalService.FEE_REVENUE, "DEBIT", payout.getFee().toPlainString(),
                     WithdrawalService.CURRENCY));
@@ -140,15 +137,46 @@ public class PayoutProcessor {
 
     private void followTheProvider(OutboundPayout payout) {
         long id = payout.getId();
-        switch (payments.payoutStatus(payout.ledgerKey())) {
-            case "SUCCESS" -> settle(payout);
-            case "FAILED" -> endWithRelease(id, PayoutState.FAILED, "the provider failed the transfer");
-            case "REVERSED" -> endWithRelease(id, PayoutState.REVERSED, "the provider reversed the transfer before it settled");
-            case "NOT_FOUND" -> sendToProvider(payout);
+        switch (statusFor(payout)) {
+            case SUCCESS -> settle(payout);
+            case FAILED -> endWithRelease(id, PayoutState.FAILED, "the provider failed the transfer");
+            case REVERSED -> endWithRelease(id, PayoutState.REVERSED, "the provider reversed the transfer before it settled");
+            case NOT_FOUND -> sendToProvider(payout);
             default -> {
                 // PENDING: the provider is still working on it. The next run asks again.
             }
         }
+    }
+
+    /** A provider answer must match our payout before it can settle or release held funds. */
+    private ProviderStatus statusFor(OutboundPayout payout) {
+        org.elibanking.walletservice.client.PaymentServiceClient.PayoutStatus result =
+                payments.payoutStatusDetails(payout.ledgerKey());
+        // Existing service-level mocks return null for unstubbed methods; the real client returns a complete record or throws.
+        if (result == null) {
+            return ProviderStatus.valueOf(payments.payoutStatus(payout.ledgerKey()));
+        }
+        ProviderStatus status = ProviderStatus.valueOf(result.status());
+        if (status == ProviderStatus.NOT_FOUND) {
+            return status;
+        }
+        boolean matches = payout.ledgerKey().equals(result.reference())
+                && result.amount() != null && payout.getAmount().compareTo(new java.math.BigDecimal(result.amount())) == 0
+                && "NGN".equals(result.currency());
+        if (!matches) {
+            throw new ProviderStatusMismatchException();
+        }
+        return status;
+    }
+
+    public static final class ProviderStatusMismatchException extends RuntimeException {
+        public ProviderStatusMismatchException() {
+            super("provider payout status did not match the wallet record");
+        }
+    }
+
+    private enum ProviderStatus {
+        SUCCESS, PENDING, FAILED, REVERSED, NOT_FOUND
     }
 
     /** Settles the money to the provider's clearing account, then completes the payout. The settle key is the only settle. */
@@ -157,7 +185,7 @@ public class PayoutProcessor {
         List<LedgerLine> lines = List.of(
                 new LedgerLine(null, WithdrawalService.PAYOUT_PAYABLE, "DEBIT", payout.getAmount().toPlainString(),
                         WithdrawalService.CURRENCY),
-                new LedgerLine(null, CLEARING, "CREDIT", payout.getAmount().toPlainString(),
+                new LedgerLine(null, clearingAccount, "CREDIT", payout.getAmount().toPlainString(),
                         WithdrawalService.CURRENCY));
         accounts.postEntry("OUTBOUND_SETTLE", payout.ledgerKey() + "-settle", String.valueOf(id), "payout-" + id, lines);
         tx.executeWithoutResult(status -> transitions.move(current(id), PayoutState.COMPLETED, "the provider confirmed success"));

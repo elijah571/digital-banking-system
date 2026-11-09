@@ -34,6 +34,10 @@ public interface PayoutProvider {
     record SendResult(String providerRef, SendStatus status) {
     }
 
+    /** Status plus the provider facts wallet must match before it can settle or reverse a payout. */
+    record StatusResult(PayoutStatus status, String reference, BigDecimal amount, String currency) {
+    }
+
     /**
      * The status of a send, asked of the provider. The send's own answer is not enough to settle (wallet-plan 8.3). REVERSED is the
      * bank taking the money back after success. NOT_FOUND means the provider has no send under that key.
@@ -54,4 +58,8 @@ public interface PayoutProvider {
     SendResult send(String key, BigDecimal amount, String bankCode, String accountNumber, String accountName, String narration);
 
     PayoutStatus getStatus(String key);
+
+    default StatusResult getStatusDetails(String key) {
+        return new StatusResult(getStatus(key), key, null, null);
+    }
 }

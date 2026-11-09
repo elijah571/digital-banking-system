@@ -79,6 +79,9 @@ payout:
   sim:
     default-outcome: ${PAYOUT_SIM_DEFAULT_OUTCOME:success}
     delay-ms: ${PAYOUT_SIM_DELAY_MS:0}
+  paystack:
+    secret-key: ${PAYSTACK_SECRET_KEY:}
+    base-url: ${PAYSTACK_API_URL:https://api.paystack.co}
 
 # Verifies the user tokens that auth-service issues (wallet-plan 3.7, D8). The gateway and auth-service share this secret.
 auth:

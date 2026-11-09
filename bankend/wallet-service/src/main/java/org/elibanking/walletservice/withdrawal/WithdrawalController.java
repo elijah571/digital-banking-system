@@ -42,9 +42,14 @@ public class WithdrawalController {
     }
 
     /** One of the caller's withdrawals, with its status. Another user's withdrawal is 404. */
-    @GetMapping(value = {"/withdrawals/{id}", "/payouts/{id}"}, produces = MediaType.APPLICATION_JSON_VALUE)
+    @GetMapping(value = "/withdrawals/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     public WithdrawalResponse get(@PathVariable long id, Caller caller) {
         return withdrawals.view(caller, id);
+    }
+
+    @GetMapping(value = "/payouts/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public WithdrawalResponse getPayout(@PathVariable long id, Caller caller) {
+        return withdrawals.viewPayout(caller, id);
     }
 
     /** The reason an admin gives for rejecting a withdrawal. */
@@ -52,13 +57,13 @@ public class WithdrawalController {
     }
 
     /** An admin approves a withdrawal that is waiting. The requester cannot approve their own (wallet-plan 8.3). */
-    @PostMapping(value = "/withdrawals/{id}/approve", produces = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = {"/withdrawals/{id}/approve", "/payouts/{id}/approve"}, produces = MediaType.APPLICATION_JSON_VALUE)
     public WithdrawalResponse approve(@PathVariable long id, Caller caller) {
         return withdrawals.approve(caller, id);
     }
 
     /** An admin rejects a withdrawal that is waiting, and its money is released to the user. */
-    @PostMapping(value = "/withdrawals/{id}/reject", produces = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = {"/withdrawals/{id}/reject", "/payouts/{id}/reject"}, produces = MediaType.APPLICATION_JSON_VALUE)
     public WithdrawalResponse reject(@PathVariable long id, @Valid @RequestBody Decision body, Caller caller) {
         return withdrawals.reject(caller, id, body.reason());
     }

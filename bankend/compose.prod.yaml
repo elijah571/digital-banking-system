@@ -45,6 +45,12 @@ services:
     environment:
       <<: *prod-app-env
     mem_limit: 768m
+  wallet-service:
+    <<: *prod
+    ports: !reset []
+    environment:
+      <<: *prod-app-env
+    mem_limit: 768m
   transaction-service:
     <<: *prod
     ports: !reset []

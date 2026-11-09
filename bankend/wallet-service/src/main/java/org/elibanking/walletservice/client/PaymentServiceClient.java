@@ -35,6 +35,9 @@ public class PaymentServiceClient {
         }
     }
 
+    public record PayoutStatus(String status, String reference, String amount, String currency) {
+    }
+
     private final RestClient client;
 
     public PaymentServiceClient(@Value("${payment-service.url}") String baseUrl,
@@ -182,6 +185,21 @@ public class PaymentServiceClient {
             throw unavailable();
         }
         return answer.get("status").asText();
+    }
+
+    /** Includes the provider facts required to validate a payout result before posting ledger entries. */
+    public PayoutStatus payoutStatusDetails(String key) {
+        try {
+            JsonNode body = client.get().uri("/internal/v1/payouts/{key}", key).retrieve().body(JsonNode.class);
+            if (body == null || body.path("status").asText().isBlank()) {
+                throw unavailable();
+            }
+            return new PayoutStatus(body.path("status").asText(), body.path("reference").asText(null),
+                    body.path("amount").asText(null), body.path("currency").asText(null));
+        } catch (RestClientException e) {
+            log.warn("payment-service did not return payout status for {}: {}", key, e.getClass().getSimpleName());
+            throw unavailable();
+        }
     }
 
     private static RequestRefusedException unavailable() {

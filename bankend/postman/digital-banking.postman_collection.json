@@ -804,6 +804,51 @@
           ]
         },
         {
+          "name": "External bank transfer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}",
+                "description": "Reuse this key only when retrying this exact payout."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions"
+              ]
+            },
+            "description": "Run Resolve withdrawal destination first. A bankCode other than OWN_BANK_CODE routes this request through the shared outbound payout pipeline.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"senderAccountNumber\": \"{{senderAccount}}\",\n  \"receiverAccountNumber\": \"{{destinationAccount}}\",\n  \"amount\": \"{{withdrawalAmount}}\",\n  \"type\": \"TRANSFER\",\n  \"description\": \"external transfer\",\n  \"pin\": \"{{pin}}\",\n  \"bankCode\": \"{{bankCode}}\",\n  \"nameEnquiryRef\": \"{{nameEnquiryRef}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(202));",
+                  "pm.collectionVariables.set('payoutId', pm.response.json().payoutId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Get transaction",
           "request": {
             "method": "GET",

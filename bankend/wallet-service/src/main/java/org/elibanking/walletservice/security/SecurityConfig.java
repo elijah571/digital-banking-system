@@ -40,6 +40,8 @@ public class SecurityConfig {
                         // The transfer PIN check: transaction-service only (wallet-plan 3.7, threat model T8).
                         .requestMatchers(HttpMethod.POST, "/internal/v1/pin/verify")
                         .access(CallerAllowList.only(CallerAllowList.TRANSACTION))
+                        .requestMatchers(HttpMethod.POST, "/internal/v1/name-enquiries/validate", "/internal/v1/outbound-transfers")
+                        .access(CallerAllowList.only(CallerAllowList.TRANSACTION))
                         .requestMatchers("/internal/v1/**").denyAll()
                         .requestMatchers("/api/**").access(CallerAllowList.users())
                         .anyRequest().denyAll())

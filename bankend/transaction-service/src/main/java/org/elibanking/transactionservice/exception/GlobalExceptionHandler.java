@@ -8,6 +8,8 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.elibanking.transactionservice.service.WalletTransferRejectedException;
+import org.elibanking.transactionservice.service.WalletUnavailableException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -60,6 +62,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(PinUnavailableException.class)
     public ProblemDetail pinUnavailable(PinUnavailableException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
+    }
+
+    @ExceptionHandler(WalletUnavailableException.class)
+    public ProblemDetail walletUnavailable(WalletUnavailableException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
+    }
+
+    @ExceptionHandler(WalletTransferRejectedException.class)
+    public ProblemDetail walletRejected(WalletTransferRejectedException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.valueOf(e.status()), e.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -95,6 +95,9 @@ wallet:
       enabled: ${PAYOUT_PROCESS_JOB_ENABLED:true}
       delay-ms: ${PAYOUT_PROCESS_JOB_DELAY_MS:60000}
 
+payout:
+  provider: ${PAYOUT_PROVIDER:simulator}
+
 # account-service (owner, status, currency) and payment-service (the card intent). Calls carry a SERVICE token whose sub is this service.
 account-service:
   url: ${ACCOUNT_SERVICE_URL:http://localhost:8081}

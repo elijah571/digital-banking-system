@@ -18,4 +18,19 @@ public class DepositTopics {
     NewTopic intentFailedTopic() {
         return TopicBuilder.name("payment.intent.failed").partitions(1).replicas(1).build();
     }
+
+    @Bean
+    NewTopic payoutSuccessTopic() {
+        return TopicBuilder.name("payment.payout.success").partitions(1).replicas(1).build();
+    }
+
+    @Bean
+    NewTopic payoutFailedTopic() {
+        return TopicBuilder.name("payment.payout.failed").partitions(1).replicas(1).build();
+    }
+
+    @Bean
+    NewTopic payoutReversedTopic() {
+        return TopicBuilder.name("payment.payout.reversed").partitions(1).replicas(1).build();
+    }
 }

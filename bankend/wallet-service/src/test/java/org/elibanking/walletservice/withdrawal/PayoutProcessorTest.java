@@ -5,6 +5,7 @@ import org.elibanking.walletservice.client.AccountServiceClient;
 import org.elibanking.walletservice.client.AccountServiceClient.PostResult;
 import org.elibanking.walletservice.client.PaymentServiceClient;
 import org.elibanking.walletservice.client.PaymentServiceClient.Send;
+import org.elibanking.walletservice.client.PaymentServiceClient.PayoutStatus;
 import org.elibanking.walletservice.exception.RequestRefusedException;
 import org.elibanking.walletservice.payout.OutboundPayout;
 import org.elibanking.walletservice.payout.OutboundPayoutRepository;
@@ -145,6 +146,24 @@ class PayoutProcessorTest {
         verify(payments, times(1)).payoutStatus("out-" + id);
         verify(payments, never()).sendPayout(anyString(), anyString(), anyString(), anyString(), any(), any());
         verify(accounts, times(1)).postEntry(eq("OUTBOUND_SETTLE"), eq("out-" + id + "-settle"), anyString(), anyString(), anyList());
+    }
+
+    @Test
+    void mismatchedProviderFactsNeverSettleOrReleaseThePayout() {
+        long id = approvedPayout(newAccount(), "5000.00");
+        tx.executeWithoutResult(status -> transitions.move(payouts.findById(id).orElseThrow(), PayoutState.PROCESSING,
+                "simulated provider call already started"));
+        when(payments.payoutStatusDetails("out-" + id)).thenReturn(
+                new PayoutStatus("SUCCESS", "out-999", "5000.00", "NGN"),
+                new PayoutStatus("SUCCESS", "out-" + id, "5000.01", "NGN"),
+                new PayoutStatus("SUCCESS", "out-" + id, "5000.00", "USD"));
+
+        for (int attempt = 0; attempt < 3; attempt++) {
+            assertThrows(PayoutProcessor.ProviderStatusMismatchException.class, () -> processor.advance(id));
+            assertEquals("PROCESSING", stateOf(id));
+        }
+        verify(accounts, never()).postEntry(eq("OUTBOUND_SETTLE"), anyString(), anyString(), anyString(), anyList());
+        verify(accounts, never()).postEntry(eq("OUTBOUND_RELEASE"), anyString(), anyString(), anyString(), anyList());
     }
 
     @Test

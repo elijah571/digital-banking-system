@@ -44,4 +44,12 @@ public class TransactionRequest {
     @Schema(description = "Transfer PIN. Required while TRANSFER_PIN_REQUIRED is true.", example = "1234")
     @Size(max = 10)
     private String pin;
+
+    @Schema(description = "Destination bank code; omit for an account at our bank.", example = "058")
+    @Size(max = 20)
+    private String bankCode;
+
+    @Schema(description = "Recent name-enquiry reference, required for another bank and optional for our bank.")
+    @Size(max = 64)
+    private String nameEnquiryRef;
 }

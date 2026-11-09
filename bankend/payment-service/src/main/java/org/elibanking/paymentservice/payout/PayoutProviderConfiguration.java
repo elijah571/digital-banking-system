@@ -3,6 +3,9 @@ package org.elibanking.paymentservice.payout;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
+import org.springframework.web.client.RestClient;
 
 @Configuration
 public class PayoutProviderConfiguration {
@@ -11,10 +14,33 @@ public class PayoutProviderConfiguration {
     PayoutProvider payoutProvider(
             @Value("${payout.provider:simulator}") String provider,
             @Value("${payout.sim.default-outcome:success}") String defaultOutcome,
-            @Value("${payout.sim.delay-ms:0}") long delayMs) {
-        if (!"simulator".equalsIgnoreCase(provider)) {
-            throw new IllegalStateException("Unsupported PAYOUT_PROVIDER '" + provider + "'; phase 6 supports simulator only");
+            @Value("${payout.sim.delay-ms:0}") long delayMs,
+            @Value("${payout.paystack.secret-key:}") String paystackSecret,
+            @Value("${payout.paystack.base-url:https://api.paystack.co}") String paystackBaseUrl,
+            Environment environment,
+            PaystackRecipientRepository recipients) {
+        if ("simulator".equalsIgnoreCase(provider)) {
+            return new SimulatedPayoutProvider(SimulatedPayoutProvider.DefaultOutcome.parse(defaultOutcome), delayMs);
         }
-        return new SimulatedPayoutProvider(SimulatedPayoutProvider.DefaultOutcome.parse(defaultOutcome), delayMs);
+        if (!"paystack".equalsIgnoreCase(provider)) {
+            throw new IllegalStateException("Unsupported PAYOUT_PROVIDER '" + provider + "'");
+        }
+        boolean testKey = paystackSecret.startsWith("sk_test_");
+        boolean liveKey = paystackSecret.startsWith("sk_live_");
+        if (!testKey && !liveKey) {
+            throw new IllegalStateException("PAYSTACK_SECRET_KEY must be configured when PAYOUT_PROVIDER=paystack");
+        }
+        boolean production = environment.acceptsProfiles(Profiles.of("prod"));
+        if (production && !liveKey) {
+            throw new IllegalStateException("prod profile requires a Paystack live secret key");
+        }
+        if (!production && !testKey) {
+            throw new IllegalStateException("dev and test profiles require a Paystack test secret key");
+        }
+        RestClient client = RestClient.builder().baseUrl(paystackBaseUrl)
+                .defaultHeader("Authorization", "Bearer " + paystackSecret)
+                .defaultHeader("Accept", "application/json")
+                .build();
+        return new PaystackPayoutProvider(client, recipients);
     }
 }

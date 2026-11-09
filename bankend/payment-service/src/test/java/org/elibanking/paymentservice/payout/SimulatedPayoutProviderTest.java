@@ -7,10 +7,12 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
+import org.springframework.core.env.StandardEnvironment;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 class SimulatedPayoutProviderTest {
 
@@ -88,8 +90,10 @@ class SimulatedPayoutProviderTest {
     void providerSelectionAndDefaultOutcomeAreValidatedAtStartup() {
         PayoutProviderConfiguration configuration = new PayoutProviderConfiguration();
 
-        assertThrows(IllegalStateException.class, () -> configuration.payoutProvider("paystack", "success", 0));
-        assertThrows(IllegalArgumentException.class, () -> configuration.payoutProvider("simulator", "unknown", 0));
+        assertThrows(IllegalStateException.class, () -> configuration.payoutProvider("paystack", "success", 0,
+                "", "https://api.paystack.co", new StandardEnvironment(), mock(PaystackRecipientRepository.class)));
+        assertThrows(IllegalArgumentException.class, () -> configuration.payoutProvider("simulator", "unknown", 0,
+                "", "https://api.paystack.co", new StandardEnvironment(), mock(PaystackRecipientRepository.class)));
     }
 
     private static PayoutProvider.SendResult send(SimulatedPayoutProvider provider, String key, String accountNumber) {

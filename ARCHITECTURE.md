@@ -147,7 +147,9 @@ The services live in one monorepo. They call each other synchronously over authe
 | notification-service    | `notification-service`    | Email, OTP delivery, transaction alerts                             | Spring Boot               |
 | banking-common          | `libs/banking-common`     | Shared types, security helpers, event envelopes                     | Java library              |
 
-For a bank transfer the calls flow `transaction-service → wallet-service → payment-service`, with `wallet-service → account-service` for the ledger. Nothing calls back into `transaction-service`, so there is no cycle.
+For a transfer to another bank, `transaction-service` validates the user's name-enquiry reference through wallet-service, then routes the payout request through `wallet-service → payment-service`; wallet-service calls account-service for the hold and settlement ledger entries. Transfers to our own bank continue through the internal transfer saga. Nothing calls back into transaction-service, so there is no cycle.
+
+Withdrawals and external transfers share `outbound_payout` and one state machine. The default provider is a deterministic simulator; Paystack is selectable for NGN bank payouts. Provider webhooks are signature-checked and written to payment-service's outbox. Wallet treats each event as a prompt to fetch provider status and checks the returned reference, amount, and currency before changing payout state or posting ledger entries.
 
 ### 4.1 Service layering
 

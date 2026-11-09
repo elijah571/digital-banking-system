@@ -59,11 +59,13 @@ public class SimulatedPayoutProvider implements PayoutProvider {
     private static final class Sent {
         final SendResult result;
         final char lastDigit;
+        final BigDecimal amount;
         final AtomicInteger statusChecks = new AtomicInteger();
 
-        Sent(SendResult result, char lastDigit) {
+        Sent(SendResult result, char lastDigit, BigDecimal amount) {
             this.result = result;
             this.lastDigit = lastDigit;
+            this.amount = amount;
         }
     }
 
@@ -89,7 +91,7 @@ public class SimulatedPayoutProvider implements PayoutProvider {
     public SendResult send(String key, BigDecimal amount, String bankCode, String accountNumber, String accountName, String narration) {
         pause();
         char last = accountNumber.charAt(accountNumber.length() - 1);
-        Sent sent = sends.computeIfAbsent(key, k -> new Sent(new SendResult("SIM-" + k, sendStatusFor(last)), last));
+        Sent sent = sends.computeIfAbsent(key, k -> new Sent(new SendResult("SIM-" + k, sendStatusFor(last)), last, amount));
         return sent.result;
     }
 
@@ -111,6 +113,14 @@ public class SimulatedPayoutProvider implements PayoutProvider {
                 case PENDING -> PayoutStatus.PENDING;
             };
         };
+    }
+
+    @Override
+    public StatusResult getStatusDetails(String key) {
+        PayoutStatus status = getStatus(key);
+        Sent sent = sends.get(key);
+        return sent == null ? new StatusResult(status, key, null, null)
+                : new StatusResult(status, key, sent.amount, "NGN");
     }
 
     private SendStatus sendStatusFor(char last) {

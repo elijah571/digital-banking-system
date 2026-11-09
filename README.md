@@ -45,7 +45,7 @@ Balances are not a number that each service edits. Every amount comes from a dou
 - **Auth and roles.** Email verification, short-lived JWT access tokens, single-use refresh tokens that rotate on use, password reset, and admin user management.
 - **PIN-gated transfers.** Internal transfers need a PIN hashed with Argon2id, and the lockout gets stricter after repeated failures. Transfers the fraud checks flag require a one-time code before they settle.
 - **Card deposits.** Card payments go through Stripe and are confirmed over signed webhooks. The same webhook is only ever applied once, even when Stripe retries it.
-- **Withdrawals and bank transfers.** Withdrawals and transfers to other banks share one outbound pipeline. Phase 6 provides the deterministic simulator; the Paystack adapter is a later phase.
+- **Withdrawals and bank transfers.** Withdrawals and transfers to other banks share one outbound pipeline. The deterministic simulator is the default; Paystack handles NGN bank payouts when selected.
 - **Fraud checks and notifications.** A separate service scores transfers on velocity and amount signals. Email and OTP delivery run off events so they never block a payment.
 - **Recovery and audit.** Idempotency keys, a transactional outbox, scheduled reconciliation, and an audit record for every money change.
 
@@ -59,7 +59,7 @@ Balances are not a number that each service edits. Every amount comes from a dou
 | Database       | MySQL (per-service schema), Flyway migrations        |
 | Messaging      | Apache Kafka (domain events, transactional outbox)   |
 | Cache          | Redis (rate limits, OTP, fraud signals, idempotency) |
-| Payments       | Stripe (cards), simulated bank payouts               |
+| Payments       | Stripe (cards), simulated or Paystack bank payouts   |
 | Infrastructure | Docker Compose                                       |
 | API Docs       | OpenAPI / Swagger UI                                 |
 
@@ -133,23 +133,24 @@ Configuration comes from environment variables. Copy `.env.example` to `.env` an
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`                        | Initial administrator account                       |   Yes    |
 | `PIN_PEPPER`, `OTP_HMAC_KEY`                           | Secret material for wallet PIN and OTP protection   |   Yes    |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`           | Stripe credentials for card deposits                |    No    |
-| `PAYSTACK_SECRET_KEY`                                  | Paystack credential for the bank-provider adapter   |    No    |
+| `PAYSTACK_SECRET_KEY`                                  | Paystack credential when `PAYOUT_PROVIDER=paystack`  |    No    |
+| `PAYSTACK_API_URL`                                      | Paystack API base URL; defaults to `https://api.paystack.co` | No |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_MAIL`, `SMTP_PASSWORD` | Outbound email (Gmail needs an App Password)        |    No    |
 | `WITHDRAWAL_MIN`, `WITHDRAWAL_MAX`                     | Per-withdrawal NGN bounds                            |   Yes    |
 | `WITHDRAWAL_DAILY_MAX`                                  | Maximum outbound NGN amount per account per day      |   Yes    |
 | `WITHDRAWAL_APPROVAL_THRESHOLD`                         | Amount at or above which an admin must approve      |   Yes    |
 | `OUTBOUND_FEE`                                           | Flat NGN payout fee; defaults to `0.00`              |    No    |
-| `PAYOUT_PROVIDER`                                        | `simulator` in phase 6; defaults to `simulator`      |    No    |
+| `PAYOUT_PROVIDER`                                        | `simulator` (default) or `paystack`                  |    No    |
 | `PAYOUT_SIM_DEFAULT_OUTCOME`                             | Simulator outcome for ordinary account numbers: `success`, `failure` or `pending`; defaults to `success` | No |
 | `PAYOUT_SIM_DELAY_MS`                                    | Simulator delay for send/status calls; defaults to `0` ms | No |
 
 > **Never commit `.env` files.** See [.env.example](bankend/.env.example) for the full list; in production these come from a secrets manager, never from git.
 
-### Phase 6 payout release notes
+### Withdrawal and external transfer release notes
 
 The withdrawal endpoints are additive; no existing route contract changes. `POST /api/v1/wallet/withdrawals` requires a user token, a verified PIN, a valid bank name-enquiry reference, and an `Idempotency-Key`. It returns `202` with the payout id and current state. A payout at or above the configured approval threshold, or one the fraud check cannot clear, waits for an administrator. The provider result is read asynchronously; the wallet settles only after a provider status of `SUCCESS`.
 
-Phase 6 supports `PAYOUT_PROVIDER=simulator`. Selecting `paystack` fails startup explicitly; the Paystack payout adapter is not part of this phase.
+`POST /api/v1/transactions` keeps internal transfers on the existing ledger saga. Set `bankCode` to another bank and include the `nameEnquiryRef` returned by `POST /api/v1/transfers/name-enquiry` to route the request through the wallet payout pipeline. External transfers share the withdrawal limits, PIN check, fraud gate, maker-checker flow, recovery, and idempotency rules. See [deployment configuration](bankend/docs/deploy.md) before enabling Paystack.
 
 ## Usage
 
@@ -228,9 +229,10 @@ Interactive docs are served at [`/swagger-ui.html`](http://localhost:8080/swagge
 | POST   | `/api/v1/accounts/create`                     | Open an account                   | Yes  |
 | GET    | `/api/v1/accounts/me`                         | List the caller's accounts        | Yes  |
 | GET    | `/api/v1/accounts/{accountNumber}/balance`    | Account balance                   | Yes  |
-| POST   | `/api/v1/transactions`                        | Start an internal transfer        | Yes  |
+| POST   | `/api/v1/transactions`                        | Start an internal or external bank transfer | Yes |
 | POST   | `/api/v1/transactions/{transactionId}/verify` | Verify OTP for a flagged transfer | Yes  |
 | POST   | `/api/v1/transfers/name-enquiry`               | Resolve a destination bank account | Yes |
+| GET    | `/api/v1/banks`                                | List supported banks              | Yes  |
 | POST   | `/api/v1/wallet/withdrawals`                   | Request an idempotent withdrawal  | Yes  |
 | GET    | `/api/v1/wallet/payouts/{id}`                  | Read payout status (owner or ADMIN) | Yes |
 | POST   | `/api/v1/wallet/withdrawals/{id}/cancel`        | Cancel a withdrawal awaiting approval | Yes |

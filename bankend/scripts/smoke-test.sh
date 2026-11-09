@@ -374,6 +374,38 @@ else
   red "FAIL  WITHDRAWAL_MIN is missing from the environment/.env"; FAIL=$((FAIL+1))
 fi
 
+# ================================================================ external transfer (same wallet payout pipeline)
+echo "== Transactions — external bank transfer"
+if [[ -n "${local_enquiry:-}" && -n "${WITHDRAWAL_MIN:-}" ]]; then
+  external_key="smoke-external-$RUN_ID"
+  external_body=$(jq -cn --arg sender "$S" --arg amount "$WITHDRAWAL_MIN" --arg bank "$SIM_BANK_CODE" --arg ref "$local_enquiry" \
+    '{senderAccountNumber:$sender, receiverAccountNumber:"0123456781", amount:$amount, type:"TRANSFER", description:"throwaway external transfer", bankCode:$bank, nameEnquiryRef:$ref, pin:"1234"}')
+  call POST /transactions "$external_body" "$Simulator_TOKEN" "Idempotency-Key: $external_key"
+  check "POST /transactions to another bank opens an outbound payout" 202 '.payoutId != null' true
+  external_payout=$(jq -r '.payoutId // empty' <<<"$BODY")
+  external_state=$(jq -r '.status // empty' <<<"$BODY")
+  if [[ -n "$external_payout" ]]; then
+    if [[ "$external_state" == PENDING_APPROVAL ]]; then
+      call POST "/wallet/withdrawals/$external_payout/approve" "" "$ADMIN_TOKEN"
+      check "external payout maker-checker approval" 200 .status APPROVED
+    fi
+    if wait_payout "$external_payout" "$Simulator_TOKEN"; then
+      check "external transfer settles after provider-confirmed success" 200 .status COMPLETED
+    else
+      red "FAIL  external transfer did not complete — HTTP $STATUS: ${BODY:0:200}"; FAIL=$((FAIL+1))
+    fi
+    call POST /transactions "$external_body" "$Simulator_TOKEN" "Idempotency-Key: $external_key"
+    check "external transfer retry returns the same payout" 202 .payoutId "$external_payout"
+  fi
+
+  external_without_ref=$(jq -cn --arg sender "$S" --arg amount "$WITHDRAWAL_MIN" --arg bank "$SIM_BANK_CODE" \
+    '{senderAccountNumber:$sender, receiverAccountNumber:"0123456781", amount:$amount, type:"TRANSFER", description:"missing name enquiry", bankCode:$bank, pin:"1234"}')
+  call POST /transactions "$external_without_ref" "$Simulator_TOKEN" "Idempotency-Key: smoke-external-no-ref-$RUN_ID"
+  check "external transfer without a name-enquiry reference -> 422" 422
+else
+  red "FAIL  simulator name enquiry missing; external transfer smoke could not run"; FAIL=$((FAIL+1))
+fi
+
 # ================================================================ transactions
 echo "== Transactions — normal transfer"
 TX='{"senderAccountNumber":"%s","receiverAccountNumber":"%s","amount":%s,"type":"TRANSFER","description":"%s","pin":"1234"}'

@@ -54,6 +54,7 @@ import java.util.function.Supplier;
 public class WithdrawalService {
 
     static final String ROUTE = "POST /api/v1/wallet/withdrawals";
+    static final String OUTBOUND_ROUTE = "POST /api/v1/wallet/outbound-payouts";
     static final String CURRENCY = "NGN";
     static final String PAYOUT_PAYABLE = "PAYOUT_PAYABLE:NGN";
     static final String FEE_REVENUE = "FEE_REVENUE:NGN";
@@ -114,18 +115,31 @@ public class WithdrawalService {
     }
 
     public Reply request(Caller caller, String key, WithdrawalRequest body) {
-        String userId = caller.userId();
         if (ownBankCode.equals(body.bankCode())) {
             throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY, "Use a transfer for an account at our bank");
         }
+        return requestPayout(caller, key, body, PayoutType.WITHDRAWAL, null);
+    }
+
+    /** Opens an external transfer from transaction-service after it validates the user's name-enquiry reference. */
+    public Reply externalTransfer(Caller caller, String key, WithdrawalRequest body, String validatedAccountName) {
+        if (validatedAccountName == null || validatedAccountName.isBlank()) {
+            throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY, "Name enquiry is invalid or expired");
+        }
+        return requestPayout(caller, key, body, PayoutType.EXTERNAL_TRANSFER, validatedAccountName);
+    }
+
+    private Reply requestPayout(Caller caller, String key, WithdrawalRequest body, PayoutType type, String validatedAccountName) {
+        String userId = caller.userId();
         BigDecimal amount = new BigDecimal(body.amount());
         if (amount.compareTo(min) < 0 || amount.compareTo(max) > 0) {
             throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY,
                     "A withdrawal is between " + min.toPlainString() + " and " + max.toPlainString() + " " + CURRENCY);
         }
-        String scope = userId + " " + ROUTE;
-        String requestHash = IdempotencyService.hash(String.join("|", body.accountNumber(), amount.toPlainString(), body.bankCode(),
-                body.destinationAccountNumber(), body.nameEnquiryRef(), body.narration() == null ? "" : body.narration()));
+        String scope = userId + " " + (type == PayoutType.WITHDRAWAL ? ROUTE : OUTBOUND_ROUTE);
+        String requestHash = IdempotencyService.hash(String.join("|", type.name(), body.accountNumber(), amount.toPlainString(),
+                body.bankCode(), body.destinationAccountNumber(), body.nameEnquiryRef(),
+                body.narration() == null ? "" : body.narration()));
         Begin begin = idempotency.begin(scope, key, requestHash, LEASE);
         if (begin.stored() != null) {
             return new Reply(begin.stored().status(), begin.stored().body());
@@ -135,7 +149,7 @@ public class WithdrawalService {
         if (payoutId == null) {
             OpenResult opened;
             try {
-                opened = open(scope, key, userId, caller.fullName(), body, amount);
+                opened = open(scope, key, userId, caller.fullName(), body, amount, type, validatedAccountName);
             } catch (RuntimeException refused) {
                 // Nothing was linked to the key, so a retry starts again.
                 idempotency.release(scope, key);
@@ -164,8 +178,17 @@ public class WithdrawalService {
         return respond(payout);
     }
 
+    /** Any payout resource (withdrawal or external transfer), visible only to its owner or an administrator. */
+    public WithdrawalResponse viewPayout(Caller caller, long id) {
+        OutboundPayout payout = payouts.findById(id)
+                .filter(found -> caller.canAccess(found.getUserId()))
+                .orElseThrow(() -> new RequestRefusedException(HttpStatus.NOT_FOUND, "Payout not found"));
+        return respond(payout);
+    }
+
     /** The checks, then the usage and the REQUESTED payout, in one transaction. Returns the new payout's id. */
-    private OpenResult open(String scope, String key, String userId, String fullName, WithdrawalRequest body, BigDecimal amount) {
+    private OpenResult open(String scope, String key, String userId, String fullName, WithdrawalRequest body, BigDecimal amount,
+                            PayoutType type, String validatedAccountName) {
         AccountCheck account = accounts.check(body.accountNumber());
         if (!userId.equals(account.ownerId())) {
             throw new RequestRefusedException(HttpStatus.FORBIDDEN, "This account belongs to another user");
@@ -176,8 +199,14 @@ public class WithdrawalService {
         if (!CURRENCY.equals(account.currency())) {
             throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY, "Withdrawals are only from NGN accounts");
         }
-        NameEnquiry enquiry = enquiries.validate(userId, body.nameEnquiryRef(), body.bankCode(), body.destinationAccountNumber());
-        requireNameMatch(fullName, enquiry.getAccountName());
+        String destinationName;
+        if (type == PayoutType.WITHDRAWAL) {
+            NameEnquiry enquiry = enquiries.validate(userId, body.nameEnquiryRef(), body.bankCode(), body.destinationAccountNumber());
+            requireNameMatch(fullName, enquiry.getAccountName());
+            destinationName = enquiry.getAccountName();
+        } else {
+            destinationName = validatedAccountName;
+        }
         BigDecimal limit = dailyMax.min(accounts.dailyLimit(body.accountNumber()));
 
         LocalDate today = LocalDate.now(PayoutTransitions.BUSINESS_ZONE);
@@ -202,7 +231,7 @@ public class WithdrawalService {
                     + " WHERE account_number = ? AND usage_day = ?", amount, sourceAccount, today);
 
             OutboundPayout payout = new OutboundPayout();
-            payout.setType(PayoutType.WITHDRAWAL);
+            payout.setType(type);
             payout.setUserId(userId);
             payout.setIdempotencyKey(key);
             payout.setAccountNumber(sourceAccount);
@@ -211,7 +240,7 @@ public class WithdrawalService {
             payout.setCurrency(CURRENCY);
             payout.setBankCode(body.bankCode());
             payout.setDestinationAccountNumber(body.destinationAccountNumber());
-            payout.setDestinationAccountName(enquiry.getAccountName());
+            payout.setDestinationAccountName(destinationName);
             payout.setNarration(body.narration());
             payout.setState(PayoutState.REQUESTED);
             payout.setCreatedAt(Instant.now());
@@ -347,7 +376,7 @@ public class WithdrawalService {
      * clean. A fraud check that cannot answer is not clean, so the payout waits for an admin (fail closed).
      */
     private void gate(OutboundPayout payout) {
-        Optional<FraudClient.FraudResult> fraud = fraudClient.check("WITHDRAWAL", payout.getAccountNumber(), payout.getAmount());
+        Optional<FraudClient.FraudResult> fraud = fraudClient.check(payout.getType().name(), payout.getAccountNumber(), payout.getAmount());
         boolean approve = fraud.isPresent() && !fraud.get().fraud() && payout.getAmount().compareTo(approvalThreshold) < 0;
         String reason;
         if (approve) {
@@ -442,9 +471,10 @@ public class WithdrawalService {
 
     /** The payout, if it is still waiting for approval. Inside a transaction it is locked against a second decision. */
     private OutboundPayout awaitingApproval(long id) {
-        OutboundPayout payout = withdrawal(id);
+        OutboundPayout payout = payouts.findById(id)
+                .orElseThrow(() -> new RequestRefusedException(HttpStatus.NOT_FOUND, "Payout not found"));
         if (payout.getState() != PayoutState.PENDING_APPROVAL) {
-            throw new RequestRefusedException(HttpStatus.CONFLICT, "This withdrawal is not waiting for approval");
+            throw new RequestRefusedException(HttpStatus.CONFLICT, "This payout is not waiting for approval");
         }
         return payout;
     }

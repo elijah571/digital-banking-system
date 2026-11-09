@@ -15,11 +15,13 @@ import org.elibanking.transactionservice.security.Caller;
 import org.elibanking.transactionservice.service.IdempotentTransfers;
 import org.elibanking.transactionservice.service.TransactionalService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import tools.jackson.databind.ObjectMapper;
 
 @RestController
 @RequestMapping("/api/v1/transactions")
@@ -30,11 +32,13 @@ public class TransactionController {
 
     private final TransactionalService transactionalService;
     private final IdempotentTransfers idempotentTransfers;
+    private final ObjectMapper json;
 
     @PostMapping
     @Operation(summary = "Transfer money",
             description = """
                     Sends money **from one of your own accounts**. Debits the sender immediately and returns the transaction with status **PROCESSING**.
+                    If `bankCode` is another bank's code, include a recent `nameEnquiryRef` from `POST /api/v1/transfers/name-enquiry`; the request opens an external payout through wallet-service and returns **202** with its payout status. An omitted or own-bank `bankCode` keeps the internal transfer flow, and a name-enquiry reference is optional there.
                     The fraud-detection service then checks it asynchronously (usually < 1 s):
 
                     * **clean** → status becomes **COMPLETED** and the receiver is credited
@@ -44,6 +48,7 @@ public class TransactionController {
 
                     Poll `GET /api/v1/transactions/{id}` to follow the status.""")
     @ApiResponse(responseCode = "201", description = "Transfer accepted, status PROCESSING")
+    @ApiResponse(responseCode = "202", description = "External bank payout accepted; poll /api/v1/wallet/payouts/{id}")
     @ApiResponse(responseCode = "400", description = "Validation failed (missing account numbers, non-positive amount, missing type)",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "403", description = "Sender account is not yours",
@@ -56,14 +61,17 @@ public class TransactionController {
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "502", description = "Account service unavailable",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    public ResponseEntity<TransactionResponse> transfer(
+    public ResponseEntity<?> transfer(
             @Parameter(description = "Unique per transfer. A repeat with the same key and body returns the first result and moves no money.",
                     required = true)
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody TransactionRequest request, Caller caller
     ) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(idempotentTransfers.transfer(idempotencyKey, request, caller));
+        if (idempotentTransfers.isExternalBank(request.getBankCode())) {
+            IdempotentTransfers.ExternalReply reply = idempotentTransfers.externalTransfer(idempotencyKey, request, caller);
+            return ResponseEntity.status(reply.status()).contentType(MediaType.APPLICATION_JSON).body(json.readTree(reply.body()));
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(idempotentTransfers.transfer(idempotencyKey, request, caller));
     }
 
     @GetMapping("/{transactionId}")

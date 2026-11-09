@@ -137,6 +137,7 @@ services:
       WITHDRAWAL_DAILY_MAX: ${WITHDRAWAL_DAILY_MAX:?set WITHDRAWAL_DAILY_MAX in .env}
       WITHDRAWAL_APPROVAL_THRESHOLD: ${WITHDRAWAL_APPROVAL_THRESHOLD:?set WITHDRAWAL_APPROVAL_THRESHOLD in .env}
       OUTBOUND_FEE: ${OUTBOUND_FEE:-0.00}
+      PAYOUT_PROVIDER: ${PAYOUT_PROVIDER:-simulator}
       # The fraud check for a payout, called before it is approved (wallet-plan 3.5, step 3).
       FRAUD_SERVICE_URL: http://fraud-detection-service:8084
       # Verifies the user tokens from auth-service, and the SERVICE tokens from transaction-service and auth-service's callers.
@@ -162,6 +163,7 @@ services:
       <<: *app-env
       # The transfer PIN is checked by wallet-service (wallet-plan 3.5, D2).
       WALLET_SERVICE_URL: http://wallet-service:8087
+      OWN_BANK_CODE: ${OWN_BANK_CODE:?set OWN_BANK_CODE in .env}
       # Verifies the user tokens from auth-service (D8). The same value as the gateway's and auth-service's.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       # Signs this service's calls to account-service (wallet-plan 3.7). The same value as account-service's.
@@ -211,6 +213,8 @@ services:
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      PAYSTACK_API_URL: ${PAYSTACK_API_URL:-https://api.paystack.co}
       PAYOUT_PROVIDER: ${PAYOUT_PROVIDER:-simulator}
       PAYOUT_SIM_DEFAULT_OUTCOME: ${PAYOUT_SIM_DEFAULT_OUTCOME:-success}
       PAYOUT_SIM_DELAY_MS: ${PAYOUT_SIM_DELAY_MS:-0}

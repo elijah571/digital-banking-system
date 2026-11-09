@@ -69,6 +69,7 @@ auth:
 # The prod profile refuses to start while it is off.
 transfer:
   pin-required: ${TRANSFER_PIN_REQUIRED:true}
+  own-bank-code: ${OWN_BANK_CODE:}
 
 # wallet-service, for the transfer PIN check (wallet-plan 3.5). Calls carry a SERVICE token with aud = wallet-service.
 wallet-service:

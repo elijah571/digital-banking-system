@@ -25,6 +25,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
 import java.nio.charset.StandardCharsets;
@@ -33,8 +34,12 @@ import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,7 +49,7 @@ import static org.mockito.Mockito.when;
  * account-service. The money-safety case is the crash after the transfer was saved: the retry resumes that transfer.
  */
 @SpringBootTest(properties = {"transfer.pin-required=false", "internal-auth.jwt-secret=transaction-service-test-secret-0123456789", "otp.hmac-key=transaction-service-test-otp-hmac-key-0123456789",
-        "auth.jwt-secret=" + UserTokens.SECRET, "outbox.relay.enabled=false", "transfer.recovery.enabled=false"})
+        "auth.jwt-secret=" + UserTokens.SECRET, "outbox.relay.enabled=false", "transfer.recovery.enabled=false", "transfer.own-bank-code=999"})
 @Import(TestcontainersConfiguration.class)
 class IdempotencyTest {
 
@@ -63,11 +68,17 @@ class IdempotencyTest {
     @Autowired
     JdbcTemplate jdbc;
 
+    @Autowired
+    ObjectMapper json;
+
     @MockitoBean
     AccountService accountService;
 
     @MockitoBean
     LedgerClient ledger;
+
+    @MockitoBean
+    WalletTransferClient wallet;
 
     @Test
     void aRepeatWithTheSameKeyAndBodyReturnsTheFirstResultAndMovesMoneyOnce() {
@@ -84,6 +95,35 @@ class IdempotencyTest {
         assertEquals(first.getId(), second.getId(), "the repeat is the same transfer");
         assertEquals(1, transactions.findBySenderAccountNumberOrderByCreatedAtDesc(sender).size(), "one transfer exists");
         verify(ledger, times(1)).post(any());
+    }
+
+    @Test
+    void anExternalTransferValidatesItsReferenceAndReplaysWalletAcceptance() {
+        String sender = randomAccount();
+        String receiver = randomAccount();
+        String userId = "owner-" + sender;
+        TransactionRequest request = request(sender, receiver, "100.00");
+        request.setBankCode("058");
+        request.setNameEnquiryRef("opaque-reference");
+        Caller caller = new Caller(userId, "owner@example.test", "USER");
+        String key = UUID.randomUUID().toString();
+        when(wallet.validate(userId, "opaque-reference", "058", receiver))
+                .thenReturn(new WalletTransferClient.Name("Destination Example"));
+        when(wallet.transfer(eq(key), eq(userId), eq(sender), eq(receiver), eq("Destination Example"), eq("100.00"),
+                eq("058"), eq("opaque-reference"), nullable(String.class), nullable(String.class)))
+                .thenReturn(new WalletTransferClient.Reply(202, "{\"payoutId\":7,\"status\":\"APPROVED\"}"));
+
+        IdempotentTransfers.ExternalReply first = transfers.externalTransfer(key, request, caller);
+        IdempotentTransfers.ExternalReply replay = transfers.externalTransfer(key, request, caller);
+
+        assertEquals(202, first.status());
+        assertEquals(first.status(), replay.status());
+        assertEquals(json.readTree(first.body()), json.readTree(replay.body()));
+        verify(wallet, times(1)).validate(userId, "opaque-reference", "058", receiver);
+        verify(wallet, times(1)).transfer(eq(key), eq(userId), eq(sender), eq(receiver), eq("Destination Example"),
+                eq("100.00"), eq("058"), eq("opaque-reference"), nullable(String.class), nullable(String.class));
+        assertTrue(transfers.isExternalBank("058"));
+        assertFalse(transfers.isExternalBank("999"));
     }
 
     @Test

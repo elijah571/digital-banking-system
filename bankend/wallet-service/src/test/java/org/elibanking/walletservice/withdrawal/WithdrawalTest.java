@@ -117,6 +117,51 @@ class WithdrawalTest {
     }
 
     @Test
+    void transactionServiceCanValidateAndOpenAnExternalTransferOnTheSharedPipeline() throws Exception {
+        Fixture f = new Fixture();
+        f.accountIsActive(new BigDecimal("1000000.00"));
+        when(accounts.postEntry(anyString(), anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(new PostResult(1L, false));
+
+        mvc.perform(post("/internal/v1/name-enquiries/validate")
+                        .header("Authorization", "Bearer " + TestTokens.serviceToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"" + f.user + "\",\"nameEnquiryRef\":\"" + f.ref
+                                + "\",\"bankCode\":\"" + OTHER_BANK + "\",\"accountNumber\":\"" + f.destination + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountName").value("Bob Example"));
+
+        MvcResult result = mvc.perform(post("/internal/v1/outbound-transfers")
+                        .header("Authorization", "Bearer " + TestTokens.serviceToken())
+                        .header("Idempotency-Key", f.key())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"" + f.user + "\",\"accountName\":\"Bob Example\",\"accountNumber\":\""
+                                + f.account + "\",\"amount\":\"5000.00\",\"bankCode\":\"" + OTHER_BANK
+                                + "\",\"destinationAccountNumber\":\"" + f.destination + "\",\"nameEnquiryRef\":\"" + f.ref
+                                + "\",\"narration\":\"rent\",\"pin\":\"1234\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andReturn();
+
+        long payoutId = payoutIdOf(result);
+        assertEquals("EXTERNAL_TRANSFER", jdbc.queryForObject(
+                "SELECT type FROM outbound_payout WHERE id = ?", String.class, payoutId));
+        verify(fraud).check(eq("EXTERNAL_TRANSFER"), eq(f.account), eq(new BigDecimal("5000.00")));
+    }
+
+    @Test
+    void onlyTransactionServiceCanUseExternalTransferInternals() throws Exception {
+        Fixture f = new Fixture();
+
+        mvc.perform(post("/internal/v1/name-enquiries/validate")
+                        .header("Authorization", "Bearer " + TestTokens.serviceTokenAs("fraud-detection-service"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"" + f.user + "\",\"nameEnquiryRef\":\"" + f.ref
+                                + "\",\"bankCode\":\"" + OTHER_BANK + "\",\"accountNumber\":\"" + f.destination + "\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void insufficientFundsFailsThePayoutAndGivesTheAllowanceBack() throws Exception {
         Fixture f = new Fixture();
         f.accountIsActive(new BigDecimal("1000000.00"));

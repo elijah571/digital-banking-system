@@ -59,8 +59,8 @@ public class InternalPayoutController {
     public record SendResponse(String providerRef, String status) {
     }
 
-    /** The provider's status for a send: SUCCESS, PENDING, FAILED, REVERSED or NOT_FOUND. */
-    public record StatusResponse(String status) {
+    /** The provider's status and transfer facts; wallet checks these against its payout before moving ledger money. */
+    public record StatusResponse(String status, String reference, String amount, String currency) {
     }
 
     @PostMapping("/payouts")
@@ -75,6 +75,8 @@ public class InternalPayoutController {
         if (!key.matches("out-\\d+")) {
             throw new IllegalArgumentException("key must be out-{id}");
         }
-        return new StatusResponse(provider.getStatus(key).name());
+        PayoutProvider.StatusResult result = provider.getStatusDetails(key);
+        return new StatusResponse(result.status().name(), result.reference(),
+                result.amount() == null ? null : result.amount().toPlainString(), result.currency());
     }
 }

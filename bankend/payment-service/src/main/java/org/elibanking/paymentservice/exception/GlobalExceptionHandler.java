@@ -42,4 +42,10 @@ public class GlobalExceptionHandler {
         log.error(e.getMessage(), e);
         return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "Deposit event not recorded; Stripe will retry");
     }
+
+    @ExceptionHandler(WebhookNotRecordedException.class)
+    public ProblemDetail handleWebhookNotRecorded(WebhookNotRecordedException e) {
+        log.error(e.getMessage(), e);
+        return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "Provider event not recorded; Paystack will retry");
+    }
 }
