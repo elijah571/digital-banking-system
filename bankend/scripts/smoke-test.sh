@@ -297,10 +297,12 @@ call POST /wallet/pin/otp "" "$Alice_TOKEN"; check "POST /wallet/pin/otp again w
 # ================================================================ withdrawal payout
 echo "== Wallet — withdrawal payout"
 if [[ -n "$WITHDRAWAL_MIN" ]]; then
+  # WithdrawalRequest validates amounts as decimal strings with exactly two places.
+  printf -v withdrawal_amount '%.2f' "$WITHDRAWAL_MIN"
   call POST /transfers/name-enquiry "{\"bankCode\":\"$SIM_BANK_CODE\",\"accountNumber\":\"0123456781\"}" "$Simulator_TOKEN"
   check "POST /transfers/name-enquiry for simulator destination" 200 .accountName "SIMULATED ACCOUNT 6781"
   local_enquiry=$(jq -r '.nameEnquiryRef // empty' <<<"$BODY")
-  withdrawal_body=$(jq -cn --arg account "$S" --arg amount "$WITHDRAWAL_MIN" --arg bank "$SIM_BANK_CODE" --arg enquiry "$local_enquiry" \
+  withdrawal_body=$(jq -cn --arg account "$S" --arg amount "$withdrawal_amount" --arg bank "$SIM_BANK_CODE" --arg enquiry "$local_enquiry" \
     '{accountNumber:$account, amount:$amount, bankCode:$bank, destinationAccountNumber:"0123456781", nameEnquiryRef:$enquiry, narration:"throwaway smoke withdrawal", pin:"1234"}')
   payout_tmp=$(mktemp -d /tmp/smoke-withdrawal.XXXXXX)
   payout_pids=(); payout_keys=(); payout_ids=(); payout_states=()
@@ -378,7 +380,7 @@ fi
 echo "== Transactions — external bank transfer"
 if [[ -n "${local_enquiry:-}" && -n "${WITHDRAWAL_MIN:-}" ]]; then
   external_key="smoke-external-$RUN_ID"
-  external_body=$(jq -cn --arg sender "$S" --arg amount "$WITHDRAWAL_MIN" --arg bank "$SIM_BANK_CODE" --arg ref "$local_enquiry" \
+  external_body=$(jq -cn --arg sender "$S" --arg amount "$withdrawal_amount" --arg bank "$SIM_BANK_CODE" --arg ref "$local_enquiry" \
     '{senderAccountNumber:$sender, receiverAccountNumber:"0123456781", amount:$amount, type:"TRANSFER", description:"throwaway external transfer", bankCode:$bank, nameEnquiryRef:$ref, pin:"1234"}')
   call POST /transactions "$external_body" "$Simulator_TOKEN" "Idempotency-Key: $external_key"
   check "POST /transactions to another bank opens an outbound payout" 202 '.payoutId != null' true
@@ -398,7 +400,7 @@ if [[ -n "${local_enquiry:-}" && -n "${WITHDRAWAL_MIN:-}" ]]; then
     check "external transfer retry returns the same payout" 202 .payoutId "$external_payout"
   fi
 
-  external_without_ref=$(jq -cn --arg sender "$S" --arg amount "$WITHDRAWAL_MIN" --arg bank "$SIM_BANK_CODE" \
+  external_without_ref=$(jq -cn --arg sender "$S" --arg amount "$withdrawal_amount" --arg bank "$SIM_BANK_CODE" \
     '{senderAccountNumber:$sender, receiverAccountNumber:"0123456781", amount:$amount, type:"TRANSFER", description:"missing name enquiry", bankCode:$bank, pin:"1234"}')
   call POST /transactions "$external_without_ref" "$Simulator_TOKEN" "Idempotency-Key: smoke-external-no-ref-$RUN_ID"
   check "external transfer without a name-enquiry reference -> 422" 422
