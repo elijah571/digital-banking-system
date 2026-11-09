@@ -89,11 +89,19 @@ public class PaystackPayoutProvider implements PayoutProvider {
         }
         String recipientCode = recipients.find(bankCode, accountNumber)
                 .orElseGet(() -> createRecipient(bankCode, accountNumber, accountName));
-        JsonNode data = requiredData(client.post().uri("/transfer").contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("source", "balance", "amount", kobo, "recipient", recipientCode,
-                        "reference", reference, "reason", narration == null ? "Bank transfer" : narration,
-                        "currency", "NGN"))
-                .retrieve().body(JsonNode.class));
+        final JsonNode data;
+        try {
+            data = requiredData(client.post().uri("/transfer").contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("source", "balance", "amount", kobo, "recipient", recipientCode,
+                            "reference", reference, "reason", narration == null ? "Bank transfer" : narration,
+                            "currency", "NGN"))
+                    .retrieve().body(JsonNode.class));
+        } catch (HttpClientErrorException rejected) {
+            if (isDefinitiveRejection(rejected)) {
+                return new SendResult(reference, SendStatus.FAILED);
+            }
+            throw rejected;
+        }
         String status = text(data, "status");
         SendStatus sendStatus = switch (status == null ? "pending" : status.toLowerCase()) {
             case "success", "pending", "otp" -> SendStatus.PENDING;
@@ -102,6 +110,20 @@ public class PaystackPayoutProvider implements PayoutProvider {
         };
         String providerRef = text(data, "transfer_code");
         return new SendResult(providerRef == null ? reference : providerRef, sendStatus);
+    }
+
+    /**
+     * A received 4xx response is a conclusive rejection unless it can describe an already-created transfer or a transient limit/timeout.
+     * Those ambiguous cases stay PROCESSING so recovery can verify the reference before any retry.
+     */
+    private static boolean isDefinitiveRejection(HttpClientErrorException error) {
+        int status = error.getStatusCode().value();
+        if (status < 400 || status >= 500 || status == 408 || status == 409 || status == 425 || status == 429) {
+            return false;
+        }
+        String message = error.getResponseBodyAsString().toLowerCase(java.util.Locale.ROOT);
+        return !(message.contains("reference")
+                && (message.contains("already exists") || message.contains("unique reference")));
     }
 
     @Override

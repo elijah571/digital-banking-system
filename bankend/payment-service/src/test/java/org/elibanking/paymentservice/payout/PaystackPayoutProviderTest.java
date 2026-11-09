@@ -1,6 +1,7 @@
 package org.elibanking.paymentservice.payout;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -19,6 +20,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import org.springframework.http.HttpMethod;
 
 class PaystackPayoutProviderTest {
@@ -82,6 +84,44 @@ class PaystackPayoutProviderTest {
         assertEquals("TRF_1", result.providerRef());
         assertEquals(PayoutProvider.SendStatus.PENDING, result.status());
         server.verify();
+    }
+
+    @Test
+    void definitivePaystackTransferRejectionReturnsFailedForWalletRelease() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.paystack.co");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        PaystackRecipientRepository recipients = mock(PaystackRecipientRepository.class);
+        when(recipients.find("057", "0000000000")).thenReturn(Optional.of("RCP_test"));
+        server.expect(requestTo("https://api.paystack.co/transfer"))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"status\":false,\"message\":\"recipient rejected\"}"));
+        PaystackPayoutProvider provider = new PaystackPayoutProvider(builder.build(), recipients);
+
+        PayoutProvider.SendResult result = provider.send("out-23", new BigDecimal("50.00"), "057", "0000000000",
+                "Test Recipient", "test payout");
+
+        assertEquals(PayoutProvider.SendStatus.FAILED, result.status());
+        assertEquals("out-000000000023", result.providerRef());
+        server.verify();
+    }
+
+    @Test
+    void rateLimitAndDuplicateReferenceRemainAmbiguousForStatusRecovery() {
+        for (var response : List.of(
+                withStatus(HttpStatus.TOO_MANY_REQUESTS).body("rate limited"),
+                withStatus(HttpStatus.BAD_REQUEST).body("Please provide a unique reference. Reference already exists"))) {
+            RestClient.Builder builder = RestClient.builder().baseUrl("https://api.paystack.co");
+            MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+            PaystackRecipientRepository recipients = mock(PaystackRecipientRepository.class);
+            when(recipients.find("057", "0000000000")).thenReturn(Optional.of("RCP_test"));
+            server.expect(requestTo("https://api.paystack.co/transfer")).andRespond(response);
+            PaystackPayoutProvider provider = new PaystackPayoutProvider(builder.build(), recipients);
+
+            assertThrows(org.springframework.web.client.HttpClientErrorException.class,
+                    () -> provider.send("out-24", new BigDecimal("50.00"), "057", "0000000000",
+                            "Test Recipient", "test payout"));
+            server.verify();
+        }
     }
 
     @Test
