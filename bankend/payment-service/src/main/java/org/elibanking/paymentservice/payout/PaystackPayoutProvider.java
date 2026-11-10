@@ -87,8 +87,16 @@ public class PaystackPayoutProvider implements PayoutProvider {
         if (kobo <= 0) {
             throw new IllegalArgumentException("payout amount must be positive");
         }
-        String recipientCode = recipients.find(bankCode, accountNumber)
-                .orElseGet(() -> createRecipient(bankCode, accountNumber, accountName));
+        final String recipientCode;
+        try {
+            recipientCode = recipients.find(bankCode, accountNumber)
+                    .orElseGet(() -> createRecipient(bankCode, accountNumber, accountName));
+        } catch (HttpClientErrorException rejected) {
+            if (isDefinitiveRejection(rejected)) {
+                return new SendResult(reference, SendStatus.FAILED);
+            }
+            throw rejected;
+        }
         final JsonNode data;
         try {
             data = requiredData(client.post().uri("/transfer").contentType(MediaType.APPLICATION_JSON)

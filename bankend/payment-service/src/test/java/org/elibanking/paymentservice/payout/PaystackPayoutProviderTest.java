@@ -106,6 +106,26 @@ class PaystackPayoutProviderTest {
     }
 
     @Test
+    void definitivePaystackRecipientRejectionReturnsFailedForWalletRelease() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.paystack.co");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        PaystackRecipientRepository recipients = mock(PaystackRecipientRepository.class);
+        when(recipients.find("057", "0000000000")).thenReturn(Optional.empty());
+        server.expect(requestTo("https://api.paystack.co/transferrecipient"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"status\":false,\"message\":\"Sorry, we can't make the transfer to this recipient at the moment\"}"));
+        PaystackPayoutProvider provider = new PaystackPayoutProvider(builder.build(), recipients);
+
+        PayoutProvider.SendResult result = provider.send("out-25", new BigDecimal("50.00"), "057", "0000000000",
+                "Test Recipient", "test payout");
+
+        assertEquals(PayoutProvider.SendStatus.FAILED, result.status());
+        assertEquals("out-000000000025", result.providerRef());
+        server.verify();
+    }
+
+    @Test
     void rateLimitAndDuplicateReferenceRemainAmbiguousForStatusRecovery() {
         for (var response : List.of(
                 withStatus(HttpStatus.TOO_MANY_REQUESTS).body("rate limited"),

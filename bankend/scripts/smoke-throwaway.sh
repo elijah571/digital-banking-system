@@ -24,16 +24,20 @@ GATEWAY_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1"
 export GATEWAY_PORT
 DEV_BEFORE=$(docker volume ls --format '{{.Name}}' | grep -E '^digital-banking-system_mysql' | sort || true)
 
-# Evidence, kept before every teardown, pass or fail (wallet-plan 8.29): both services' logs, and this stack's auth_tokens rows.
+# Evidence, kept before every teardown, pass or fail: all service logs, container state, and this stack's auth_tokens rows.
 # The token rows hold SHA-256 hashes only; raw tokens are never stored.
 capture_evidence() {
   local dc=(docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE")
-  (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps auth-service) > "$OUT/auth-service.log" 2>&1
-  (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps notification-service) > "$OUT/notification-service.log" 2>&1
-  (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps kafka) > "$OUT/kafka.log" 2>&1
-  # The transfer and PIN path: kept so a failure in any of these services can be read after teardown.
-  for svc in wallet-service transaction-service api-gateway; do
+  (cd "$WT/$REL" && "${dc[@]}" ps --all) > "$OUT/compose-ps.txt" 2>&1
+  (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps) > "$OUT/services.log" 2>&1
+  for svc in mysql redis kafka account-service wallet-service transaction-service payment-service fraud-detection-service \
+    auth-service notification-service api-gateway; do
     (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps "$svc") > "$OUT/$svc.log" 2>&1
+    container_id=$(cd "$WT/$REL" && "${dc[@]}" ps -aq "$svc")
+    if [[ -n "$container_id" ]]; then
+      docker inspect --format '{{.Name}} state={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}{{if .State.Health}} health={{.State.Health.Status}}{{range .State.Health.Log}} check={{.ExitCode}}:{{.Output}}{{end}}{{end}}' \
+        "$container_id" >> "$OUT/container-health.txt" 2>&1
+    fi
   done
   (cd "$WT/$REL" && "${dc[@]}" exec -T mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -t auth_db -e "SELECT u.email, u.email_verified, t.type, t.token_hash, t.created_at, t.expires_at, t.used_at FROM auth_tokens t JOIN users u ON u.id = t.user_id ORDER BY u.email, t.created_at"') > "$OUT/auth-tokens.txt" 2>&1
 }
@@ -79,9 +83,17 @@ printf '%s\n' 'services:' '  mysql:' '    container_name: smoke-mysql' '    port
   '      - "127.0.0.1:${GATEWAY_PORT}:8080"' > "$OVERRIDE"
 
 cd "$WT/$REL" || exit 2
+COMPOSE=(docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE")
 
-# 3. Build and start the stack in its own project. Named volumes are prefixed with the project name, so they are fresh.
-docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE" up -d --build > "$OUT/up.log" 2>&1 || { echo "up failed: see $OUT/up.log"; exit 2; }
+# 3. Build first, then start infrastructure and application services serially. This avoids cold-start CPU contention
+# with the dev broker and other services; healthchecks remain unchanged.
+"${COMPOSE[@]}" build > "$OUT/build.log" 2>&1 || { echo "build failed: see $OUT/build.log"; exit 2; }
+"${COMPOSE[@]}" up -d --wait --wait-timeout 300 mysql redis kafka > "$OUT/infrastructure-up.log" 2>&1 \
+  || { echo "infrastructure failed: see $OUT/infrastructure-up.log"; exit 2; }
+for svc in account-service wallet-service auth-service notification-service payment-service fraud-detection-service transaction-service api-gateway; do
+  "${COMPOSE[@]}" up -d --no-deps --wait --wait-timeout 300 "$svc" > "$OUT/$svc-start.log" 2>&1 \
+    || { echo "$svc failed to become healthy: see $OUT/$svc-start.log"; exit 2; }
+done
 for _ in $(seq 1 90); do
   [[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$GATEWAY_PORT/actuator/health") == 200 ]] && break
   sleep 5
