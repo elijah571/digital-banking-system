@@ -45,6 +45,10 @@ public class Account {
     @Column(nullable = false)
     private AccountStatus accountStatus;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "account_tier", nullable = false)
+    private AccountTier accountTier = AccountTier.STANDARD;
+
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal balance;
 

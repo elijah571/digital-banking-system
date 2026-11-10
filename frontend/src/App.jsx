@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   ArrowDownLeft,
@@ -52,6 +52,8 @@ const customerLinks = [
   { label: 'Transfers', view: 'transfers', icon: Send },
   { label: 'Add money', view: 'add-money', icon: Plus },
   { label: 'Withdraw', view: 'withdraw', icon: ArrowUpRight },
+  { label: 'Identity verification', view: 'kyc', icon: Fingerprint },
+  { label: 'Upgrade account', view: 'account-upgrade', icon: BadgeCheck },
   { label: 'Transactions', view: 'transactions', icon: ReceiptText },
 ];
 
@@ -71,6 +73,8 @@ const viewTitles = {
   'transfer-review': 'Review transfer',
   'add-money': 'Add money',
   withdraw: 'Withdraw',
+  kyc: 'Identity verification',
+  'account-upgrade': 'Upgrade account',
   transactions: 'Transactions',
   verify: 'Verify transfer',
   'transfer-status': 'Transfer status',
@@ -175,7 +179,7 @@ function Sidebar({ view, setView, adminMode, setAdminMode, open, onClose }) {
   return (
     <>
       {open && <button className="fixed inset-0 z-30 bg-slate-950/40 xl:hidden" onClick={onClose} aria-label="Close navigation" />}
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col bg-ink px-4 pb-4 pt-5 text-white transition-transform duration-200 xl:sticky xl:top-0 xl:h-screen xl:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col overflow-y-auto bg-ink px-4 pb-4 pt-5 text-white transition-transform duration-200 xl:sticky xl:top-0 xl:h-screen xl:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex items-center justify-between px-2">
           <BrandMark />
           <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 xl:hidden" aria-label="Close navigation"><X size={18} /></button>
@@ -378,10 +382,14 @@ function Accounts({ accounts, setView, setOpenAccount }) {
   const total = accounts.reduce((sum, account) => sum + account.balance, 0);
   return (
     <div className="fade-in">
-      <PageHeader title="My accounts" description="Manage your accounts and see where your money lives." actions={<Button onClick={() => setOpenAccount(true)}><Plus size={16} /> Open account</Button>} />
+      <PageHeader title="My accounts" description="Manage your accounts and see where your money lives." actions={<><Button variant="secondary" onClick={() => setView('account-upgrade')}><ArrowUpRight size={15} /> Upgrade account</Button><Button onClick={() => setOpenAccount(true)}><Plus size={16} /> Open account</Button></>} />
       <Panel className="mb-5 flex flex-wrap items-center justify-between gap-4 bg-ink p-5 text-white sm:px-7">
         <div><p className="text-[11px] font-medium text-slate-300">TOTAL ACCOUNT BALANCE</p><p className="mt-1.5 text-[27px] font-bold tracking-tight">{money(total)}</p></div><div className="text-right"><p className="text-[11px] text-slate-400">{accounts.length} accounts</p><p className="mt-1 text-xs text-green-300">All accounts active</p></div>
       </Panel>
+      <div className="mb-5 flex flex-col gap-4 rounded-2xl border border-gold-100 bg-gold-50/70 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-gold-800 shadow-sm"><ArrowUpRight size={18} /></span><div><h2 className="text-sm font-bold text-ink">Need higher transaction limits?</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">Upgrade your account with BVN, proof-of-address, and live face verification.</p></div></div>
+        <Button className="shrink-0" onClick={() => setView('account-upgrade')}>Upgrade account <ArrowRight size={15} /></Button>
+      </div>
       <div className="grid gap-4 lg:grid-cols-2">{accounts.map((account) => <AccountCard key={account.id} account={account} onTransfer={() => setView('transfers')} />)}</div>
       <Panel className="mt-5 p-5">
         <SectionHeading title="Account details" />
@@ -507,6 +515,275 @@ function Withdraw({ accounts, withdrawal, setWithdrawal, onSubmit }) {
   );
 }
 
+function LiveFaceSimulation({ verified, onVerified }) {
+  const [phase, setPhase] = useState('idle');
+  const [cameraStream, setCameraStream] = useState(null);
+  const [cameraError, setCameraError] = useState('');
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (videoRef.current && cameraStream) videoRef.current.srcObject = cameraStream;
+  }, [cameraStream]);
+
+  useEffect(() => () => {
+    window.clearTimeout(timerRef.current);
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  const stopCamera = () => {
+    window.clearTimeout(timerRef.current);
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setCameraStream(null);
+  };
+
+  const startSimulation = async () => {
+    setCameraError('');
+    onVerified(false);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError('Camera access is not available in this browser. Use a secure connection and try again.');
+      setPhase('error');
+      return;
+    }
+
+    setPhase('requesting');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'user' } });
+      streamRef.current = stream;
+      setCameraStream(stream);
+      setPhase('scanning');
+      timerRef.current = window.setTimeout(() => {
+        setPhase('complete');
+        onVerified(true);
+        stopCamera();
+      }, 2200);
+    } catch (error) {
+      setPhase('error');
+      setCameraError(error.name === 'NotAllowedError'
+        ? 'Camera access was denied. Allow camera access and try again.'
+        : 'The camera could not be started. Check that it is connected and available.');
+    }
+  };
+
+  return (
+    <section aria-labelledby="live-face-title" className="rounded-2xl border border-slate-200 p-4 sm:p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div><h3 id="live-face-title" className="text-sm font-bold text-ink">Live face check <span className="text-rose-600">*</span></h3><p className="mt-1 text-xs leading-5 text-slate-500">Allow camera access to run the facial-recognition demo.</p></div>
+        {verified && <Status tone="green">Demo complete</Status>}
+      </div>
+      {cameraStream && <video ref={videoRef} autoPlay muted playsInline className="mt-4 aspect-video w-full rounded-xl bg-ink object-cover" aria-label="Live camera preview for facial-recognition demo" />}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <Button type="button" onClick={startSimulation} disabled={phase === 'requesting' || phase === 'scanning'}>
+          <Fingerprint size={15} />
+          {phase === 'scanning' ? 'Scanning face...' : verified ? 'Run demo again' : 'Start live face check'}
+        </Button>
+        {phase === 'scanning' && <span aria-live="polite" className="text-xs font-medium text-gold-800">Keep your face centred and look at the camera.</span>}
+      </div>
+      {cameraError && <p role="alert" className="mt-2 text-xs font-medium text-rose-700">{cameraError}</p>}
+      <p className="mt-3 text-[10px] leading-5 text-slate-400">Simulation only: no biometric model runs and no video or image is recorded, uploaded, or sent to the backend.</p>
+    </section>
+  );
+}
+
+function IdentityVerification({ status, setStatus, showToast }) {
+  const [documentType, setDocumentType] = useState('NIN_SLIP');
+  const [documentImage, setDocumentImage] = useState(null);
+  const [documentError, setDocumentError] = useState('');
+  const [faceVerified, setFaceVerified] = useState(false);
+  const documentInputRef = useRef(null);
+
+  const handleDocumentChange = (event) => {
+    const file = event.target.files?.[0];
+    setDocumentError('');
+    if (!file) {
+      setDocumentImage(null);
+      return;
+    }
+    const allowedTypes = ['image/jpeg', 'image/png'];
+    const hasAllowedExtension = /\.(jpe?g|png)$/i.test(file.name);
+    if ((!allowedTypes.includes(file.type) && !hasAllowedExtension) || file.size > 5 * 1024 * 1024) {
+      setDocumentImage(null);
+      event.target.value = '';
+      setDocumentError(file.size > 5 * 1024 * 1024 ? 'Choose an image smaller than 5 MB.' : 'Use a JPG or PNG image.');
+      return;
+    }
+    setDocumentImage(file);
+  };
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    if (!documentImage) {
+      setDocumentError('Upload a clear image of your identity document.');
+      documentInputRef.current?.focus();
+      return;
+    }
+    if (!faceVerified) return showToast('Complete the live facial-recognition demo first.');
+    setDocumentImage(null);
+    if (documentInputRef.current) documentInputRef.current.value = '';
+    setStatus('Pending review');
+    showToast('Document KYC demo recorded. Nothing was stored or sent.');
+  };
+
+  return (
+    <div className="fade-in">
+      <PageHeader title="Identity verification" description="Verify your identity using an approved document and a live facial-recognition demo." />
+      {status === 'Pending review' ? (
+        <Panel className="mx-auto max-w-3xl p-6 sm:p-8">
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gold-50 text-gold-800"><Clock3 size={25} /></div>
+          <div className="mt-4 text-center"><Status tone="amber">Pending review</Status><h2 className="mt-3 text-xl font-bold text-ink">Demo verification request recorded</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">The document was not stored or sent to Dojah, and the face check was simulated locally.</p></div>
+          <div className="mt-6 rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-xs leading-5 text-slate-600"><b className="text-ink">Privacy note:</b> No BVN is needed for document KYC. Your document file is cleared after submission.</div>
+          <div className="mt-5 flex justify-center"><Button variant="secondary" onClick={() => setStatus('Not started')}>Update details</Button></div>
+        </Panel>
+      ) : (
+        <>
+          <Panel className="mb-5 overflow-hidden bg-ink p-5 text-white sm:p-6">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand text-ink"><Fingerprint size={19} /></span><div><h2 className="text-sm font-bold">Document-only identity check</h2><p className="mt-1 max-w-xl text-xs leading-5 text-slate-300">Use an identity document and a live face check. BVN is not required for this step.</p></div></div>
+              <Status tone="gold">Action needed</Status>
+            </div>
+            <div className="mt-5 grid gap-2 text-[11px] text-slate-300 sm:grid-cols-3">
+              {['1. Identity document', '2. Live face check', '3. Review'].map((step, index) => <div key={step} className={`rounded-lg border px-3 py-2 ${index === 0 ? 'border-brand/50 bg-white/10 text-white' : 'border-white/10'}`}>{step}</div>)}
+            </div>
+          </Panel>
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(260px,0.65fr)]">
+            <Panel className="p-5 sm:p-7">
+              <div className="mb-5"><h2 className="text-sm font-bold text-ink">Identity document</h2><p className="mt-1 text-xs text-slate-500">Select the document type and upload a clear photo of the front.</p></div>
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <Field label="Document type" as="select" value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
+                  <option value="NIN_SLIP">NIN or National ID</option>
+                  <option value="PASSPORT">Passport</option>
+                  <option value="DRIVING_LICENSE">Driver's licence</option>
+                  <option value="VOTER_CARD">Voter's card</option>
+                </Field>
+                <div>
+                  <label htmlFor="identity-document" className="mb-2 block text-[13px] font-semibold text-slate-700">Identity document image <span className="text-rose-600">*</span></label>
+                  <label htmlFor="identity-document" className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center transition hover:border-brand hover:bg-gold-50/50 focus-within:ring-2 focus-within:ring-brand">
+                    <span className="grid h-10 w-10 place-items-center rounded-xl bg-white text-gold-800 shadow-sm"><FileText size={18} /></span>
+                    <span className="mt-3 text-xs font-semibold text-ink">{documentImage ? documentImage.name : 'Choose an identity document image'}</span>
+                    <span className="mt-1 text-[10px] text-slate-500">JPG or PNG · up to 5 MB</span>
+                    <input ref={documentInputRef} id="identity-document" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" onChange={handleDocumentChange} className="sr-only" aria-describedby={documentError ? 'identity-document-error' : 'identity-document-hint'} />
+                  </label>
+                  <p id="identity-document-hint" className="mt-2 text-[10px] text-slate-400">Your document stays in this demo and is not uploaded.</p>
+                  {documentError && <p id="identity-document-error" role="alert" className="mt-2 text-xs font-medium text-rose-700">{documentError}</p>}
+                </div>
+                <LiveFaceSimulation verified={faceVerified} onVerified={setFaceVerified} />
+                <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 p-3.5 text-xs leading-5 text-slate-600">
+                  <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-brand" required />
+                  <span>I confirm this identity document belongs to me and consent to document verification.</span>
+                </label>
+                <Button type="submit" className="w-full sm:w-auto">Submit identity check <ArrowRight size={15} /></Button>
+              </form>
+            </Panel>
+            <div className="space-y-4">
+              <Panel className="p-5"><div className="flex items-center gap-2"><ShieldCheck size={17} className="text-green-700" /><h3 className="text-sm font-bold text-ink">Your information matters</h3></div><p className="mt-3 text-xs leading-5 text-slate-500">Never share your one-time password, card PIN, or online banking password during identity verification.</p></Panel>
+              <Panel className="p-5"><h3 className="text-sm font-bold text-ink">Before you begin</h3><ul className="mt-4 space-y-3">{['Use a current government-issued document', 'Make sure all document details are legible', 'Allow camera access for the face-check demo'].map((item) => <li key={item} className="flex gap-2 text-xs text-slate-600"><Check size={14} className="mt-0.5 shrink-0 text-green-700" />{item}</li>)}</ul></Panel>
+              <div className="rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-[11px] leading-5 text-slate-600"><b className="text-ink">Demo notice:</b> The camera check is simulated. This screen does not call the backend or Dojah.</div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function AccountUpgrade({ status, setStatus, showToast }) {
+  const [addressDocumentType, setAddressDocumentType] = useState('UTILITY_BILL');
+  const [addressDocument, setAddressDocument] = useState(null);
+  const [documentError, setDocumentError] = useState('');
+  const [faceVerified, setFaceVerified] = useState(false);
+  const addressDocumentRef = useRef(null);
+
+  const handleAddressDocumentChange = (event) => {
+    const file = event.target.files?.[0];
+    setDocumentError('');
+    if (!file) {
+      setAddressDocument(null);
+      return;
+    }
+    const allowedTypes = ['image/jpeg', 'image/png'];
+    const hasAllowedExtension = /\.(jpe?g|png)$/i.test(file.name);
+    if ((!allowedTypes.includes(file.type) && !hasAllowedExtension) || file.size > 5 * 1024 * 1024) {
+      setAddressDocument(null);
+      event.target.value = '';
+      setDocumentError(file.size > 5 * 1024 * 1024 ? 'Choose an image smaller than 5 MB.' : 'Use a JPG or PNG image.');
+      return;
+    }
+    setAddressDocument(file);
+  };
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    if (!addressDocument) {
+      setDocumentError('Upload a proof-of-address image to continue.');
+      addressDocumentRef.current?.focus();
+      return;
+    }
+    if (!faceVerified) return showToast('Complete the live facial-recognition demo first.');
+    setAddressDocument(null);
+    if (addressDocumentRef.current) addressDocumentRef.current.value = '';
+    setStatus('Pending review');
+    showToast('BVN, address, and facial-check demo recorded. Nothing was stored or sent.');
+  };
+
+  return (
+    <div className="fade-in">
+      <PageHeader title="Upgrade your account" description="Verify your BVN, residential address, and live face to request a higher account tier." />
+      {status === 'Pending review' ? (
+        <Panel className="mx-auto max-w-3xl p-6 sm:p-8">
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gold-50 text-gold-800"><Clock3 size={25} /></div>
+          <div className="mt-4 text-center"><Status tone="amber">Pending review</Status><h2 className="mt-3 text-xl font-bold text-ink">Demo upgrade request recorded</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">This is a demo state. No information was saved or sent, and your transaction limits have not changed.</p></div>
+          <div className="mt-6 rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-xs leading-5 text-slate-600"><b className="text-ink">Privacy note:</b> This demo does not store or send your BVN, address document, or facial data.</div>
+          <div className="mt-5 flex justify-center"><Button variant="secondary" onClick={() => setStatus('Not started')}>Back to upgrade form</Button></div>
+        </Panel>
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(260px,0.7fr)]">
+          <Panel className="p-5 sm:p-7">
+            <div className="mb-6 flex items-start gap-3 rounded-xl bg-slate-50 p-4"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-gold-800"><BadgeCheck size={17} /></span><div><h2 className="text-sm font-bold text-ink">BVN and address verification</h2><p className="mt-1 text-xs leading-5 text-slate-500">Dojah checks your BVN, address document, and liveness. A live camera check is simulated here.</p></div></div>
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <Field label="Bank Verification Number (BVN)" inputMode="numeric" autoComplete="off" maxLength={11} minLength={11} pattern="[0-9]{11}" placeholder="Enter your 11-digit BVN" hint="Enter the BVN linked to your bank identity." required />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="First name" autoComplete="given-name" maxLength="80" placeholder="As on your BVN" required />
+                <Field label="Last name" autoComplete="family-name" maxLength="120" placeholder="As on your BVN" required />
+              </div>
+              <Field label="Residential address" autoComplete="street-address" maxLength={500} placeholder="House number, street, city, and state" hint="Enter the address shown on your proof document." required />
+              <Field label="Address document type" as="select" value={addressDocumentType} onChange={(event) => setAddressDocumentType(event.target.value)}>
+                <option value="UTILITY_BILL">Utility bill</option>
+                <option value="BANK_STATEMENT">Bank statement</option>
+                <option value="LEASE_AGREEMENT">Lease or tenancy agreement</option>
+                <option value="GOVERNMENT_LETTER">Government letter</option>
+              </Field>
+              <div>
+                <label htmlFor="upgrade-address-document" className="mb-2 block text-[13px] font-semibold text-slate-700">Proof of address image <span className="text-rose-600">*</span></label>
+                <label htmlFor="upgrade-address-document" className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center transition hover:border-brand hover:bg-gold-50/50 focus-within:ring-2 focus-within:ring-brand">
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-white text-gold-800 shadow-sm"><FileText size={18} /></span>
+                  <span className="mt-3 text-xs font-semibold text-ink">{addressDocument ? addressDocument.name : 'Choose a proof-of-address image'}</span>
+                  <span className="mt-1 text-[10px] text-slate-500">JPG or PNG · up to 5 MB</span>
+                  <input ref={addressDocumentRef} id="upgrade-address-document" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" onChange={handleAddressDocumentChange} className="sr-only" aria-describedby={documentError ? 'upgrade-address-error' : 'upgrade-address-hint'} />
+                </label>
+                <p id="upgrade-address-hint" className="mt-2 text-[10px] text-slate-400">The document must show your name and residential address. It stays in this demo.</p>
+                {documentError && <p id="upgrade-address-error" role="alert" className="mt-2 text-xs font-medium text-rose-700">{documentError}</p>}
+              </div>
+              <LiveFaceSimulation verified={faceVerified} onVerified={setFaceVerified} />
+              <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 p-3.5 text-xs leading-5 text-slate-600">
+                <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-brand" required />
+                <span>I consent to Dojah checking my BVN and address document. I confirm the details belong to me.</span>
+              </label>
+              <Button type="submit" className="w-full sm:w-auto">Request account upgrade <ArrowRight size={15} /></Button>
+            </form>
+          </Panel>
+          <div className="space-y-4">
+            <Panel className="p-5"><h3 className="text-sm font-bold text-ink">How verification works</h3><ul className="mt-4 space-y-3">{['BVN identity and selfie are matched', 'Address document is checked against your address', 'Live facial-recognition demo completes in this UI', 'All accounts owned by you upgrade on success'].map((item) => <li key={item} className="flex gap-2 text-xs text-slate-600"><Check size={14} className="mt-0.5 shrink-0 text-green-700" />{item}</li>)}</ul></Panel>
+            <Panel className="p-5"><div className="flex items-center gap-2"><ShieldCheck size={17} className="text-green-700" /><h3 className="text-sm font-bold text-ink">Protect your details</h3></div><p className="mt-3 text-xs leading-5 text-slate-500">Only enter your BVN on a trusted device. Never share your PIN, password, or one-time code during an account upgrade.</p></Panel>
+            <div className="rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-[11px] leading-5 text-slate-600"><b className="text-ink">Demo notice:</b> This screen is independent. It does not call the backend or Dojah and will not change account limits.</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Transactions({ transactions, setView, onSelect }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('All activity');
@@ -543,7 +820,7 @@ function VerifyTransfer({ transfer, onComplete, onBack }) {
             <div className="flex items-center gap-2 text-sm font-bold text-ink"><LockKeyhole size={17} className="text-gold-800" /> Confirm it’s really you</div>
             <p className="mt-3 text-xs leading-5 text-slate-500">We sent a one-time code to your verified email address. Enter it below to complete your transfer.</p>
             <label className="mt-6 block text-[11px] font-bold uppercase tracking-[0.1em] text-slate-500">Enter 6-digit verification code</label>
-            <input aria-label="One-time verification code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-center text-2xl font-bold tracking-[0.55em] text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-gold-100" placeholder="••••••" />
+            <input aria-label="One-time verification code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-center text-2xl font-bold tracking-[0.55em] text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-brand" placeholder="••••••" />
             <button className="mt-3 text-xs font-semibold text-gold-800">Didn’t receive a code? Resend in 00:28</button>
             <Button onClick={onComplete} disabled={code.length !== 6} className="mt-5 w-full">Verify and complete transfer <ArrowRight size={15} /></Button>
             <p className="mt-4 rounded-xl bg-gold-50/70 p-3 text-[11px] leading-5 text-slate-500">Never share a verification code with anyone, including Eli staff.</p>
@@ -765,6 +1042,8 @@ function App() {
   const [withdrawal, setWithdrawal] = useState({ accountId: initialAccounts[0].id, bank: '', accountNumber: '', amount: '', verified: false, recipient: '' });
   const [openAccount, setOpenAccount] = useState(false);
   const [modal, setModal] = useState(null);
+  const [kycStatus, setKycStatus] = useState('Not started');
+  const [upgradeStatus, setUpgradeStatus] = useState('Not started');
 
   const notify = (message) => {
     setToast(message);
@@ -842,6 +1121,8 @@ function App() {
       case 'transfer-review': return <TransferReview transfer={transfer} accounts={accounts} onConfirm={() => setModal({ kind: 'pin' })} onBack={() => moveTo('transfers')} onFlag={() => moveTo('verify')} />;
       case 'add-money': return <AddMoney accounts={accounts} deposit={deposit} setDeposit={setDeposit} onSubmit={submitDeposit} />;
       case 'withdraw': return <Withdraw accounts={accounts} withdrawal={withdrawal} setWithdrawal={setWithdrawal} onSubmit={submitWithdrawal} />;
+      case 'kyc': return <IdentityVerification status={kycStatus} setStatus={setKycStatus} showToast={notify} />;
+      case 'account-upgrade': return <AccountUpgrade status={upgradeStatus} setStatus={setUpgradeStatus} showToast={notify} />;
       case 'transactions': return <Transactions transactions={transactions} setView={moveTo} onSelect={(tx) => setModal({ kind: 'transaction', transaction: tx })} />;
       case 'verify': return <VerifyTransfer transfer={transfer} onComplete={completeTransfer} onBack={() => moveTo('transfer-review')} />;
       case 'transfer-status': return <TransferStatus transfer={transfer} setView={moveTo} transactions={transactions} />;

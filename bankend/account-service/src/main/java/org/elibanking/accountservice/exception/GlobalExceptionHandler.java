@@ -2,6 +2,9 @@ package org.elibanking.accountservice.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.elibanking.accountservice.verification.DojahProviderUnavailableException;
+import org.elibanking.accountservice.verification.VerificationRateLimitedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -32,5 +35,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccountOperationException.class)
     public ProblemDetail handleRuleViolation(AccountOperationException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage());
+    }
+
+    @ExceptionHandler(DojahProviderUnavailableException.class)
+    public ProblemDetail handleProviderUnavailable(DojahProviderUnavailableException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
+    }
+
+    @ExceptionHandler(VerificationRateLimitedException.class)
+    public ResponseEntity<ProblemDetail> handleRateLimited(VerificationRateLimitedException e) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, e.getMessage());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", "60")
+                .body(problem);
     }
 }

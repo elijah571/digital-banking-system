@@ -60,6 +60,13 @@ management:
 account:
   opening-deposit:
     enabled: ${ACCOUNT_OPENING_DEPOSIT_ENABLED:false}
+  verification:
+    verified-daily-limit: ${ACCOUNT_VERIFIED_DAILY_LIMIT:5000000.00}
+    minimum-confidence: ${DOJAH_MINIMUM_CONFIDENCE:90}
+    dojah:
+      base-url: ${DOJAH_BASE_URL:https://sandbox.dojah.io}
+      app-id: ${DOJAH_APP_ID:}
+      secret-key: ${DOJAH_SECRET_KEY:}
 
 # Authentication (wallet-plan 3.7). There is no legacy header path: every route needs a verified token.
 auth:

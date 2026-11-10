@@ -9,6 +9,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.web.client.RestClient;
 
+import java.util.UUID;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /** Every endpoint needs a verified token. There is no legacy header path (removed in phase 3, wallet-plan 8.18). */
@@ -56,6 +58,14 @@ class ApiSecurityTest {
     @Test
     void aServiceTokenForAnotherAudienceIsRejected() {
         assertEquals(401, get("/internal/v1/ledger/accounts/1", TestTokens.serviceTokenFor("wallet-service")));
+    }
+
+    @Test
+    void identityVerificationIsAvailableOnlyToUserCallers() {
+        String path = "/api/v1/accounts/verification";
+        assertEquals(401, get(path, null));
+        assertEquals(403, get(path, TestTokens.serviceToken()));
+        assertEquals(404, get(path, TestTokens.userToken("identity-test-" + UUID.randomUUID(), "USER")));
     }
 
     @Test

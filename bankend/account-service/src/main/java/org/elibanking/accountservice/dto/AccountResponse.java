@@ -9,6 +9,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.elibanking.accountservice.entity.AccountStatus;
+import org.elibanking.accountservice.entity.AccountTier;
 import org.elibanking.accountservice.entity.AccountType;
 import tools.jackson.databind.annotation.JsonSerialize;
 
@@ -28,6 +29,7 @@ public class AccountResponse {
     private  String phone;
     private AccountType accountType;
     private AccountStatus status;
+    private AccountTier accountTier;
     // Money in responses is a string such as "9000.00" (wallet-plan D3). Requests still take a number or a string.
     @JsonSerialize(using = MoneyJson.Serializer.class)
     private  BigDecimal balance;

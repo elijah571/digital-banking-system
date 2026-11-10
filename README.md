@@ -135,6 +135,9 @@ Configuration comes from environment variables. Copy `.env.example` to `.env` an
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`           | Stripe credentials for card deposits                |    No    |
 | `PAYSTACK_SECRET_KEY`                                  | Paystack credential when `PAYOUT_PROVIDER=paystack`  |    No    |
 | `PAYSTACK_API_URL`                                      | Paystack API base URL; defaults to `https://api.paystack.co` | No |
+| `DOJAH_BASE_URL`, `DOJAH_APP_ID`, `DOJAH_SECRET_KEY`   | Dojah verification endpoint and credentials; sandbox URL by default | No |
+| `DOJAH_MINIMUM_CONFIDENCE`                              | Minimum Dojah identity/face/liveness confidence; defaults to `90` | No |
+| `ACCOUNT_VERIFIED_DAILY_LIMIT`                          | Daily limit after successful BVN upgrade; defaults to `5000000.00` NGN | No |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_MAIL`, `SMTP_PASSWORD` | Outbound email (Gmail needs an App Password)        |    No    |
 | `WITHDRAWAL_MIN`, `WITHDRAWAL_MAX`                     | Per-withdrawal NGN bounds                            |   Yes    |
 | `WITHDRAWAL_DAILY_MAX`                                  | Maximum outbound NGN amount per account per day      |   Yes    |
@@ -228,6 +231,9 @@ Interactive docs are served at [`/swagger-ui.html`](http://localhost:8080/swagge
 | GET    | `/api/v1/auth/me`                             | Current user                      | Yes  |
 | POST   | `/api/v1/accounts/create`                     | Open an account                   | Yes  |
 | GET    | `/api/v1/accounts/me`                         | List the caller's accounts        | Yes  |
+| GET    | `/api/v1/accounts/verification`               | Read the caller's verification and account-tier status | User |
+| POST   | `/api/v1/accounts/verification/identity`      | Verify an identity document, face match, and liveness with Dojah | User |
+| POST   | `/api/v1/accounts/verification/upgrade`       | Upgrade owned accounts after BVN, address, and face checks | User |
 | GET    | `/api/v1/accounts/{accountNumber}/balance`    | Account balance                   | Yes  |
 | POST   | `/api/v1/transactions`                        | Start an internal or external bank transfer | Yes |
 | POST   | `/api/v1/transactions/{transactionId}/verify` | Verify OTP for a flagged transfer | Yes  |
@@ -242,6 +248,8 @@ Interactive docs are served at [`/swagger-ui.html`](http://localhost:8080/swagge
 | GET    | `/api/v1/wallet/deposits/{depositId}`          | Read a card deposit's status     | Yes  |
 | POST   | `/api/v1/payments/create-order`                | Deprecated legacy payment order | Yes  |
 | POST   | `/api/v1/payments/webhook`                     | Provider webhook (signed)        | Sig  |
+
+Identity requests require a user token and a `documentType` (`PASSPORT`, `DRIVING_LICENSE`, `NIN_SLIP`, or `VOTER_CARD`), base64-encoded JPEG/PNG `documentImage` and `selfieImage`, and `consentGranted: true`; no BVN is collected for this check. Account upgrades require `bvn`, `firstName`, `lastName`, `residentialAddress`, an `addressDocumentType` (`UTILITY_BILL`, `BANK_STATEMENT`, `LEASE_AGREEMENT`, or `GOVERNMENT_LETTER`), base64-encoded `addressDocumentImage` and `selfieImage`, and consent. Dojah validates the BVN, matches the selfie to the BVN record, checks liveness, and OCR-matches the address document against the submitted name and address. A successful upgrade promotes all accounts owned by the user. The React UI remains a standalone demo with a simulated live camera check and does not call these endpoints.
 
 ## Contributing
 

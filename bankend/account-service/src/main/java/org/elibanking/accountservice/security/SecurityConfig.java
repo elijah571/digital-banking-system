@@ -55,6 +55,8 @@ public class SecurityConfig {
                         .access(CallerAllowList.only(CallerAllowList.TRANSACTION, CallerAllowList.WALLET,
                                 CallerAllowList.FRAUD, CallerAllowList.PAYMENT))
                         .requestMatchers("/internal/v1/**").denyAll()
+                        .requestMatchers("/api/v1/accounts/verification", "/api/v1/accounts/verification/**")
+                        .access(CallerAllowList.users())
                         .requestMatchers(HttpMethod.GET, "/api/v1/accounts").hasRole("ADMIN")
                         // Account reads: users (the controller checks ownership) and the services that read accounts.
                         .requestMatchers(HttpMethod.GET, "/api/v1/accounts/*", "/api/v1/accounts/*/balance")

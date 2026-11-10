@@ -146,6 +146,7 @@ public class AccountService {
         response.setPhone(account.getPhone());
         response.setAccountType(account.getAccountType());
         response.setStatus(account.getAccountStatus());
+        response.setAccountTier(account.getAccountTier());
         response.setBalance(account.getBalance());
         response.setDailyTransactionLimit(account.getDailyTransactionLimit());
         response.setCreatedAt(account.getCreatedAt());

@@ -109,6 +109,11 @@ services:
       # Both are required (compose stops if they are missing). Same JWT_SECRET as auth-service; INTERNAL_JWT_SECRET is for service tokens.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
+      DOJAH_BASE_URL: ${DOJAH_BASE_URL:-https://sandbox.dojah.io}
+      DOJAH_APP_ID: ${DOJAH_APP_ID:-}
+      DOJAH_SECRET_KEY: ${DOJAH_SECRET_KEY:-}
+      DOJAH_MINIMUM_CONFIDENCE: ${DOJAH_MINIMUM_CONFIDENCE:-90}
+      ACCOUNT_VERIFIED_DAILY_LIMIT: ${ACCOUNT_VERIFIED_DAILY_LIMIT:-5000000.00}
     depends_on: *app-depends
     ports:
       - "8081:8081"
