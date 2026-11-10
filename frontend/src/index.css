@@ -4,7 +4,7 @@
 
 @layer components {
   .form-control {
-    @apply block w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-xs text-ink outline-none transition placeholder:text-slate-400 focus:border-brand focus:ring-4 focus:ring-gold-100;
+    @apply block w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-xs text-ink outline-none transition placeholder:text-slate-400 focus:border-brand focus:ring-4 focus:ring-brand;
   }
 }
 
