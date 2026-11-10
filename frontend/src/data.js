@@ -7,7 +7,7 @@ export const initialAccounts = [
     type: 'Savings',
     balance: 3650250,
     status: 'Active',
-    accent: 'blue',
+    accent: 'gold',
   },
   {
     id: 'acc-wallet',
@@ -17,7 +17,7 @@ export const initialAccounts = [
     type: 'Current',
     balance: 1200000,
     status: 'Active',
-    accent: 'violet',
+    accent: 'gold-muted',
   },
 ];
 
