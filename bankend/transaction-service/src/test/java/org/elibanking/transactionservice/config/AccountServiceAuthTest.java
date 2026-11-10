@@ -6,6 +6,9 @@ import feign.RequestInterceptor;
 import feign.RequestTemplate;
 import org.elibanking.common.security.ServiceTokens;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Collection;
@@ -38,5 +41,21 @@ class AccountServiceAuthTest {
         assertEquals("transaction-service", jwt.getJWTClaimsSet().getSubject());
         assertEquals(List.of("account-service"), jwt.getJWTClaimsSet().getAudience());
         assertEquals("SERVICE", jwt.getJWTClaimsSet().getStringClaim("role"));
+    }
+
+    @Test
+    void forwardsTheCurrentRequestIdToAccountService() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-Request-Id", "gateway-request-42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        try {
+            RequestTemplate template = new RequestTemplate();
+            new AccountServiceAuth().accountServiceTokenInterceptor(
+                    new ServiceTokens(SECRET, "transaction-service", "account-service")).apply(template);
+
+            assertEquals(List.of("gateway-request-42"), template.headers().get("X-Request-Id"));
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
     }
 }
