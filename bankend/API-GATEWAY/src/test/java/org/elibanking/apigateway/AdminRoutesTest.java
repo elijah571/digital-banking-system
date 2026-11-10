@@ -53,10 +53,10 @@ class AdminRoutesTest {
     private static final HttpServer UPSTREAM = startUpstream();
 
     record Upstream(String method, String path, String query, String authorization, String userId, String userRole,
-                    String idempotencyKey) {
+                    String idempotencyKey, String requestId) {
     }
 
-    record Response(int status, String body) {
+    record Response(int status, String body, String requestId) {
     }
 
     @LocalServerPort
@@ -94,7 +94,9 @@ class AdminRoutesTest {
     void anAdminReachesAccountServiceWithTheVerifiedIdentity() {
         String admin = token("admin-1", "ADMIN");
 
-        assertEquals(200, call(HttpMethod.GET, RECONCILIATION, admin).status());
+        Response response = call(HttpMethod.GET, RECONCILIATION, admin, "X-Request-Id", "gateway-test-123");
+        assertEquals(200, response.status());
+        assertEquals("gateway-test-123", response.requestId());
 
         Upstream seen = RECEIVED.poll();
         assertEquals("GET", seen.method());
@@ -102,6 +104,27 @@ class AdminRoutesTest {
         assertEquals("Bearer " + admin, seen.authorization(), "the token is forwarded for account-service to verify");
         assertEquals("admin-1", seen.userId());
         assertEquals("ADMIN", seen.userRole());
+        assertEquals("gateway-test-123", seen.requestId());
+    }
+
+    @Test
+    void aMissingRequestIdIsGeneratedForwardedAndReturned() {
+        Response response = call(HttpMethod.GET, RECONCILIATION, token("admin-1", "ADMIN"));
+
+        assertEquals(200, response.status());
+        assertTrue(response.requestId() != null && response.requestId().matches("[0-9a-fA-F-]{36}"),
+                "the gateway returns a generated UUID request id");
+        assertEquals(response.requestId(), RECEIVED.poll().requestId(),
+                "the same generated request id reaches account-service");
+    }
+
+    @Test
+    void anInvalidRequestIdIsRejectedBeforeItReachesTheUpstream() {
+        Response response = call(HttpMethod.GET, RECONCILIATION, token("admin-1", "ADMIN"),
+                "X-Request-Id", "not a visible-id");
+
+        assertEquals(400, response.status());
+        assertTrue(RECEIVED.isEmpty());
     }
 
     @Test
@@ -159,7 +182,8 @@ class AdminRoutesTest {
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, (req, res) -> { })
                 .toEntity(String.class);
-        return new Response(entity.getStatusCode().value(), entity.getBody());
+        return new Response(entity.getStatusCode().value(), entity.getBody(),
+                entity.getHeaders().getFirst("X-Request-Id"));
     }
 
     static String token(String subject, String role) {
@@ -195,7 +219,7 @@ class AdminRoutesTest {
     private static void record(HttpExchange exchange) throws IOException {
         RECEIVED.add(new Upstream(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
                 exchange.getRequestURI().getRawQuery(), header(exchange, "Authorization"), header(exchange, "X-User-Id"),
-                header(exchange, "X-User-Role"), header(exchange, "Idempotency-Key")));
+                header(exchange, "X-User-Role"), header(exchange, "Idempotency-Key"), header(exchange, "X-Request-Id")));
         byte[] body = "{\"upstream\":true}".getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.sendResponseHeaders(200, body.length);
