@@ -81,7 +81,7 @@ public class NameEnquiryService {
                 && enquiry.getBankCode().equals(bankCode)
                 && enquiry.getAccountNumber().equals(accountNumber);
         if (!valid) {
-            throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY, "Name enquiry is invalid or expired");
+            throw invalidEnquiry();
         }
         return enquiry;
     }
@@ -89,7 +89,7 @@ public class NameEnquiryService {
     private String ownBankName(String accountNumber) {
         AccountHolder holder = accounts.holder(accountNumber);
         if (!"ACTIVE".equals(holder.status())) {
-            throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY, "This account is not active");
+            throw invalidEnquiry();
         }
         return holder.name();
     }
@@ -98,11 +98,14 @@ public class NameEnquiryService {
         PaymentServiceClient.Resolution resolution = payments.resolveAccount(bankCode, accountNumber);
         return switch (resolution.status()) {
             case "FOUND" -> resolution.accountName();
-            case "NOT_FOUND" -> throw new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY,
-                    "No account was found for that bank and number");
+            case "NOT_FOUND" -> throw invalidEnquiry();
             default -> throw new RequestRefusedException(HttpStatus.SERVICE_UNAVAILABLE,
                     "Name enquiries are unavailable for that bank right now. Try again shortly.");
         };
+    }
+
+    private static RequestRefusedException invalidEnquiry() {
+        return new RequestRefusedException(HttpStatus.UNPROCESSABLE_ENTITY, "Name enquiry is invalid or expired");
     }
 
     /** Counts this enquiry against the user's window. Redis that cannot count refuses the enquiry (fail closed). */

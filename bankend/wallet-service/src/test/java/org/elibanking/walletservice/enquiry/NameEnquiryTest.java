@@ -19,6 +19,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -78,7 +79,9 @@ class NameEnquiryTest {
         String account = newAccount();
         when(accounts.holder(account)).thenReturn(new AccountHolder("Alice Example", "BLOCKED"));
 
-        mvc.perform(enquiry(user, OWN_CODE, account)).andExpect(status().isUnprocessableEntity());
+        mvc.perform(enquiry(user, OWN_CODE, account))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("Name enquiry is invalid or expired"));
     }
 
     @Test
@@ -98,7 +101,9 @@ class NameEnquiryTest {
         String account = newAccount();
         when(payments.resolveAccount("001", account)).thenReturn(new Resolution("NOT_FOUND", null));
 
-        mvc.perform(enquiry(user, "001", account)).andExpect(status().isUnprocessableEntity());
+        mvc.perform(enquiry(user, "001", account))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("Name enquiry is invalid or expired"));
     }
 
     @Test
@@ -129,6 +134,7 @@ class NameEnquiryTest {
         when(payments.resolveAccount("001", account)).thenReturn(new Resolution("FOUND", "Bob Example"));
         NameEnquiryService.Result made = enquiries.enquire(owner, "001", account);
 
+        assertEquals(16, Base64.getUrlDecoder().decode(made.ref()).length, "the reference contains 128 random bits");
         assertEquals("Bob Example", enquiries.validate(owner, made.ref(), "001", account).getAccountName());
 
         assertRefused(() -> enquiries.validate(newUser(), made.ref(), "001", account), "another user");
@@ -177,6 +183,7 @@ class NameEnquiryTest {
     private static void assertRefused(Runnable check, String why) {
         RequestRefusedException refused = assertThrows(RequestRefusedException.class, check::run, why);
         assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, refused.status(), why);
+        assertEquals("Name enquiry is invalid or expired", refused.getMessage(), why);
     }
 
     private static String newUser() {
