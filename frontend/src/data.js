@@ -37,6 +37,17 @@ export const initialPayouts = [
   { id: 'PO-4891', name: 'Musa Ibrahim', bank: 'UBA · 9031', amount: 165000, risk: 'High', requested: 'Yesterday' },
 ];
 
+export const initialBeneficiaries = [
+  { id: 'ben-adaeze', name: 'Adaeze Okafor', bank: 'Access Bank', accountNumber: '4821904821' },
+  { id: 'ben-tunde', name: 'Tunde Bello', bank: 'GTBank', accountNumber: '1160901160' },
+];
+
+export const initialNotifications = [
+  { id: 'notice-statement', title: 'Your November statement is ready', detail: 'Your account statement is available to review.', time: 'Today · 9:15 AM', type: 'statement', read: false },
+  { id: 'notice-deposit', title: 'Card deposit successful', detail: '₦150,000.00 was added to your Everyday wallet.', time: 'Yesterday · 5:20 PM', type: 'deposit', read: false },
+  { id: 'notice-security', title: 'Keep your account secure', detail: 'Eli will never ask you to share your password or transaction PIN.', time: '8 Nov · 10:00 AM', type: 'security', read: true },
+];
+
 export const banks = ['Access Bank', 'First Bank', 'GTBank', 'UBA', 'Zenith Bank', 'Stanbic IBTC', 'Fidelity Bank'];
 
 export const money = (value) =>

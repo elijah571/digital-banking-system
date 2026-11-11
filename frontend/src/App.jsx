@@ -44,7 +44,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
-import { banks, initialAccounts, initialPayouts, initialTransactions, money } from './data';
+import { banks, initialAccounts, initialBeneficiaries, initialNotifications, initialPayouts, initialTransactions, money } from './data';
 
 const customerLinks = [
   { label: 'Overview', view: 'overview', icon: Grid2X2 },
@@ -55,6 +55,8 @@ const customerLinks = [
   { label: 'Identity verification', view: 'kyc', icon: Fingerprint },
   { label: 'Upgrade account', view: 'account-upgrade', icon: BadgeCheck },
   { label: 'Transactions', view: 'transactions', icon: ReceiptText },
+  { label: 'Beneficiaries', view: 'beneficiaries', icon: Users },
+  { label: 'Notifications', view: 'notifications', icon: Bell },
 ];
 
 const adminLinks = [
@@ -82,6 +84,8 @@ const viewTitles = {
   security: 'Security',
   'account-open': 'Open an account',
   support: 'Help & support',
+  beneficiaries: 'Beneficiaries',
+  notifications: 'Notifications',
   payouts: 'Payout queue',
   'ops-dashboard': 'Operations overview',
   'risk-alerts': 'Risk alerts',
@@ -170,7 +174,7 @@ function BrandMark({ compact = false }) {
   );
 }
 
-function Sidebar({ view, setView, adminMode, setAdminMode, open, onClose }) {
+function Sidebar({ view, setView, adminMode, setAdminMode, open, onClose, unreadCount }) {
   const links = adminMode ? adminLinks : customerLinks;
   const navigate = (nextView) => {
     setView(nextView);
@@ -186,13 +190,16 @@ function Sidebar({ view, setView, adminMode, setAdminMode, open, onClose }) {
         </div>
         <div className="mt-9 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{adminMode ? 'Operations' : 'Workspace'}</div>
         <nav className="mt-2 space-y-1">
-          {links.map(({ label, view: linkView, icon: Icon, badge }) => (
+          {links.map(({ label, view: linkView, icon: Icon, badge }) => {
+            const linkBadge = linkView === 'notifications' && unreadCount > 0 ? unreadCount : badge;
+            return (
             <button key={linkView} onClick={() => navigate(linkView)} className={`group flex w-full items-center gap-3 rounded-xl border-l-2 px-3 py-2.5 text-left text-[13px] font-medium transition ${view === linkView || (linkView === 'transfers' && ['transfer-review', 'verify', 'transfer-status'].includes(view)) ? 'border-brand bg-white/10 text-white shadow-inner' : 'border-transparent text-slate-400 hover:bg-white/[0.06] hover:text-white'}`}>
               <Icon size={16} strokeWidth={1.8} className={view === linkView ? 'text-brand' : 'text-slate-400 group-hover:text-slate-200'} />
               <span className="flex-1">{label}</span>
-              {badge && <span className="rounded-md bg-rose-400/15 px-1.5 py-0.5 text-[10px] font-bold text-rose-200">{badge}</span>}
+              {linkBadge && <span className="rounded-md bg-rose-400/15 px-1.5 py-0.5 text-[10px] font-bold text-rose-200">{linkBadge}</span>}
             </button>
-          ))}
+            );
+          })}
         </nav>
         {!adminMode && (
           <>
@@ -224,7 +231,7 @@ function Sidebar({ view, setView, adminMode, setAdminMode, open, onClose }) {
   );
 }
 
-function TopBar({ setView, onMenu, adminMode }) {
+function TopBar({ setView, onMenu, adminMode, notifications, unreadCount }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   return (
     <header className="sticky top-0 z-20 flex h-[68px] items-center justify-between border-b border-slate-200/80 bg-canvas px-4 backdrop-blur-md sm:px-7 lg:px-9">
@@ -237,9 +244,9 @@ function TopBar({ setView, onMenu, adminMode }) {
         {!adminMode && <div className="hidden text-right sm:block"><div className="text-[11px] text-slate-400">Good morning,</div><div className="text-[12px] font-semibold text-ink">Elijah</div></div>}
         <div className="relative">
           <button onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notifications" className="relative rounded-xl border border-slate-200 bg-white p-2.5 text-slate-500 transition hover:text-ink">
-            <Bell size={17} /><span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-rose-500 ring-2 ring-white" />
+            <Bell size={17} />{unreadCount > 0 && <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-rose-500 ring-2 ring-white" />}
           </button>
-          {notificationsOpen && <div className="absolute right-0 top-12 z-30 w-72 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl"><div className="flex items-center justify-between"><strong className="text-sm text-ink">Notifications</strong><span className="text-[10px] font-semibold text-gold-800">2 new</span></div><p className="mt-3 text-xs leading-5 text-slate-500">Your November statement is ready to view.</p><p className="mt-2 border-t border-slate-100 pt-2 text-xs leading-5 text-slate-500">A card deposit of ₦150,000.00 was successful.</p><button className="mt-3 text-xs font-semibold text-gold-800" onClick={() => { setNotificationsOpen(false); setView('transactions'); }}>View activity</button></div>}
+          {notificationsOpen && <div className="absolute right-0 top-12 z-30 w-72 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl"><div className="flex items-center justify-between"><strong className="text-sm text-ink">Notifications</strong><span className="text-[10px] font-semibold text-gold-800">{unreadCount} unread</span></div><div className="mt-3 divide-y divide-slate-100">{notifications.slice(0, 2).map((notification) => <div key={notification.id} className="py-2 text-xs leading-5 text-slate-500"><span className="block font-semibold text-ink">{notification.title}</span><span>{notification.detail}</span></div>)}</div><button className="mt-3 text-xs font-semibold text-gold-800" onClick={() => { setNotificationsOpen(false); setView('notifications'); }}>View all notifications</button></div>}
         </div>
         <button onClick={() => setView(adminMode ? 'ops-dashboard' : 'settings')} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-xs font-bold text-ink shadow-sm">E</button>
       </div>
@@ -809,6 +816,90 @@ function Transactions({ transactions, setView, onSelect }) {
   );
 }
 
+function Beneficiaries({ beneficiaries, onAdd, onRemove, onSend }) {
+  const [query, setQuery] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
+  const [newBeneficiary, setNewBeneficiary] = useState({ name: '', bank: '', accountNumber: '' });
+  const filteredBeneficiaries = useMemo(() => beneficiaries.filter((beneficiary) =>
+    `${beneficiary.name} ${beneficiary.bank} ${beneficiary.accountNumber}`.toLowerCase().includes(query.toLowerCase()),
+  ), [beneficiaries, query]);
+
+  const submitBeneficiary = (event) => {
+    event.preventDefault();
+    if (onAdd(newBeneficiary)) {
+      setNewBeneficiary({ name: '', bank: '', accountNumber: '' });
+      setIsAdding(false);
+    }
+  };
+
+  return (
+    <div className="fade-in">
+      <PageHeader title="Saved beneficiaries" description="Keep trusted recipients handy for your next bank transfer." actions={<Button onClick={() => setIsAdding((open) => !open)}><Plus size={15} />{isAdding ? 'Cancel' : 'Add beneficiary'}</Button>} />
+      {isAdding && <Panel className="mb-5 p-5 sm:p-6">
+        <h2 className="text-sm font-bold text-ink">Add a beneficiary</h2>
+        <p className="mt-1 text-xs text-slate-500">Recipient details are stored in this browser session only.</p>
+        <form onSubmit={submitBeneficiary} className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Recipient name" maxLength="120" autoComplete="name" placeholder="Full name" value={newBeneficiary.name} onChange={(event) => setNewBeneficiary((old) => ({ ...old, name: event.target.value }))} required />
+          <Field label="Bank" as="select" value={newBeneficiary.bank} onChange={(event) => setNewBeneficiary((old) => ({ ...old, bank: event.target.value }))} required>
+            <option value="">Select a bank</option>{banks.map((bank) => <option key={bank}>{bank}</option>)}
+          </Field>
+          <Field label="Account number" inputMode="numeric" autoComplete="off" maxLength="10" pattern="[0-9]{10}" placeholder="10-digit account number" value={newBeneficiary.accountNumber} onChange={(event) => setNewBeneficiary((old) => ({ ...old, accountNumber: event.target.value.replace(/\D/g, '') }))} required />
+          <div className="flex items-end"><Button type="submit" className="w-full">Save beneficiary</Button></div>
+        </form>
+      </Panel>}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="text-sm font-bold text-ink">{beneficiaries.length} saved recipients</h2><p className="mt-1 text-xs text-slate-500">Verify the account name again before sending money.</p></div>
+        <label className="relative min-w-[180px] flex-1 sm:w-64 sm:flex-none"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search recipients..." className="form-control pl-9" /></label>
+      </div>
+      {filteredBeneficiaries.length ? <div className="grid gap-4 lg:grid-cols-2">
+        {filteredBeneficiaries.map((beneficiary) => (
+          <Panel key={beneficiary.id} className="p-5">
+            <div className="flex items-start gap-3">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gold-50 text-sm font-bold text-gold-800">{beneficiary.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span>
+              <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-bold text-ink">{beneficiary.name}</h3><p className="mt-1 text-xs text-slate-500">{beneficiary.bank}</p><p className="mt-2 text-xs font-medium tracking-wide text-slate-600">•••• {beneficiary.accountNumber.slice(-4)}</p></div>
+              <button type="button" onClick={() => onRemove(beneficiary)} className="rounded-lg px-2 py-1 text-[11px] font-semibold text-slate-400 hover:bg-rose-50 hover:text-rose-700" aria-label={`Remove ${beneficiary.name}`}>Remove</button>
+            </div>
+            <Button variant="secondary" className="mt-5 w-full" onClick={() => onSend(beneficiary)}><Send size={14} />Send money</Button>
+          </Panel>
+        ))}
+      </div> : <Panel className="p-10 text-center">
+        <span className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-slate-100 text-slate-500"><Users size={20} /></span>
+        <h2 className="mt-4 text-sm font-bold text-ink">{query ? 'No recipients found' : 'No beneficiaries yet'}</h2>
+        <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-slate-500">{query ? 'Try another name, bank, or account number.' : 'Add a trusted recipient to make future transfers easier.'}</p>
+        {!query && <Button className="mt-5" onClick={() => setIsAdding(true)}><Plus size={15} />Add beneficiary</Button>}
+      </Panel>}
+      <div className="mt-5 rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-xs leading-5 text-slate-600"><b className="text-ink">Demo notice:</b> Saved recipients are not sent to or stored by the banking backend. Always verify the recipient name before confirming a transfer.</div>
+    </div>
+  );
+}
+
+function Notifications({ notifications, onMarkRead, onMarkAllRead, setView }) {
+  const [filter, setFilter] = useState('All');
+  const visibleNotifications = notifications.filter((notification) => filter === 'All' || !notification.read);
+  const iconForType = { statement: FileText, deposit: ArrowDownLeft, security: ShieldCheck };
+
+  return (
+    <div className="fade-in">
+      <PageHeader title="Notifications" description="Important account updates and activity, all in one place." actions={<Button variant="secondary" onClick={onMarkAllRead} disabled={!notifications.some((notification) => !notification.read)}><CheckCheck size={15} />Mark all as read</Button>} />
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">{['All', 'Unread'].map((tab) => <button key={tab} onClick={() => setFilter(tab)} className={`rounded-lg px-3 py-2 text-xs font-semibold ${filter === tab ? 'bg-brand text-ink' : 'text-slate-500 hover:bg-slate-50'}`}>{tab}{tab === 'Unread' ? ` (${notifications.filter((notification) => !notification.read).length})` : ''}</button>)}</div>
+        <span className="text-xs text-slate-400">{notifications.length} updates</span>
+      </div>
+      <Panel className="divide-y divide-slate-100 px-5">
+        {visibleNotifications.map((notification) => {
+          const Icon = iconForType[notification.type] || Bell;
+          return <article key={notification.id} className={`flex gap-3 py-5 sm:gap-4 ${notification.read ? 'opacity-75' : ''}`}>
+            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${notification.type === 'deposit' ? 'bg-green-50 text-green-700' : notification.type === 'security' ? 'bg-slate-100 text-slate-600' : 'bg-gold-50 text-gold-800'}`}><Icon size={17} /></span>
+            <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-xs font-bold text-ink">{notification.title}</h2>{!notification.read && <span className="h-1.5 w-1.5 rounded-full bg-gold-600" aria-label="Unread" />}</div><p className="mt-1 text-xs leading-5 text-slate-500">{notification.detail}</p><p className="mt-2 text-[10px] text-slate-400">{notification.time}</p><div className="mt-3 flex flex-wrap gap-3"><button onClick={() => setView('transactions')} className="text-[11px] font-semibold text-gold-800 hover:text-gold-900">View activity</button>{!notification.read && <button onClick={() => onMarkRead(notification.id)} className="text-[11px] font-semibold text-slate-500 hover:text-ink">Mark as read</button>}</div></div>
+          </article>;
+        })}
+        {!visibleNotifications.length && <div className="py-12 text-center"><CheckCheck size={22} className="mx-auto text-green-700" /><p className="mt-3 text-sm font-semibold text-ink">You’re all caught up</p><p className="mt-1 text-xs text-slate-500">There are no unread notifications.</p></div>}
+      </Panel>
+      <p className="mt-4 text-[11px] leading-5 text-slate-400">These are sample notifications for the frontend demo. Notification preferences are managed in Settings.</p>
+    </div>
+  );
+}
+
 function VerifyTransfer({ transfer, onComplete, onBack }) {
   const [code, setCode] = useState('');
   return (
@@ -861,7 +952,7 @@ function SettingsPage({ setView, showToast }) {
     <div className="fade-in">
       <PageHeader title="Settings" description="Manage your profile and how Eli keeps you in the loop." />
       <div className="grid gap-5 lg:grid-cols-[220px_1fr]">
-        <div className="space-y-1">{[['Profile information', 'settings', UserRound], ['Security & PIN', 'security', Shield], ['Notifications', 'settings', Bell]].map(([label, view, Icon], i) => <button key={`${label}-${i}`} onClick={() => setView(view)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold ${i === 0 ? 'bg-white text-ink shadow-sm' : 'text-slate-500 hover:bg-white'}`}><Icon size={15} />{label}</button>)}</div>
+        <div className="space-y-1">{[['Profile information', 'settings', UserRound], ['Security & PIN', 'security', Shield], ['Notifications', 'notifications', Bell]].map(([label, view, Icon], i) => <button key={`${label}-${i}`} onClick={() => setView(view)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold ${i === 0 ? 'bg-white text-ink shadow-sm' : 'text-slate-500 hover:bg-white'}`}><Icon size={15} />{label}</button>)}</div>
         <div className="space-y-4">
           <Panel className="p-5 sm:p-6"><SectionHeading title="Personal information" /><div className="grid gap-4 sm:grid-cols-2"><Field label="Full name" defaultValue="Elijah Okafor" /><Field label="Email address" type="email" defaultValue="elijah.okafor@email.com" /><Field label="Phone number" type="tel" defaultValue="+234 801 234 5678" /><Field label="Preferred currency" as="select" defaultValue="NGN"><option value="NGN">NGN · Nigerian naira</option></Field></div><Button className="mt-5" onClick={() => showToast('Profile changes saved in this demo.')}>Save changes</Button></Panel>
           <Panel className="p-5 sm:p-6"><SectionHeading title="Notifications" /><div className="space-y-4">{[['Transaction alerts', 'Get notified when money moves.', transactionAlerts, setTransactionAlerts], ['Email updates', 'Statements, security and account updates.', emailAlerts, setEmailAlerts]].map(([title, detail, checked, setter]) => <label key={title} className="flex cursor-pointer items-center justify-between gap-4"><span><span className="block text-xs font-semibold text-ink">{title}</span><span className="mt-1 block text-[11px] text-slate-400">{detail}</span></span><input type="checkbox" checked={checked} onChange={(e) => setter(e.target.checked)} className="h-4 w-4 accent-brand" /></label>)}</div></Panel>
@@ -1034,6 +1125,8 @@ function App() {
   const [accounts, setAccounts] = useState(initialAccounts);
   const [transactions, setTransactions] = useState(initialTransactions);
   const [payouts, setPayouts] = useState(initialPayouts);
+  const [beneficiaries, setBeneficiaries] = useState(initialBeneficiaries);
+  const [notifications, setNotifications] = useState(initialNotifications);
   const [adminMode, setAdminMode] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [toast, setToast] = useState('');
@@ -1049,6 +1142,7 @@ function App() {
     setToast(message);
     window.setTimeout(() => setToast(''), 3000);
   };
+  const unreadCount = notifications.filter((notification) => !notification.read).length;
   const moveTo = (nextView) => {
     setView(nextView);
     setMobileNavOpen(false);
@@ -1056,6 +1150,26 @@ function App() {
   };
   const updateAccountBalance = (accountId, amount) => setAccounts((old) => old.map((account) => account.id === accountId ? { ...account, balance: Math.max(0, account.balance + amount) } : account));
   const addTransaction = (record) => setTransactions((old) => [record, ...old]);
+  const addBeneficiary = (beneficiary) => {
+    const duplicate = beneficiaries.some((saved) => saved.bank === beneficiary.bank && saved.accountNumber === beneficiary.accountNumber);
+    if (duplicate) {
+      notify('This bank account is already saved as a beneficiary.');
+      return false;
+    }
+    setBeneficiaries((old) => [...old, { ...beneficiary, name: beneficiary.name.trim(), id: `ben-${Date.now()}` }]);
+    notify('Beneficiary saved for this demo session.');
+    return true;
+  };
+  const removeBeneficiary = (beneficiary) => {
+    setBeneficiaries((old) => old.filter((saved) => saved.id !== beneficiary.id));
+    notify(`${beneficiary.name} removed from your beneficiaries.`);
+  };
+  const sendToBeneficiary = (beneficiary) => {
+    setTransfer((old) => ({ ...old, type: 'Bank transfer', bank: beneficiary.bank, accountNumber: beneficiary.accountNumber, recipientName: '', note: '' }));
+    moveTo('transfers');
+  };
+  const markNotificationRead = (id) => setNotifications((old) => old.map((notification) => notification.id === id ? { ...notification, read: true } : notification));
+  const markAllNotificationsRead = () => setNotifications((old) => old.map((notification) => ({ ...notification, read: true })));
   const submitTransfer = (event) => {
     event.preventDefault();
     if (!transfer.recipientName) {
@@ -1124,6 +1238,8 @@ function App() {
       case 'kyc': return <IdentityVerification status={kycStatus} setStatus={setKycStatus} showToast={notify} />;
       case 'account-upgrade': return <AccountUpgrade status={upgradeStatus} setStatus={setUpgradeStatus} showToast={notify} />;
       case 'transactions': return <Transactions transactions={transactions} setView={moveTo} onSelect={(tx) => setModal({ kind: 'transaction', transaction: tx })} />;
+      case 'beneficiaries': return <Beneficiaries beneficiaries={beneficiaries} onAdd={addBeneficiary} onRemove={removeBeneficiary} onSend={sendToBeneficiary} />;
+      case 'notifications': return <Notifications notifications={notifications} onMarkRead={markNotificationRead} onMarkAllRead={markAllNotificationsRead} setView={moveTo} />;
       case 'verify': return <VerifyTransfer transfer={transfer} onComplete={completeTransfer} onBack={() => moveTo('transfer-review')} />;
       case 'transfer-status': return <TransferStatus transfer={transfer} setView={moveTo} transactions={transactions} />;
       case 'settings': return <SettingsPage setView={moveTo} showToast={notify} />;
@@ -1142,9 +1258,9 @@ function App() {
 
   return (
     <div className="min-h-screen bg-canvas xl:flex">
-      <Sidebar view={view} setView={moveTo} adminMode={adminMode} setAdminMode={setAdminMode} open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
+      <Sidebar view={view} setView={moveTo} adminMode={adminMode} setAdminMode={setAdminMode} open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} unreadCount={unreadCount} />
       <div className="min-w-0 flex-1">
-        <TopBar setView={moveTo} onMenu={() => setMobileNavOpen(true)} adminMode={adminMode} />
+        <TopBar setView={moveTo} onMenu={() => setMobileNavOpen(true)} adminMode={adminMode} notifications={notifications} unreadCount={unreadCount} />
         <main className="mx-auto max-w-[1500px] px-4 py-6 sm:px-7 sm:py-8 lg:px-9">
           {viewTitles[view] && <div className="mb-3 hidden text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-400 sm:block">{adminMode ? 'Operations' : 'Workspace'} <span className="mx-1 text-slate-300">/</span> <span className="text-slate-500">{viewTitles[view]}</span></div>}
           {openAccount ? <OpenAccount onCancel={() => setOpenAccount(false)} onCreate={createAccount} /> : screen}
