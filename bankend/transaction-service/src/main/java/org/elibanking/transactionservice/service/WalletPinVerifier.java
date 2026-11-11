@@ -1,6 +1,7 @@
 package org.elibanking.transactionservice.service;
 
 import org.elibanking.common.security.ServiceTokens;
+import org.elibanking.common.web.RequestIdContext;
 import org.elibanking.transactionservice.exception.PinLockedException;
 import org.elibanking.transactionservice.exception.PinUnavailableException;
 import org.elibanking.transactionservice.exception.TransactionAccessDeniedException;
@@ -47,6 +48,7 @@ public class WalletPinVerifier implements PinVerifier {
                     .uri("/internal/v1/pin/verify")
                     .contentType(MediaType.APPLICATION_JSON)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens.token())
+                    .headers(RequestIdContext::apply)
                     .body(Map.of("userId", userId, "pin", pin))
                     .retrieve()
                     .toBodilessEntity();

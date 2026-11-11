@@ -2,6 +2,7 @@ package org.elibanking.walletservice.client;
 
 import lombok.extern.slf4j.Slf4j;
 import org.elibanking.common.security.ServiceTokens;
+import org.elibanking.common.web.RequestIdContext;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -35,6 +36,7 @@ public class FraudClient {
                 .baseUrl(baseUrl)
                 .requestInterceptor((request, body, execution) -> {
                     request.getHeaders().setBearerAuth(tokens.token());
+                    RequestIdContext.apply(request.getHeaders());
                     return execution.execute(request, body);
                 })
                 .build();

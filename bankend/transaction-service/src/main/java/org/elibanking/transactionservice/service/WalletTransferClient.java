@@ -1,6 +1,7 @@
 package org.elibanking.transactionservice.service;
 
 import org.elibanking.common.security.ServiceTokens;
+import org.elibanking.common.web.RequestIdContext;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -41,6 +42,7 @@ public class WalletTransferClient {
         try {
             JsonNode body = wallet.post().uri("/internal/v1/name-enquiries/validate")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens.token())
+                    .headers(RequestIdContext::apply)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("userId", userId, "nameEnquiryRef", reference, "bankCode", bankCode,
                             "accountNumber", accountNumber))
@@ -71,6 +73,7 @@ public class WalletTransferClient {
         try {
             ResponseEntity<String> response = wallet.post().uri("/internal/v1/outbound-transfers")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens.token())
+                    .headers(RequestIdContext::apply)
                     .header("Idempotency-Key", idempotencyKey)
                     .contentType(MediaType.APPLICATION_JSON).body(body).retrieve().toEntity(String.class);
             return new Reply(response.getStatusCode().value(), response.getBody());

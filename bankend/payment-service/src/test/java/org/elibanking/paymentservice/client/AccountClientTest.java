@@ -8,7 +8,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -17,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
@@ -45,6 +49,30 @@ class AccountClientTest {
 
         assertEquals("user-1", client.getAccount("1234567890").ownerId());
         server.verify();
+    }
+
+    @Test
+    void forwardsTheCurrentRequestIdToAccountService() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        AccountClient client = new AccountClient(builder, "http://account.test",
+                new ServiceTokens(SECRET, "payment-service", "account-service"));
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-Request-Id", "gateway-request-42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        try {
+            server.expect(requestTo("http://account.test/api/v1/accounts/1234567890"))
+                    .andExpect(method(HttpMethod.GET))
+                    .andExpect(header("X-Request-Id", "gateway-request-42"))
+                    .andRespond(withSuccess(
+                            "{\"accountNumber\":\"1234567890\",\"ownerId\":\"user-1\",\"status\":\"ACTIVE\"}",
+                            MediaType.APPLICATION_JSON));
+
+            assertEquals("user-1", client.getAccount("1234567890").ownerId());
+            server.verify();
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
     }
 
     private static void assertServiceToken(String header) throws Exception {

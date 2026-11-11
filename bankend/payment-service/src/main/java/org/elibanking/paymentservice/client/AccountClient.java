@@ -1,6 +1,7 @@
 package org.elibanking.paymentservice.client;
 
 import org.elibanking.common.security.ServiceTokens;
+import org.elibanking.common.web.RequestIdContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -26,6 +27,7 @@ public class AccountClient {
                 .baseUrl(accountServiceUrl)
                 .requestInterceptor((request, body, execution) -> {
                     request.getHeaders().setBearerAuth(accountServiceTokens.token());
+                    RequestIdContext.apply(request.getHeaders());
                     return execution.execute(request, body);
                 })
                 .build();

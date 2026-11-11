@@ -2,6 +2,7 @@ package org.elibanking.walletservice.config;
 
 import feign.RequestInterceptor;
 import org.elibanking.common.security.ServiceTokens;
+import org.elibanking.common.web.RequestIdContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,6 +24,9 @@ public class AuthClientConfig {
 
     @Bean
     public RequestInterceptor authServiceTokenInterceptor(ServiceTokens authServiceTokens) {
-        return template -> template.header(HttpHeaders.AUTHORIZATION, "Bearer " + authServiceTokens.token());
+        return template -> {
+            template.header(HttpHeaders.AUTHORIZATION, "Bearer " + authServiceTokens.token());
+            RequestIdContext.current().ifPresent(requestId -> template.header(RequestIdContext.HEADER, requestId));
+        };
     }
 }
