@@ -34,7 +34,7 @@ This document covers how the Digital Banking System is put together, the reasoni
 
 - Small project, so I stayed with tools I know well: Spring, MySQL, Kafka, Redis
 - Single region at launch
-- Has to integrate with outside payment providers (Stripe, Paystack) and an email provider
+- Has to integrate with outside payment providers (Stripe, Flutterwave) and an email provider
 - Customer wallets are NGN only; there is no currency conversion inside a transfer
 
 **Non-goals**
@@ -68,9 +68,9 @@ Who and what talks to the system.
                        │
            ┌───────────┴────────────┐
            ▼                        ▼
- ┌───────────────────┐    ┌───────────────────┐
- │ Stripe / Paystack │    │    Email / SMTP   │
- └───────────────────┘    └───────────────────┘
+ ┌──────────────────────┐ ┌───────────────────┐
+ │ Stripe / Flutterwave │ │    Email / SMTP   │
+ └──────────────────────┘ └───────────────────┘
 ```
 
 ## 3. High-Level Architecture
@@ -106,9 +106,9 @@ Who and what talks to the system.
                                                                                                                 ▲
                                                                                                   cards / banks │
                                                                                                                 ▼
-                                                                                                ┌─────────────────────┐
-                                                                                                │  Stripe / Paystack  │
-                                                                                                └─────────────────────┘
+                                                                                                ┌────────────────────────┐
+                                                                                                │  Stripe / Flutterwave  │
+                                                                                                └────────────────────────┘
 
 Storage (each service owns its own MySQL schema)
 
@@ -149,7 +149,7 @@ The services live in one monorepo. They call each other synchronously over authe
 
 For a transfer to another bank, `transaction-service` validates the user's name-enquiry reference through wallet-service, then routes the payout request through `wallet-service → payment-service`; wallet-service calls account-service for the hold and settlement ledger entries. Transfers to our own bank continue through the internal transfer saga. Nothing calls back into transaction-service, so there is no cycle.
 
-Withdrawals and external transfers share `outbound_payout` and one state machine. The default provider is a deterministic simulator; Paystack is selectable for NGN bank payouts. Provider webhooks are signature-checked and written to payment-service's outbox. Wallet treats each event as a prompt to fetch provider status and checks the returned reference, amount, and currency before changing payout state or posting ledger entries.
+Withdrawals and external transfers share `outbound_payout` and one state machine. The default provider is a deterministic simulator; Flutterwave is selectable for NGN bank payouts. Provider webhooks are signature-checked and written to payment-service's outbox. Wallet treats each event as a prompt to fetch provider status and checks the returned reference, amount, and currency before changing payout state or posting ledger entries.
 
 ### 4.1 Service layering
 

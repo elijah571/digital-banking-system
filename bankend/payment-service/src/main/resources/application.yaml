@@ -20,7 +20,7 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: validate   # schema is owned by Flyway (src/main/resources/db/migration)
+      ddl-auto: validate # schema is owned by Flyway (src/main/resources/db/migration)
     show-sql: ${SHOW_SQL:false}
     properties:
       hibernate:
@@ -79,9 +79,11 @@ payout:
   sim:
     default-outcome: ${PAYOUT_SIM_DEFAULT_OUTCOME:success}
     delay-ms: ${PAYOUT_SIM_DELAY_MS:0}
-  paystack:
-    secret-key: ${PAYSTACK_SECRET_KEY:}
-    base-url: ${PAYSTACK_API_URL:https://api.paystack.co}
+  flutterwave:
+    secret-key: ${FLUTTERWAVE_SECRET_KEY:}
+    webhook-secret: ${FLUTTERWAVE_WEBHOOK_SECRET:}
+    encryption-key: ${FLUTTERWAVE_ENCRYPTION_KEY:}
+    base-url: ${FLUTTERWAVE_BASE_URL:https://api.flutterwave.com/v3}
 
 # Verifies the user tokens that auth-service issues (wallet-plan 3.7, D8). The gateway and auth-service share this secret.
 auth:

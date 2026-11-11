@@ -15,23 +15,24 @@ import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
-/** Verifies and durably records Paystack payout webhook triggers; wallet independently verifies provider status before acting. */
+/**
+ * Verifies and durably records Flutterwave V3 payout webhook triggers (wallet-plan 9.6). The {@code verif-hash} header must equal the
+ * dashboard secret hash (a constant-time equality check, not an HMAC of the body). The event is only a trigger: wallet-service
+ * independently verifies the provider status before it moves any ledger money, so a late, duplicate or out-of-order event is harmless.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class PaystackWebhookService {
+public class FlutterwaveWebhookService {
 
-    static final String CONSUMER = "paystack-payout-webhook";
+    static final String CONSUMER = "flutterwave-payout-webhook";
     static final String SUCCESS_TOPIC = "payment.payout.success";
     static final String FAILED_TOPIC = "payment.payout.failed";
     static final String REVERSED_TOPIC = "payment.payout.reversed";
@@ -39,59 +40,54 @@ public class PaystackWebhookService {
     private final JdbcTemplate jdbc;
     private final OutboxWriter outbox;
     private final ObjectMapper mapper;
-    @Value("${payout.paystack.secret-key:}")
-    private String secretKey;
+    @Value("${payout.flutterwave.webhook-secret:}")
+    private String webhookSecret;
 
-    public void verifySignature(String rawBody, String signature) {
-        if (secretKey == null || secretKey.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Paystack webhook is not configured");
+    /** Flutterwave sends the dashboard secret hash in the {@code verif-hash} header; it is compared for equality, not as an HMAC. */
+    public void verifySignature(String verifHash) {
+        if (webhookSecret == null || webhookSecret.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Flutterwave webhook is not configured");
         }
-        if (rawBody == null || signature == null || !signature.matches("(?i)[0-9a-f]{128}")) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid Paystack signature");
+        if (verifHash == null || verifHash.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing Flutterwave verification header");
         }
-        try {
-            Mac mac = Mac.getInstance("HmacSHA512");
-            mac.init(new SecretKeySpec(secretKey.getBytes(StandardCharsets.UTF_8), "HmacSHA512"));
-            byte[] expected = HexFormat.of().formatHex(mac.doFinal(rawBody.getBytes(StandardCharsets.UTF_8)))
-                    .getBytes(StandardCharsets.US_ASCII);
-            byte[] supplied = signature.toLowerCase(Locale.ROOT).getBytes(StandardCharsets.US_ASCII);
-            if (!MessageDigest.isEqual(expected, supplied)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid Paystack signature");
-            }
-        } catch (ResponseStatusException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalStateException("Paystack signature could not be verified", e);
+        byte[] expected = webhookSecret.getBytes(StandardCharsets.UTF_8);
+        byte[] supplied = verifHash.getBytes(StandardCharsets.UTF_8);
+        if (!MessageDigest.isEqual(expected, supplied)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid Flutterwave signature");
         }
     }
 
     @Transactional
     public void record(String rawBody) {
         JsonNode root = mapper.readTree(rawBody);
-        String event = root.path("event").asText();
-        String topic = switch (event) {
-            case "transfer.success" -> SUCCESS_TOPIC;
-            case "transfer.failed" -> FAILED_TOPIC;
-            case "transfer.reversed" -> REVERSED_TOPIC;
+        if (!"transfer.completed".equals(root.path("event").asText())) {
+            return;
+        }
+        JsonNode data = root.path("data");
+        String reference = data.path("reference").asText(null);
+        String statusRaw = data.path("status").asText("");
+        String topic = switch (statusRaw.toUpperCase(Locale.ROOT)) {
+            case "SUCCESSFUL" -> SUCCESS_TOPIC;
+            case "FAILED" -> FAILED_TOPIC;
+            case "REVERSED" -> REVERSED_TOPIC;
             default -> null;
         };
         if (topic == null) {
             return;
         }
-        JsonNode data = root.path("data");
-        String reference = data.path("reference").asText();
         final String payoutKey;
         try {
-            payoutKey = PaystackReference.toPayoutKey(reference);
+            payoutKey = PayoutReference.toPayoutKey(reference);
         } catch (IllegalArgumentException notOurs) {
-            log.info("Ignoring Paystack {} event for a reference outside this payout namespace", event);
+            log.info("Ignoring Flutterwave transfer event for a reference outside this payout namespace");
             return;
         }
-        String eventId = event + ":" + reference;
+        String eventId = "transfer.completed:" + reference + ":" + statusRaw.toLowerCase(Locale.ROOT);
         try {
             jdbc.update("INSERT INTO processed_event (consumer, event_id) VALUES (?, ?)", CONSUMER, eventId);
         } catch (DuplicateKeyException duplicate) {
-            log.info("Paystack event {} was already recorded", eventId);
+            log.info("Flutterwave event {} was already recorded", eventId);
             return;
         } catch (DataAccessException failure) {
             throw new WebhookNotRecordedException(eventId, failure);
@@ -99,8 +95,9 @@ public class PaystackWebhookService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("providerReference", reference);
         payload.put("payoutKey", payoutKey);
-        payload.put("providerEvent", event);
-        payload.put("amountKobo", data.path("amount").isNumber() ? data.path("amount").longValue() : null);
+        payload.put("providerEvent", "transfer.completed");
+        payload.put("providerStatus", statusRaw);
+        payload.put("amount", data.path("amount").isNumber() ? data.path("amount").decimalValue() : null);
         payload.put("currency", data.path("currency").asText(null));
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("eventId", eventId);
@@ -113,6 +110,6 @@ public class PaystackWebhookService {
         } catch (RuntimeException failure) {
             throw new WebhookNotRecordedException(eventId, failure);
         }
-        log.info("Paystack {} event recorded for payout {}", event, payoutKey);
+        log.info("Flutterwave transfer.completed ({}) recorded for payout {}", statusRaw, payoutKey);
     }
 }

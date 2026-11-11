@@ -196,6 +196,18 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Tests pin the payout provider to the deterministic simulator (wallet-plan 9.3). They must never depend on the
+                         dev .env (imported via spring.config.import) selecting Flutterwave, nor make external provider calls. A system
+                         property outranks the imported .env, so the context always builds the simulator and needs no credentials. -->
+                    <systemPropertyVariables>
+                        <PAYOUT_PROVIDER>simulator</PAYOUT_PROVIDER>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 

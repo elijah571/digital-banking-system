@@ -15,7 +15,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Paystack webhook messages are triggers only; the processor asks Paystack for the authoritative status. */
+/** Provider webhook messages are triggers only; the processor asks the provider for the authoritative status. */
 @Slf4j
 @Component
 public class PayoutEventConsumer {
@@ -47,17 +47,17 @@ public class PayoutEventConsumer {
         String payoutKey = event.path("payload").path("payoutKey").asText();
         String type = event.path("type").asText();
         if (eventId.isBlank() || !payoutKey.matches("out-[1-9][0-9]*")) {
-            throw new IllegalArgumentException("Paystack payout event is missing its event id or payout key");
+            throw new IllegalArgumentException("payout event is missing its event id or payout key");
         }
         try {
             jdbc.update("INSERT INTO processed_event (consumer, event_id) VALUES (?, ?)", CONSUMER, eventId);
         } catch (DuplicateKeyException duplicate) {
-            log.info("Paystack payout event {} was already applied", eventId);
+            log.info("payout event {} was already applied", eventId);
             return;
         }
         long id = Long.parseLong(payoutKey.substring(4));
         if (payouts.findById(id).isEmpty()) {
-            alert(payoutKey, eventId, "Paystack event references a payout not found in wallet-service");
+            alert(payoutKey, eventId, "payout event references a payout not found in wallet-service");
             return;
         }
         try {

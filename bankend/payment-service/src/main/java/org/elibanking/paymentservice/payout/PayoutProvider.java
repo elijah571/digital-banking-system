@@ -4,8 +4,8 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * The payout provider contract shared by withdrawals and external transfers (wallet-plan 8.7). Phase 6 supplies the simulator; the
- * Paystack adapter is deferred to phase 6b.
+ * The payout provider contract shared by withdrawals and external transfers (wallet-plan 8.7, 9.1). The simulator is the test/CI/demo
+ * default; the Flutterwave V3 adapter is the preferred external provider (wallet-plan 9).
  */
 public interface PayoutProvider {
 

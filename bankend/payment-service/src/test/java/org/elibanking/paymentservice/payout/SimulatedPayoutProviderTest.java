@@ -10,9 +10,9 @@ import java.util.stream.IntStream;
 import org.springframework.core.env.StandardEnvironment;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
 
 class SimulatedPayoutProviderTest {
 
@@ -89,11 +89,24 @@ class SimulatedPayoutProviderTest {
     @Test
     void providerSelectionAndDefaultOutcomeAreValidatedAtStartup() {
         PayoutProviderConfiguration configuration = new PayoutProviderConfiguration();
+        StandardEnvironment env = new StandardEnvironment();
+        String base = "https://api.flutterwave.com/v3";
 
+        // Flutterwave selected but no secret key: fail closed.
+        assertThrows(IllegalStateException.class, () -> configuration.payoutProvider("flutterwave", "success", 0,
+                "", "whsec", base, env));
+        // Flutterwave with a test key but no webhook secret: fail closed.
+        assertThrows(IllegalStateException.class, () -> configuration.payoutProvider("flutterwave", "success", 0,
+                "FLWSECK_TEST-abc", "", base, env));
+        // An unsupported provider is rejected.
         assertThrows(IllegalStateException.class, () -> configuration.payoutProvider("paystack", "success", 0,
-                "", "https://api.paystack.co", new StandardEnvironment(), mock(PaystackRecipientRepository.class)));
+                "", "", base, env));
+        // A bad simulator default outcome is rejected.
         assertThrows(IllegalArgumentException.class, () -> configuration.payoutProvider("simulator", "unknown", 0,
-                "", "https://api.paystack.co", new StandardEnvironment(), mock(PaystackRecipientRepository.class)));
+                "", "", base, env));
+        // A valid test configuration builds the Flutterwave adapter without a network call.
+        assertInstanceOf(FlutterwavePayoutProvider.class, configuration.payoutProvider("flutterwave", "success", 0,
+                "FLWSECK_TEST-abc", "whsec_test", base, env));
     }
 
     private static PayoutProvider.SendResult send(SimulatedPayoutProvider provider, String key, String accountNumber) {

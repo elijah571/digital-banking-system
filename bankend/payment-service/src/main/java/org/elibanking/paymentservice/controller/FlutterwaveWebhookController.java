@@ -1,6 +1,6 @@
 package org.elibanking.paymentservice.controller;
 
-import org.elibanking.paymentservice.payout.PaystackWebhookService;
+import org.elibanking.paymentservice.payout.FlutterwaveWebhookService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -8,21 +8,21 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Public Paystack webhook endpoint. It acknowledges only after the event is durably recorded in the outbox. */
+/** Public Flutterwave webhook endpoint. It acknowledges only after the event is durably recorded in the outbox (wallet-plan 9.6). */
 @RestController
-@RequestMapping("/webhooks/paystack")
-public class PaystackWebhookController {
+@RequestMapping("/webhooks/flutterwave")
+public class FlutterwaveWebhookController {
 
-    private final PaystackWebhookService webhooks;
+    private final FlutterwaveWebhookService webhooks;
 
-    public PaystackWebhookController(PaystackWebhookService webhooks) {
+    public FlutterwaveWebhookController(FlutterwaveWebhookService webhooks) {
         this.webhooks = webhooks;
     }
 
     @PostMapping
     public ResponseEntity<Void> receive(@RequestBody String rawBody,
-                                         @RequestHeader(name = "x-paystack-signature", required = false) String signature) {
-        webhooks.verifySignature(rawBody, signature);
+                                        @RequestHeader(name = "verif-hash", required = false) String verifHash) {
+        webhooks.verifySignature(verifHash);
         webhooks.record(rawBody);
         return ResponseEntity.ok().build();
     }

@@ -218,8 +218,13 @@ services:
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
-      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
-      PAYSTACK_API_URL: ${PAYSTACK_API_URL:-https://api.paystack.co}
+      # Flutterwave V3 test mode is the preferred external payout provider (wallet-plan 9). Set PAYOUT_PROVIDER=flutterwave in .env
+      # (the same value for wallet-service, so the PROVIDER_CLEARING:FLUTTERWAVE:NGN code matches). The ngrok webhook URL is set in
+      # the Flutterwave dashboard, never here. The secret key, webhook secret hash and encryption key come from .env and are never logged.
+      FLUTTERWAVE_SECRET_KEY: ${FLUTTERWAVE_SECRET_KEY:-}
+      FLUTTERWAVE_WEBHOOK_SECRET: ${FLUTTERWAVE_WEBHOOK_SECRET:-${FLUTTERWAVE_WEBHOOK:-}}
+      FLUTTERWAVE_ENCRYPTION_KEY: ${FLUTTERWAVE_ENCRYPTION_KEY:-${FLUTTERWAVE_ENCRYPTION:-}}
+      FLUTTERWAVE_BASE_URL: ${FLUTTERWAVE_BASE_URL:-https://api.flutterwave.com/v3}
       PAYOUT_PROVIDER: ${PAYOUT_PROVIDER:-simulator}
       PAYOUT_SIM_DEFAULT_OUTCOME: ${PAYOUT_SIM_DEFAULT_OUTCOME:-success}
       PAYOUT_SIM_DELAY_MS: ${PAYOUT_SIM_DELAY_MS:-0}

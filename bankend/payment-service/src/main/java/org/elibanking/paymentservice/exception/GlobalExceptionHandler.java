@@ -46,6 +46,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(WebhookNotRecordedException.class)
     public ProblemDetail handleWebhookNotRecorded(WebhookNotRecordedException e) {
         log.error(e.getMessage(), e);
-        return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "Provider event not recorded; Paystack will retry");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "Provider event not recorded; the provider will retry");
     }
 }

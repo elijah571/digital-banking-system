@@ -8,9 +8,11 @@ Compose reads configuration from `bankend/.env`; never commit that file. Keep cr
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PAYOUT_PROVIDER` | `simulator` | Select `simulator` or `paystack`. The simulator is the local, test, and CI default. |
-| `PAYSTACK_SECRET_KEY` | empty | Required for Paystack. Use an `sk_test_` key outside the `prod` profile and an `sk_live_` key only with the `prod` profile. |
-| `PAYSTACK_API_URL` | `https://api.paystack.co` | Paystack API base URL; override only for a controlled test endpoint. |
+| `PAYOUT_PROVIDER` | `simulator` | Select `simulator` or `flutterwave`. The simulator is the local, test, and CI default; Flutterwave is the preferred external provider. Must be the same value in wallet-service and payment-service. |
+| `FLUTTERWAVE_SECRET_KEY` | empty | Required for Flutterwave. Use a test key (`FLWSECK_TEST-...`) outside the `prod` profile and a live key only with the `prod` profile. Never logged; never exposed to the frontend. |
+| `FLUTTERWAVE_WEBHOOK_SECRET` | empty | The dashboard "secret hash". `/webhooks/flutterwave` compares it to the `verif-hash` header. Required for Flutterwave. |
+| `FLUTTERWAVE_ENCRYPTION_KEY` | empty | Flutterwave encryption key. Not used for NGN bank transfers; kept only for flows that require it. Never logged. |
+| `FLUTTERWAVE_BASE_URL` | `https://api.flutterwave.com/v3` | Flutterwave V3 API base URL; override only for a controlled test stub. |
 | `OWN_BANK_CODE` | required | Bank code for this bank. Transfers with this code use the internal transaction flow. |
 | `OWN_BANK_NAME` | required | Display name included in the wallet bank list. |
 | `WITHDRAWAL_MIN` | required | Minimum outbound amount in NGN. |
@@ -21,9 +23,9 @@ Compose reads configuration from `bankend/.env`; never commit that file. Keep cr
 | `PAYOUT_SIM_DEFAULT_OUTCOME` | `success` | Simulator outcome for ordinary account numbers. |
 | `PAYOUT_SIM_DELAY_MS` | `0` | Simulator send/status delay in milliseconds. |
 
-Paystack payouts require an enabled Paystack Transfers product and sufficient provider balance for the transfer and its fee. Transfers stay asynchronous: the wallet settles only after status verification, and a signed webhook is a trigger to verify status. A test key must be used for sandbox checks; test mode does not move live funds. Do not use a live key for smoke tests.
+Flutterwave payouts require an enabled Transfers capability and sufficient provider test balance for the transfer and its fee. Transfers stay asynchronous: the wallet settles only after status verification, and a signed webhook is a trigger to verify status. A test key must be used for sandbox checks; test mode does not move live funds. Do not use a live key for smoke tests.
 
-Recipient bank account numbers are sent to Paystack for account resolution and transfer. The payment-service recipient cache stores only a keyed HMAC fingerprint of the bank code/account number pair and Paystack's recipient code. Keep `INTERNAL_JWT_SECRET` stable and protected: it keys those fingerprints as well as service tokens.
+Flutterwave V3 transfers take the bank code and account number inline, so payment-service creates no recipient and persists no bank account numbers. Account resolution and transfer requests are sent directly to Flutterwave; the wallet verifies the returned reference, amount, and currency before it moves any ledger money.
 
 ## Shared Compose variables
 
@@ -33,7 +35,7 @@ The following variables are read by the Compose files. Required values have no p
 | --- | --- |
 | `MYSQL_ROOT_PASSWORD` | Local MySQL root credential. Use a managed database credential in production. |
 | `JWT_SECRET` | User access-token signing and verification. |
-| `INTERNAL_JWT_SECRET` | Service-to-service token signing and Paystack recipient fingerprint key. |
+| `INTERNAL_JWT_SECRET` | Service-to-service token signing. |
 | `PIN_PEPPER` | Secret pepper for wallet PIN hashing. |
 | `PIN_OTP_HMAC_KEY` | HMAC key for wallet PIN verification codes. |
 | `OTP_HMAC_KEY` | HMAC key for transaction OTPs. |
@@ -49,6 +51,6 @@ Money configuration also includes `CARD_DEPOSIT_MIN`, `WITHDRAWAL_MIN`, `WITHDRA
 
 ## Production Compose
 
-Run `docker compose -f compose.yaml -f compose.prod.yaml up -d` after providing the production configuration. The production override enables the `prod` Spring profile, suppresses the internal service host ports, and leaves only the API gateway published. The payment-service rejects a test key under `prod`; use the simulator until the Paystack live integration is explicitly enabled for production.
+Run `docker compose -f compose.yaml -f compose.prod.yaml up -d` after providing the production configuration. The production override enables the `prod` Spring profile, suppresses the internal service host ports, and leaves only the API gateway published. The payment-service rejects a test key under `prod`; use the simulator until the Flutterwave live integration is explicitly enabled for production.
 
-For local Paystack sandbox development, use `PAYOUT_PROVIDER=paystack` with an `sk_test_` credential and the normal API URL. Start with bank listing and account resolution, then run one small transfer to Paystack's documented test transfer account. Verify the payout through the API and confirm the webhook is delivered to `/webhooks/paystack`. Keep this separate from the throwaway simulator smoke test.
+For local Flutterwave sandbox development, set `PAYOUT_PROVIDER=flutterwave` with a test secret key (`FLWSECK_TEST-...`), the test webhook secret hash, and the default base URL. Start with bank listing and account resolution, then run one small transfer to a Flutterwave test account. Verify the payout through the API (`GET /api/v1/wallet/payouts/{id}`) and confirm the webhook is delivered to `/webhooks/flutterwave`. Because the gateway never routes `/webhooks/**`, expose payment-service (port 8085) with ngrok and set the public `https://<id>.ngrok-free.app/webhooks/flutterwave` URL and the matching secret hash in the Flutterwave dashboard; the ngrok URL changes per session and never belongs in source or Compose. Keep this separate from the throwaway simulator smoke test.
