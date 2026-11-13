@@ -73,7 +73,8 @@ echo "commit: $(git -C "$WT" log --oneline -1)"
 # 2. Container name overrides, so the throwaway containers do not collide with the stopped dev containers.
 printf '%s\n' 'services:' '  mysql:' '    container_name: smoke-mysql' '    ports: !reset []' \
   '  redis:' '    container_name: smoke-redis' '    ports: !reset []' \
-  '  kafka:' '    container_name: smoke-kafka' '    ports: !reset []' '    healthcheck:' '      timeout: 30s' \
+  '  kafka:' '    container_name: smoke-kafka' '    ports: !reset []' '    healthcheck:' \
+  '      test: ["CMD-SHELL", "bash -c '\''echo > /dev/tcp/127.0.0.1/9092'\''"]' '      timeout: 5s' \
   '      start_period: 30s' '  account-service:' '    ports: !reset []' \
   '  wallet-service:' '    ports: !reset []' '    environment:' '      WITHDRAWAL_DAILY_MAX: "5000000.00"' \
   '  transaction-service:' '    ports: !reset []' '  fraud-detection-service:' '    ports: !reset []' \
