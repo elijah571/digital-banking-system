@@ -17,6 +17,6 @@ COPY --from=build /src/app.jar app.jar
 USER app
 EXPOSE 8086
 # The JRE image has no curl/wget: talk HTTP to the actuator with bash's /dev/tcp.
-HEALTHCHECK --interval=10s --timeout=5s --start-period=120s --retries=12 \
+HEALTHCHECK --interval=10s --timeout=30s --start-period=120s --retries=12 \
   CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/8086 && printf "GET /actuator/health HTTP/1.0\r\nHost: localhost\r\n\r\n" >&3 && grep -q "\"status\":\"UP\"" <&3'
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]
