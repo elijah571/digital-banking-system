@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.elibanking.transactionservice.dto.TransactionRequest;
 import org.elibanking.transactionservice.dto.TransactionResponse;
+import org.elibanking.transactionservice.exception.TransactionAccessDeniedException;
 import org.elibanking.transactionservice.security.Caller;
 import org.elibanking.transactionservice.service.IdempotentTransfers;
 import org.elibanking.transactionservice.service.TransactionalService;
@@ -93,7 +94,10 @@ public class TransactionController {
     @Operation(summary = "List all transactions (ADMIN)", description = "Every transaction, newest first.")
     @ApiResponse(responseCode = "200", description = "All transactions")
     @ApiResponse(responseCode = "403", description = "Not an admin")
-    public List<TransactionResponse> getAllTransactions() {
+    public List<TransactionResponse> getAllTransactions(Caller caller) {
+        if (!caller.isAdmin()) {
+            throw new TransactionAccessDeniedException("Admin role required");
+        }
         return transactionalService.getAllTransactions();
     }
 

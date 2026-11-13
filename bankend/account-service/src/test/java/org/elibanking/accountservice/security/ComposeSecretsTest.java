@@ -16,8 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The compose files decide which containers get INTERNAL_JWT_SECRET, which signs the service tokens (wallet-plan 3.7).
- * The notification service never mints or checks one, so it must not get the secret. The test reads the files, so a
- * later edit that adds it fails the build.
+ * Notification-service uses its token only for the allow-listed, minimal recipient lookup. It must not get the user JWT
+ * secret. The test reads both files so security-sensitive config drift fails the build.
  */
 class ComposeSecretsTest {
 
@@ -26,17 +26,20 @@ class ComposeSecretsTest {
     private static final String PROD = "../compose.prod.yaml";
 
     @Test
-    void notificationServiceNeverGetsTheServiceTokenSecret() throws IOException {
+    void notificationServiceGetsOnlyItsInternalServiceTokenSecret() throws IOException {
         for (String file : List.of(BASE, PROD)) {
-            assertFalse(environment(file, "notification-service").containsKey(SECRET),
-                    file + ": notification-service must not get " + SECRET);
+            Map<String, Object> environment = environment(file, "notification-service");
+            assertTrue(environment.containsKey(SECRET),
+                    file + ": notification-service needs " + SECRET + " for its allow-listed recipient lookup");
+            assertFalse(environment.containsKey("JWT_SECRET"),
+                    file + ": notification-service must not receive the user JWT secret");
         }
     }
 
     @Test
     void theServicesThatSignOrCheckServiceTokensDoGetTheSecret() throws IOException {
         for (String service : List.of("account-service", "transaction-service", "payment-service",
-                "fraud-detection-service")) {
+                "fraud-detection-service", "notification-service")) {
             assertTrue(environment(BASE, service).containsKey(SECRET), service + " needs " + SECRET);
         }
     }

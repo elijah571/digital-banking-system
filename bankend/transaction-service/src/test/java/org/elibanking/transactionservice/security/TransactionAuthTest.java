@@ -94,6 +94,17 @@ class TransactionAuthTest {
     }
 
     @Test
+    void listingEveryonesTransactionsIsAdminOnly() throws Exception {
+        mvc.perform(get(PATH)).andExpect(status().isUnauthorized());
+
+        mvc.perform(get(PATH).header("Authorization", "Bearer " + UserTokens.of("user-a", "USER")))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(get(PATH).header("Authorization", "Bearer " + UserTokens.of("admin-1", "ADMIN")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void aTokenWithNoSubjectIsRefused() throws Exception {
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY)
                         .header("Idempotency-Key", java.util.UUID.randomUUID().toString())

@@ -57,4 +57,18 @@ class WalletSecurityTest {
                         .header("Authorization", "Bearer " + TestTokens.userTokenWithTheWrongSecret("alice")))
                 .andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void theOperationsPayoutQueueIsAdminOnly() throws Exception {
+        mvc.perform(get("/api/v1/admin/payouts")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/admin/payouts")
+                        .header("Authorization", "Bearer " + TestTokens.userToken("alice", "USER")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/payouts")
+                        .header("Authorization", "Bearer " + TestTokens.serviceTokenAs("transaction-service")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/payouts")
+                        .header("Authorization", "Bearer " + TestTokens.userToken("admin", "ADMIN")))
+                .andExpect(status().isOk());
+    }
 }
