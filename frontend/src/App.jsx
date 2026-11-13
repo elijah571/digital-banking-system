@@ -885,12 +885,12 @@ function Transactions({ transactions, setView, onSelect, statement }) {
       <PageHeader title="Transaction history" description="Track every movement across your accounts." actions={<Button variant="secondary" onClick={downloadStatement} disabled={!statement?.content?.length}><Download size={15} /> Download statement</Button>} />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">{['All activity', 'Money in', 'Money out'].map((tab) => <button key={tab} onClick={() => setFilter(tab)} className={`rounded-lg px-3 py-2 text-xs font-semibold ${filter === tab ? 'bg-brand text-ink' : 'text-slate-500 hover:bg-slate-50'}`}>{tab}</button>)}</div>
-        <div className="flex flex-1 gap-2 sm:flex-none"><label className="relative min-w-[180px] flex-1 sm:w-64"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search activity..." className="form-control pl-9" /></label><Button variant="secondary" className="px-3"><Filter size={15} /><span className="hidden sm:inline">Filters</span></Button></div>
+        <label className="relative min-w-[180px] flex-1 sm:w-64"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search activity..." className="form-control pl-9" /></label>
       </div>
       <Panel className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="text-sm font-bold text-ink">All transactions</h2><p className="mt-1 text-[10px] text-slate-400">{filtered.length} records · Last 30 days</p></div><button className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-gold-800"><SlidersHorizontal size={14} /> Date range</button></div>
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="text-sm font-bold text-ink">All transactions</h2><p className="mt-1 text-[10px] text-slate-400">{filtered.length} matching records</p></div></div>
         <TransactionTable rows={filtered} onSelect={onSelect} />
-        <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3 text-[10px] text-slate-400"><span>Showing {filtered.length} of {transactions.length} transactions</span><div className="flex gap-1"><button className="rounded-lg border border-slate-200 p-1.5"><ChevronLeft size={14} /></button><button className="rounded-lg bg-brand px-2.5 py-1 font-semibold text-ink">1</button><button className="rounded-lg border border-slate-200 px-2.5 py-1">2</button><button className="rounded-lg border border-slate-200 p-1.5"><ChevronRight size={14} /></button></div></div>
+        <div className="border-t border-slate-100 px-5 py-3 text-[10px] text-slate-400">Showing {filtered.length} of {transactions.length} loaded transactions</div>
       </Panel>
       <div className="mt-4 flex items-center justify-between rounded-xl bg-gold-50/70 px-4 py-3 text-xs"><span className="text-slate-600">Need a record for your files?</span><button onClick={() => setView('support')} className="font-semibold text-gold-800">Request a statement</button></div>
     </div>
@@ -1186,9 +1186,21 @@ function AuthPage({ view, setView, onSignIn, showToast }) {
 function AdminDashboard({ setView, payouts, users, accounts, transactions, reconciliation }) {
   const pendingTotal = payouts.reduce((sum, payout) => sum + payout.amount, 0);
   const flagged = transactions.filter((transaction) => transaction.status === 'FLAGGED').length;
+  const downloadReport = () => {
+    const rows = [
+      ['Report section', 'ID', 'Status', 'Amount', 'Created'],
+      ...payouts.map((row) => ['Pending payout', row.payoutId || row.id, row.status, row.amount, row.createdAt || row.requestedAt]),
+      ...transactions.map((row) => ['Transaction', row.id, row.status, row.amount, row.createdAt]),
+      ...accounts.map((row) => ['Account', row.accountNumber, row.status || row.accountStatus, '', row.createdAt]),
+      ['Reconciliation', '', reconciliation?.clean ? 'BALANCED' : reconciliation ? 'ISSUES' : 'UNAVAILABLE', '', new Date().toISOString()],
+    ];
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a'); link.href = url; link.download = 'banking-operations-report.csv'; link.click(); URL.revokeObjectURL(url);
+  };
   return (
     <div className="fade-in">
-      <PageHeader eyebrow="OPERATIONS WORKSPACE" title="Good morning, Eli" description="Here’s what needs your attention today." actions={<Button variant="secondary"><Download size={15} /> Export report</Button>} />
+      <PageHeader eyebrow="OPERATIONS WORKSPACE" title="Operations overview" description="Current payout, account, transaction, and reconciliation data." actions={<Button variant="secondary" onClick={downloadReport}><Download size={15} /> Export report</Button>} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Pending payouts" value={String(payouts.length)} change="Awaiting operations review" icon={FileClock} color="gold" />
         <Metric label="Payout value" value={money(pendingTotal)} change="Across pending requests" icon={Banknote} color="green" />
@@ -1213,13 +1225,13 @@ function PayoutTable({ payouts, onReview, onDecision, compact = false }) {
   );
 }
 
-function Payouts({ payouts, onDecision }) {
+function Payouts({ payouts, onDecision, onRefresh }) {
   const [selected, setSelected] = useState(null);
   return (
     <div className="fade-in">
-      <PageHeader title="Payout approvals" description="Review high-value or flagged outbound payments before release." actions={<Button variant="secondary"><Filter size={15} /> Filter queue</Button>} />
+      <PageHeader title="Payout approvals" description="Review pending outbound payments returned by the operations API." />
       <div className="mb-5 grid gap-3 sm:grid-cols-3"><Metric label="Awaiting review" value={String(payouts.length)} icon={FileClock} /><Metric label="Total value" value={money(payouts.reduce((sum, p) => sum + p.amount, 0))} icon={Banknote} color="green" /><Metric label="Flagged by risk" value={String(payouts.filter((p) => p.risk === 'High').length)} icon={ShieldAlert} color="amber" /></div>
-      <Panel className="overflow-hidden"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="text-sm font-bold text-ink">Pending payouts</h2><p className="mt-1 text-[10px] text-slate-400">Check recipient and amount before approving</p></div><Button variant="secondary" className="min-h-8 px-3 py-1.5 text-xs"><RefreshCw size={13} /> Refresh</Button></div><PayoutTable payouts={payouts} onReview={setSelected} onDecision={onDecision} /></Panel>
+      <Panel className="overflow-hidden"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="text-sm font-bold text-ink">Pending payouts</h2><p className="mt-1 text-[10px] text-slate-400">Check recipient and amount before approving</p></div><Button variant="secondary" className="min-h-8 px-3 py-1.5 text-xs" onClick={onRefresh}><RefreshCw size={13} /> Refresh</Button></div><PayoutTable payouts={payouts} onReview={setSelected} onDecision={onDecision} /></Panel>
       {selected && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4" onClick={() => setSelected(null)}><Panel className="w-full max-w-lg p-6" onClick={(e) => e.stopPropagation()}><div className="flex items-start justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-gold-800">Payout review</p><h2 className="mt-1 text-xl font-bold text-ink">{selected.name}</h2><p className="mt-1 text-xs text-slate-400">{selected.id}</p></div><button onClick={() => setSelected(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X size={17} /></button></div><div className="mt-5 rounded-2xl bg-slate-50 p-4 text-center"><div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Payout amount</div><div className="mt-1 text-[28px] font-bold text-ink">{money(selected.amount)}</div></div><div className="my-4 space-y-3">{[['Destination', selected.bank], ['Risk assessment', selected.risk], ['Requested', selected.requested], ['Review notes', 'No prior payout history to this account.']].map(([k, v]) => <div key={k} className="flex justify-between gap-4 border-b border-slate-100 pb-2 text-xs"><span className="text-slate-500">{k}</span><span className="text-right font-semibold text-ink">{v}</span></div>)}</div><div className="flex gap-2"><Button variant="secondary" className="flex-1" onClick={() => { onDecision(selected, 'Rejected'); setSelected(null); }}>Reject</Button><Button className="flex-1" onClick={() => { onDecision(selected, 'Approved'); setSelected(null); }}>Approve payout <Check size={14} /></Button></div><p className="mt-3 text-center text-[10px] text-slate-400">Actions will be recorded in the audit log.</p></Panel></div>}
     </div>
   );
@@ -1288,7 +1300,7 @@ function App() {
   const { data: adminUsers = [] } = useUsersQuery(undefined, { skip: !hasSession || !adminMode });
   const { data: adminAccounts = [] } = useAllAccountsQuery(undefined, { skip: !hasSession || !adminMode });
   const { data: adminTransactions = [] } = useAllTransactionsQuery(undefined, { skip: !hasSession || !adminMode });
-  const { data: payoutRows = [] } = usePendingPayoutsQuery({ state: 'PENDING_APPROVAL' }, { skip: !hasSession || !adminMode });
+  const { data: payoutRows = [], refetch: refetchPayouts } = usePendingPayoutsQuery({ state: 'PENDING_APPROVAL' }, { skip: !hasSession || !adminMode });
   const [blockAccountRequest] = useBlockAccountMutation();
   const [approvePayoutRequest] = useApprovePayoutMutation();
   const [rejectPayoutRequest] = useRejectPayoutMutation();
@@ -1509,7 +1521,7 @@ function App() {
       case 'account-open': return <OpenAccount onCancel={() => moveTo('accounts')} onCreate={createAccount} />;
       case 'support': return <Support setView={moveTo} />;
       case 'ops-dashboard': return <AdminDashboard setView={moveTo} payouts={payouts} users={adminUsers} accounts={adminAccounts} transactions={adminTransactions} reconciliation={reconciliationData} />;
-      case 'payouts': return <Payouts payouts={payouts} onDecision={decidePayout} />;
+      case 'payouts': return <Payouts payouts={payouts} onDecision={decidePayout} onRefresh={refetchPayouts} />;
       case 'risk-alerts': return <RiskAlerts transactions={adminTransactions} />;
       case 'audit-log': return <AuditLog entries={auditData?.entries || []} />;
       case 'customers': return <Customers showToast={notify} users={adminUsers} accounts={adminAccounts} onBlock={async (account) => {
