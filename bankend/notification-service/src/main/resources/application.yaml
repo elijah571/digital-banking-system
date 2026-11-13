@@ -64,7 +64,9 @@ spring:
 notification:
   mail:
     from: ${MAIL_FROM:}
-    # Exposes link/code bodies only for the explicitly enabled local throwaway smoke workflow. Production defaults off.
+    # Smoke-only sink: never connects to SMTP; use only with log-content enabled on an isolated throwaway stack.
+    log-only: ${MAIL_LOG_ONLY:false}
+    # Can expose one-time links/codes. Production defaults off.
     log-content: ${MAIL_LOG_CONTENT:false}
 
 internal-auth:

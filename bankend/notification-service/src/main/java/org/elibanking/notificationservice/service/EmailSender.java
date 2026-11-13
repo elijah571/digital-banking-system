@@ -21,21 +21,30 @@ public class EmailSender {
     private final String password;
     private final String from;
     private final boolean logContent;
+    private final boolean logOnly;
 
     public EmailSender(ObjectProvider<JavaMailSender> mailSender,
                        @Value("${spring.mail.username:}") String username,
                        @Value("${spring.mail.password:}") String password,
                        @Value("${notification.mail.from:}") String from,
-                       @Value("${notification.mail.log-content:false}") boolean logContent) {
+                       @Value("${notification.mail.log-content:false}") boolean logContent,
+                       @Value("${notification.mail.log-only:false}") boolean logOnly) {
         this.mailSender = mailSender;
         this.username = username;
         this.password = password;
         this.from = from.isBlank() ? username : from;
         this.logContent = logContent;
-        log.info("Email delivery: {}", isConfigured() ? "SMTP as " + username : "NOT configured — delivery disabled");
+        this.logOnly = logOnly;
+        log.info("Email delivery: {}", logOnly ? "log-only" : isConfigured() ? "SMTP as " + username
+                : "NOT configured — delivery disabled");
     }
 
     public void send(String to, String subject, String html, String plainText) {
+        if (logOnly) {
+            log.info("Email logged to={} subject={}", to, subject);
+            if (logContent) log.info("Email content to={} subject={} body={}", to, subject, plainText);
+            return;
+        }
         if (!isConfigured()) {
             log.info("EMAIL not sent to={} subject={} because SMTP is not configured", to, subject);
             return;

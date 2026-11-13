@@ -80,7 +80,8 @@ printf '%s\n' 'services:' '  mysql:' '    container_name: smoke-mysql' '    port
   '  transaction-service:' '    ports: !reset []' '  fraud-detection-service:' '    ports: !reset []' \
   '  payment-service:' '    ports: !reset []' '  auth-service:' '    ports: !reset []' '    environment:' \
   '      APP_PUBLIC_URL: "http://127.0.0.1:${GATEWAY_PORT}"' \
-  '  notification-service:' '    ports: !reset []' '    environment:' '      MAIL_LOG_CONTENT: "true"' \
+  '  notification-service:' '    ports: !reset []' '    environment:' \
+  '      SMTP_MAIL: ""' '      SMTP_PASSWORD: ""' '      MAIL_LOG_ONLY: "true"' '      MAIL_LOG_CONTENT: "true"' \
   '  api-gateway:' '    ports: !override' \
   '      - "127.0.0.1:${GATEWAY_PORT}:8080"' > "$OVERRIDE"
 
