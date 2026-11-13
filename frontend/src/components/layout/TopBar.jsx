@@ -24,7 +24,7 @@ export function TopBar({
           {adminMode ? 'OPERATIONS' : 'YOUR MONEY, IN ONE CLEAR VIEW'}
         </div>
         <div className="text-sm font-bold text-ink xl:hidden">
-          {adminMode ? 'Eli Operations' : 'Eli Digital Bank'}
+          {adminMode ? 'Eli Operations' : 'Eli‑Pay'}
         </div>
       </div>
       <div className="flex items-center gap-2 sm:gap-4">

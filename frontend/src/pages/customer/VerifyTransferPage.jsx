@@ -77,7 +77,7 @@ export function VerifyTransferPage({
             </form>
 
             <p className="mt-4 rounded-xl bg-gold-50/70 p-3 text-[11px] leading-5 text-slate-500">
-              Never share a verification code with anyone. Eli staff will never ask for this code.
+              Never share a verification code with anyone. Eli‑Pay staff will never ask for this code.
             </p>
           </div>
         </Panel>

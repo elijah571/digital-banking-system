@@ -17,7 +17,7 @@ export function TransferReviewPage({
   const source = accounts.find((account) => account.id === transfer.accountId) || accounts[0];
   const entries = [
     ['Recipient', transfer.recipientName || 'Verified recipient'],
-    ['Bank', transfer.bank || 'Eli Digital Bank'],
+    ['Bank', transfer.bank || 'Eli‑Pay'],
     ['Account number', transfer.accountNumber || '—'],
     ['From account', `${source?.name || 'Account'} · •••• ${source?.lastFour || '—'}`],
     ['Transfer fee', '₦0.00'],

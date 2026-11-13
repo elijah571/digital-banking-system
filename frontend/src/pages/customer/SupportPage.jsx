@@ -53,7 +53,7 @@ export function SupportPage({ setView }) {
           {[
             [
               'How long do transfers take to settle?',
-              'Internal transfers between Eli accounts settle instantaneously. External bank transfers via NIP typically clear within seconds, but may occasionally take longer depending on the destination bank clearing switch.',
+              'Internal transfers between Eli‑Pay accounts settle instantaneously. External bank transfers via NIP typically clear within seconds, but may occasionally take longer depending on the destination bank clearing switch.',
             ],
             [
               'How do I change my transaction PIN?',

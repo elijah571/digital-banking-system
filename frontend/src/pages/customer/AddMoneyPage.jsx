@@ -187,7 +187,7 @@ export function AddMoneyPage({
               <h3 className="text-sm font-bold text-ink">Protected by design</h3>
             </div>
             <p className="mt-3 text-xs leading-5 text-slate-500">
-              Card details are tokenized and processed by certified processors. Eli never stores your full card number or CVV.
+              Card details are tokenized and processed by certified processors. Eli‑Pay never stores your full card number or CVV.
             </p>
             <div className="mt-4 flex items-center gap-2 text-[10px] font-medium text-slate-400">
               <LockKeyhole size={13} /> 256-bit SSL encrypted & secure

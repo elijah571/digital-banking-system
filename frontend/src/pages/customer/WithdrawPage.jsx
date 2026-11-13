@@ -46,7 +46,7 @@ export function WithdrawPage({
     <div className="fade-in">
       <PageHeader
         title="Withdraw to bank"
-        description="Send money from your Eli account to an external verified bank account."
+        description="Send money from your Eli‑Pay account to an external verified bank account."
       />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(260px,0.7fr)]">
         <Panel className="p-5 sm:p-7">

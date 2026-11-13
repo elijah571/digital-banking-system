@@ -111,7 +111,7 @@ export function AuthPage({ view, setView, onSignIn, showToast }) {
           </div>
         </div>
         <p className="relative text-[10px] text-slate-500">
-          © 2026 Eli Digital Bank · Banking made clear.
+          © 2026 Eli‑Pay · Banking made clear.
         </p>
       </section>
 
@@ -120,7 +120,7 @@ export function AuthPage({ view, setView, onSignIn, showToast }) {
         <div className="w-full max-w-[410px]">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
             <BrandMark compact />
-            <span className="text-sm font-bold text-ink">ELI DIGITAL BANK</span>
+            <span className="text-sm font-bold text-ink">ELI‑PAY</span>
           </div>
 
           {view === 'verify-email' ? (
@@ -202,7 +202,7 @@ export function AuthPage({ view, setView, onSignIn, showToast }) {
                   ? 'Reset your password'
                   : isReset
                   ? 'Choose a new password'
-                  : 'Sign in to Eli'}
+                  : 'Sign in to Eli‑Pay'}
               </h2>
               <p className="mt-2 text-sm text-slate-500">
                 {isRegister

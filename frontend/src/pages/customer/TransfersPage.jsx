@@ -49,7 +49,7 @@ export function TransfersPage({
     <div className="fade-in">
       <PageHeader
         title="Send money"
-        description="Move money to another Eli customer or to an external bank account."
+        description="Move money to another Eli‑Pay customer or to an external bank account."
       />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(260px,0.65fr)]">
         <Panel className="p-5 sm:p-7">
@@ -93,7 +93,7 @@ export function TransfersPage({
               }}
             >
               <option value="Bank transfer">To another bank</option>
-              <option value="Internal transfer">To Eli Digital Bank</option>
+              <option value="Internal transfer">To Eli‑Pay</option>
             </Field>
 
             {transfer.type === 'Bank transfer' && (
@@ -253,7 +253,7 @@ export function TransfersPage({
           </Panel>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 text-[11px] leading-5 text-slate-500">
-            Always confirm the recipient’s name before you send. Eli will never ask you to share your PIN or one-time code.
+            Always confirm the recipient’s name before you send. Eli‑Pay will never ask you to share your PIN or one-time code.
           </div>
         </div>
       </div>

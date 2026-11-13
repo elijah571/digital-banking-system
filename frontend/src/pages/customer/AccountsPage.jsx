@@ -70,7 +70,7 @@ export function AccountsPage({ accounts = [], setView, setOpenAccount, currentUs
         <div className="grid gap-4 sm:grid-cols-3">
           {[
             ['Account holder', currentUser?.fullName || 'Customer'],
-            ['Bank', 'Eli Digital Bank'],
+            ['Bank', 'Eli‑Pay'],
             ['Account type', 'Personal · NGN'],
           ].map(([label, value]) => (
             <div key={label} className="border-t border-slate-100 pt-3">
