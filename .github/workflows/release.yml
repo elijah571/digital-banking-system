@@ -1,0 +1,100 @@
+name: Release deploy
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-staging:
+    name: Deploy release to staging
+    if: vars.DEPLOY_HOST != ''
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy tagged release
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_APP_DIR: ${{ vars.DEPLOY_APP_DIR }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          RELEASE_REF: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$RUNNER_TEMP/deploy-ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy-ssh/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/deploy-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/deploy-ssh/key" "$RUNNER_TEMP/deploy-ssh/known_hosts"
+          app_dir_b64="$(printf '%s' "$DEPLOY_APP_DIR" | base64 -w0)"
+          release_ref_b64="$(printf '%s' "$RELEASE_REF" | base64 -w0)"
+          ssh -i "$RUNNER_TEMP/deploy-ssh/key" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/deploy-ssh/known_hosts" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "APP_DIR_B64=$app_dir_b64 RELEASE_REF_B64=$release_ref_b64 bash -s" <<'REMOTE'
+          set -euo pipefail
+          app_dir="$(printf '%s' "$APP_DIR_B64" | base64 -d)"
+          release_ref="$(printf '%s' "$RELEASE_REF_B64" | base64 -d)"
+          cd "$app_dir"
+          git fetch --prune origin "refs/tags/$release_ref:refs/tags/$release_ref"
+          git checkout --detach "$release_ref"
+          cd bankend
+          docker compose -f compose.yaml -f compose.prod.yaml up -d --build --wait --wait-timeout 900
+          REMOTE
+
+  staging-not-configured:
+    name: Staging deploy skipped
+    if: vars.DEPLOY_HOST == ''
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Skipping staging deploy because the staging environment has no DEPLOY_HOST variable."
+
+  deploy-production:
+    name: Deploy release to production
+    needs: [deploy-staging, staging-not-configured]
+    if: always() && vars.DEPLOY_HOST != '' && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy tagged release
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_APP_DIR: ${{ vars.DEPLOY_APP_DIR }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          RELEASE_REF: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$RUNNER_TEMP/deploy-ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy-ssh/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/deploy-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/deploy-ssh/key" "$RUNNER_TEMP/deploy-ssh/known_hosts"
+          app_dir_b64="$(printf '%s' "$DEPLOY_APP_DIR" | base64 -w0)"
+          release_ref_b64="$(printf '%s' "$RELEASE_REF" | base64 -w0)"
+          ssh -i "$RUNNER_TEMP/deploy-ssh/key" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/deploy-ssh/known_hosts" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "APP_DIR_B64=$app_dir_b64 RELEASE_REF_B64=$release_ref_b64 bash -s" <<'REMOTE'
+          set -euo pipefail
+          app_dir="$(printf '%s' "$APP_DIR_B64" | base64 -d)"
+          release_ref="$(printf '%s' "$RELEASE_REF_B64" | base64 -d)"
+          cd "$app_dir"
+          git fetch --prune origin "refs/tags/$release_ref:refs/tags/$release_ref"
+          git checkout --detach "$release_ref"
+          cd bankend
+          docker compose -f compose.yaml -f compose.prod.yaml up -d --build --wait --wait-timeout 900
+          REMOTE
+
+  production-not-configured:
+    name: Production deploy skipped
+    if: vars.DEPLOY_HOST == ''
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Skipping production deploy because the production environment has no DEPLOY_HOST variable."

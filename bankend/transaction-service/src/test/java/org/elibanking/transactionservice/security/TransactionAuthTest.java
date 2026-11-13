@@ -1,5 +1,6 @@
 package org.elibanking.transactionservice.security;
 
+import org.elibanking.common.security.ServiceTokens;
 import org.elibanking.transactionservice.TestcontainersConfiguration;
 import org.elibanking.transactionservice.client.AccountInfo;
 import org.elibanking.transactionservice.client.AccountService;
@@ -21,6 +22,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -98,5 +100,18 @@ class TransactionAuthTest {
                         .header("Authorization", "Bearer " + UserTokens.withoutSubject()))
                 .andExpect(status().isUnauthorized());
         verifyNoInteractions(accountService);
+    }
+
+    @Test
+    void internalAuditIsAvailableOnlyToWalletService() throws Exception {
+        String secret = "transaction-service-test-secret-0123456789";
+        String walletToken = new ServiceTokens(secret, "wallet-service", "transaction-service").token();
+        String otherServiceToken = new ServiceTokens(secret, "payment-service", "transaction-service").token();
+
+        mvc.perform(get("/internal/v1/audit").header("Authorization", "Bearer " + walletToken))
+                .andExpect(status().isOk());
+        mvc.perform(get("/internal/v1/audit").header("Authorization", "Bearer " + otherServiceToken))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/internal/v1/audit")).andExpect(status().isUnauthorized());
     }
 }

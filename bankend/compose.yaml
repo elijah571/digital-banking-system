@@ -78,7 +78,8 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
       interval: 10s
-      timeout: 10s
+      timeout: 30s
+      start_period: 120s
       retries: 20
     networks:
       - banking-network
@@ -281,9 +282,15 @@ services:
       SMTP_MAIL: ${SMTP_MAIL:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      AUTH_SERVICE_URL: http://auth-service:8083
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
       # Dev only: also log verification links / reset tokens so the smoke test can read them
       MAIL_LOG_CONTENT: ${MAIL_LOG_CONTENT:-true}
     depends_on:
+      auth-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
       kafka:
         condition: service_healthy
     ports:

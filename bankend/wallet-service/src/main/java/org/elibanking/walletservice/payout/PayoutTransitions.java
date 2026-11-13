@@ -62,6 +62,13 @@ public class PayoutTransitions {
         envelope.put("occurredAt", Instant.now().toString());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("payoutId", payout.getId());
+        body.put("userId", payout.getUserId());
+        body.put("accountNumber", payout.getAccountNumber());
+        body.put("amount", payout.getAmount().toPlainString());
+        body.put("currency", payout.getCurrency());
+        body.put("destinationAccountNumber", payout.getDestinationAccountNumber());
+        body.put("destinationAccountName", payout.getDestinationAccountName());
+        body.put("bankCode", payout.getBankCode());
         body.put("type", payout.getType().name());
         body.put("from", from == null ? null : from.name());
         body.put("to", to.name());

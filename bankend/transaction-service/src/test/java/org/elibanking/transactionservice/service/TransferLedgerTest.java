@@ -24,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
@@ -61,6 +62,9 @@ class TransferLedgerTest {
     @Autowired
     OtpCodes otps;
 
+    @Autowired
+    JdbcTemplate jdbc;
+
     @MockitoBean
     AccountService accountService;
 
@@ -93,6 +97,23 @@ class TransferLedgerTest {
         assertLine(settle.lines().get(0), null, "TRANSFER_IN_FLIGHT:NGN", "DEBIT", "100.00");
         assertLine(settle.lines().get(1), receiver, null, "CREDIT", "100.00");
         assertEquals(TransactionStatus.COMPLETED, transactions.findById(id).orElseThrow().getStatus());
+    }
+
+    @Test
+    void statusAuditRowsAndEventsAreStoredWithTheirTransactionState() {
+        String sender = randomAccount();
+        String receiver = randomAccount();
+        stubAccounts(sender, receiver, "ACTIVE");
+        when(ledger.post(any())).thenReturn(new LedgerClient.LedgerEntryResponse(1L, false));
+
+        String id = transfers.transfer(request(sender, receiver, "100.00"), new Caller(null, null, null)).getId();
+        transfers.processCleanResult(id);
+
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE entity_id = ? " +
+                "AND action = 'TRANSACTION_STATUS_CHANGED'", Integer.class, id));
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM outbox WHERE aggregate_id = ? " +
+                "AND topic IN ('transaction.initiated', 'transaction.completed')", Integer.class, id));
+        assertEquals("COMPLETED", transactions.findById(id).orElseThrow().getStatus().name());
     }
 
     @Test

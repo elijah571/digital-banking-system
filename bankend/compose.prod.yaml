@@ -71,6 +71,8 @@ services:
     ports: !reset []
     environment:
       <<: *prod-app-env
+      AUTH_SERVICE_URL: http://auth-service:8083
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
       MAIL_LOG_CONTENT: "false"   # never log verification links / reset tokens in production
     mem_limit: 384m
   api-gateway:

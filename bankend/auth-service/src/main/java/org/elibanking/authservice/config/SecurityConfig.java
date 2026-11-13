@@ -36,6 +36,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/internal/v1/auth/verify-password")
                         .access(CallerAllowList.only(CallerAllowList.WALLET))
+                        .requestMatchers(HttpMethod.GET, "/internal/v1/audit")
+                        .access(CallerAllowList.only(CallerAllowList.WALLET))
+                        .requestMatchers(HttpMethod.GET, "/internal/v1/notifications/users/*")
+                        .access(CallerAllowList.only(CallerAllowList.NOTIFICATION))
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.decoder(internalTokenDecoder)));
         return http.build();

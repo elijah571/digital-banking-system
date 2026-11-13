@@ -51,6 +51,8 @@ public class SecurityConfig {
                         .access(CallerAllowList.only(CallerAllowList.TRANSACTION, CallerAllowList.WALLET))
                         .requestMatchers(HttpMethod.POST, "/internal/v1/ledger/receipts/quarantine")
                         .access(CallerAllowList.only(CallerAllowList.WALLET))
+                        .requestMatchers(HttpMethod.GET, "/internal/v1/audit")
+                        .access(CallerAllowList.only(CallerAllowList.WALLET))
                         .requestMatchers(HttpMethod.GET, "/internal/v1/ledger/**")
                         .access(CallerAllowList.only(CallerAllowList.TRANSACTION, CallerAllowList.WALLET,
                                 CallerAllowList.FRAUD, CallerAllowList.PAYMENT))

@@ -3,13 +3,11 @@
 #   docker build -f API-GATEWAY/Dockerfile .
 FROM eclipse-temurin:25-jdk AS build
 WORKDIR /src
-# Shared library first: it changes rarely, so this layer is usually cached.
 COPY libs/banking-common libs/banking-common
-RUN --mount=type=cache,target=/root/.m2 \
-    libs/banking-common/mvnw -q -B -f libs/banking-common/pom.xml -DskipTests install
 COPY API-GATEWAY API-GATEWAY
-RUN --mount=type=cache,target=/root/.m2 \
-    API-GATEWAY/mvnw -q -B -f API-GATEWAY/pom.xml -DskipTests package \
+RUN --mount=type=cache,target=/root/.m2,sharing=locked \
+    libs/banking-common/mvnw -q -B -f libs/banking-common/pom.xml -DskipTests install \
+    && API-GATEWAY/mvnw -q -B -f API-GATEWAY/pom.xml -DskipTests package \
     && cp API-GATEWAY/target/*.jar /src/app.jar
 
 FROM eclipse-temurin:25-jre

@@ -68,6 +68,16 @@ spring:
                     redis-rate-limiter.requestedTokens: 1
                     key-resolver: "#{@userKeyResolver}"
 
+            - id: wallet-service-admin-audit
+              uri: ${WALLET_SERVICE_URL:http://localhost:8087}
+              predicates:
+                - Path=/api/v1/admin/audit
+
+            - id: wallet-service-admin-payouts
+              uri: ${WALLET_SERVICE_URL:http://localhost:8087}
+              predicates:
+                - Path=/api/v1/admin/payouts,/api/v1/admin/payouts/**
+
             # account-service admin endpoints: ledger reconciliation, admin credit and deduct (ADMIN only, enforced in
             # SecurityConfig). Keep any more specific /api/v1/admin/... route (for example /admin/audit, D7) above this one.
             - id: account-service-admin
@@ -154,6 +164,12 @@ spring:
                 - Path=/docs/payment-service/v3/api-docs
               filters:
                 - RewritePath=/docs/payment-service/(?<path>.*), /$\{path}
+            - id: wallet-service-docs
+              uri: ${WALLET_SERVICE_URL:http://localhost:8087}
+              predicates:
+                - Path=/docs/wallet-service/v3/api-docs
+              filters:
+                - RewritePath=/docs/wallet-service/(?<path>.*), /$\{path}
 
 # Shared with auth-service: the gateway validates the JWTs it issues
 auth:
@@ -177,6 +193,8 @@ springdoc:
         url: /docs/transaction-service/v3/api-docs
       - name: Payments
         url: /docs/payment-service/v3/api-docs
+      - name: Wallet
+        url: /docs/wallet-service/v3/api-docs
 
 management:
   endpoints:

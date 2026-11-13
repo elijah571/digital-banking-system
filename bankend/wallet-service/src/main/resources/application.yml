@@ -102,6 +102,11 @@ payout:
 account-service:
   url: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
   audience: account-service
+audit-services:
+  auth-url: ${AUTH_SERVICE_URL:http://localhost:8083}
+transaction-service:
+  url: ${TRANSACTION_SERVICE_URL:http://localhost:8082}
+  audience: transaction-service
 payment-service:
   url: ${PAYMENT_SERVICE_URL:http://localhost:8085}
   audience: payment-service

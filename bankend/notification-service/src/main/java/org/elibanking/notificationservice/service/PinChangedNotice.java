@@ -2,6 +2,7 @@ package org.elibanking.notificationservice.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.elibanking.common.events.KafkaEventEnvelope;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Service;
@@ -14,18 +15,13 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PinChangedNotice {
 
-    private final EmailSender emailSender;
+    private final CustomerEmailDelivery delivery;
 
     @KafkaListener(topics = "wallet.pin.changed", groupId = "notification-service-group")
-    public void consume(@Payload Map<String, Object> payload) {
-        try {
-            emailSender.send((String) payload.get("email"), "Your EliBanking PIN was changed",
-                    "<p>The transfer PIN on your EliBanking account was just set or changed.</p>"
-                            + "<p>If this wasn't you, contact us at once.</p>",
-                    "The transfer PIN on your EliBanking account was just set or changed. "
-                            + "If this wasn't you, contact us at once.");
-        } catch (Exception e) {
-            log.error("Error sending PIN change notice: {}", e.getMessage());
-        }
+    public void consume(@Payload Map<String, Object> event) {
+        Map<String, Object> payload = KafkaEventEnvelope.payload(event);
+        CustomerEmailTemplates.Email email = CustomerEmailTemplates.pinChanged(
+                payload.getOrDefault("fullName", "there").toString());
+        delivery.send(event, String.valueOf(payload.getOrDefault("email", "")), email);
     }
 }

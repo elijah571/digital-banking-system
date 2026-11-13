@@ -64,9 +64,12 @@ spring:
 notification:
   mail:
     from: ${MAIL_FROM:}
-    # Also log email content (verification links / reset tokens) when SMTP is configured.
-    # Handy for automated tests; keep false in production.
-    log-content: ${MAIL_LOG_CONTENT:false}
+
+internal-auth:
+  jwt-secret: ${INTERNAL_JWT_SECRET:}
+
+auth-service:
+  url: ${AUTH_SERVICE_URL:http://localhost:8083}
 
 management:
   health:

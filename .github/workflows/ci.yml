@@ -26,6 +26,7 @@ jobs:
           - auth-service
           - account-service
           - transaction-service
+          - wallet-service
           - fraud-detection-service
           - payment-service
           - notification-service

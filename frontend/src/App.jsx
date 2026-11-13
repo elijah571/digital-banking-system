@@ -25,6 +25,7 @@ import {
   Fingerprint,
   Grid2X2,
   Landmark,
+  LogOut,
   LockKeyhole,
   Menu,
   MoreHorizontal,
@@ -44,7 +45,14 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
-import { banks, initialAccounts, initialBeneficiaries, initialNotifications, initialPayouts, initialTransactions, money } from './data';
+import { money } from './data';
+import { useAccountStatementQuery, useAdminAuditQuery, useAllAccountsQuery, useAllTransactionsQuery, useApprovePayoutMutation, useBanksQuery, useBlockAccountMutation, useChangePasswordMutation, useChangePinMutation, useCreateDepositMutation, useCreateWithdrawalMutation, useCurrentUserQuery, useDepositQuery, useForgotPasswordMutation, useLazyAccountQuery, useLoginMutation, useLogoutMutation, useMyAccountsQuery, useNameEnquiryMutation, useOpenAccountMutation, usePayoutQuery, usePendingPayoutsQuery, useReconciliationQuery, useRegisterMutation, useRejectPayoutMutation, useRequestPinCodeMutation, useResetPasswordMutation, useTransactionHistoryQuery, useTransactionQuery, useTransferMutation, useUsersQuery, useVerificationStatusQuery, useVerifyIdentityMutation, useUpgradeAccountMutation, useVerifyTransferMutation, useWithdrawalQuery } from './services/api';
+import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
+import { loadStripe } from '@stripe/stripe-js';
+
+const stripePromise = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
+  ? loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
+  : null;
 
 const customerLinks = [
   { label: 'Overview', view: 'overview', icon: Grid2X2 },
@@ -174,7 +182,7 @@ function BrandMark({ compact = false }) {
   );
 }
 
-function Sidebar({ view, setView, adminMode, setAdminMode, open, onClose, unreadCount }) {
+function Sidebar({ view, setView, adminMode, setAdminMode, open, onClose, unreadCount, currentUser, isAdmin, onLogout }) {
   const links = adminMode ? adminLinks : customerLinks;
   const navigate = (nextView) => {
     setView(nextView);
@@ -216,14 +224,15 @@ function Sidebar({ view, setView, adminMode, setAdminMode, open, onClose, unread
             <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-green-300">Visit help centre <ArrowRight size={12} /></span>
           </button>
           <div className="flex items-center gap-3 border-t border-white/10 px-2 pt-4">
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-800 text-xs font-bold text-white">{adminMode ? 'EO' : 'E'}</div>
+            <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-800 text-xs font-bold text-white">{(currentUser?.fullName || 'U').split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[12px] font-semibold">{adminMode ? 'Eli Operations' : 'Elijah Okafor'}</div>
-              <div className="mt-0.5 text-[10px] text-slate-400">{adminMode ? 'Administrator' : 'Personal account'}</div>
+              <div className="truncate text-[12px] font-semibold">{currentUser?.fullName || 'Your account'}</div>
+              <div className="mt-0.5 text-[10px] text-slate-400">{currentUser?.email || (adminMode ? 'Administrator' : 'Personal account')}</div>
             </div>
-            <button title={adminMode ? 'Switch to personal banking' : 'Open operations workspace'} onClick={() => { setAdminMode(!adminMode); setView(adminMode ? 'overview' : 'ops-dashboard'); }} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white">
+            {isAdmin && <button title={adminMode ? 'Switch to personal banking' : 'Open operations workspace'} onClick={() => { setAdminMode(!adminMode); setView(adminMode ? 'overview' : 'ops-dashboard'); }} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white">
               <MoreHorizontal size={17} />
-            </button>
+            </button>}
+            <button title="Sign out" onClick={onLogout} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"><LogOut size={16} /></button>
           </div>
         </div>
       </aside>
@@ -231,7 +240,7 @@ function Sidebar({ view, setView, adminMode, setAdminMode, open, onClose, unread
   );
 }
 
-function TopBar({ setView, onMenu, adminMode, notifications, unreadCount }) {
+function TopBar({ setView, onMenu, adminMode, notifications, unreadCount, currentUser }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   return (
     <header className="sticky top-0 z-20 flex h-[68px] items-center justify-between border-b border-slate-200/80 bg-canvas px-4 backdrop-blur-md sm:px-7 lg:px-9">
@@ -241,12 +250,12 @@ function TopBar({ setView, onMenu, adminMode, notifications, unreadCount }) {
         <div className="text-sm font-bold text-ink xl:hidden">{adminMode ? 'Eli Operations' : 'Eli Digital Bank'}</div>
       </div>
       <div className="flex items-center gap-2 sm:gap-4">
-        {!adminMode && <div className="hidden text-right sm:block"><div className="text-[11px] text-slate-400">Good morning,</div><div className="text-[12px] font-semibold text-ink">Elijah</div></div>}
+        {!adminMode && <div className="hidden text-right sm:block"><div className="text-[11px] text-slate-400">Good morning,</div><div className="text-[12px] font-semibold text-ink">{currentUser?.fullName?.split(' ')[0] || 'Customer'}</div></div>}
         <div className="relative">
           <button onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notifications" className="relative rounded-xl border border-slate-200 bg-white p-2.5 text-slate-500 transition hover:text-ink">
             <Bell size={17} />{unreadCount > 0 && <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-rose-500 ring-2 ring-white" />}
           </button>
-          {notificationsOpen && <div className="absolute right-0 top-12 z-30 w-72 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl"><div className="flex items-center justify-between"><strong className="text-sm text-ink">Notifications</strong><span className="text-[10px] font-semibold text-gold-800">{unreadCount} unread</span></div><div className="mt-3 divide-y divide-slate-100">{notifications.slice(0, 2).map((notification) => <div key={notification.id} className="py-2 text-xs leading-5 text-slate-500"><span className="block font-semibold text-ink">{notification.title}</span><span>{notification.detail}</span></div>)}</div><button className="mt-3 text-xs font-semibold text-gold-800" onClick={() => { setNotificationsOpen(false); setView('notifications'); }}>View all notifications</button></div>}
+          {notificationsOpen && <div className="absolute right-0 top-12 z-30 w-72 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl"><strong className="text-sm text-ink">Email updates</strong><p className="mt-3 text-xs leading-5 text-slate-500">Transaction and security updates are sent to your verified email address.</p><p className="mt-2 break-all text-[11px] font-semibold text-ink">{currentUser?.email || 'Sign in to view your delivery address'}</p><button className="mt-3 text-xs font-semibold text-gold-800" onClick={() => { setNotificationsOpen(false); setView('settings'); }}>View email settings</button></div>}
         </div>
         <button onClick={() => setView(adminMode ? 'ops-dashboard' : 'settings')} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-xs font-bold text-ink shadow-sm">E</button>
       </div>
@@ -408,10 +417,18 @@ function Accounts({ accounts, setView, setOpenAccount }) {
   );
 }
 
-function TransferForm({ accounts, transfer, setTransfer, onSubmit, onEnquiry }) {
+function TransferForm({ accounts, transfer, setTransfer, onSubmit, onEnquiry, bankOptions }) {
   const update = (key, value) => setTransfer((old) => ({ ...old, [key]: value }));
   const [enquiryDone, setEnquiryDone] = useState(false);
-  const enquiry = () => { setEnquiryDone(true); update('recipientName', 'Adaeze Okafor'); onEnquiry?.(); };
+  const enquiry = async () => {
+    try {
+      const result = await onEnquiry?.();
+      if (result?.accountName) {
+        setTransfer((old) => ({ ...old, recipientName: result.accountName, nameEnquiryRef: result.nameEnquiryRef }));
+        setEnquiryDone(true);
+      }
+    } catch { /* the parent presents the API error */ }
+  };
   return (
     <div className="fade-in">
       <PageHeader title="Send money" description="Move money to another Eli customer or to a bank account." />
@@ -424,7 +441,7 @@ function TransferForm({ accounts, transfer, setTransfer, onSubmit, onEnquiry }) 
             <Field label="Transfer type" as="select" value={transfer.type} onChange={(e) => { update('type', e.target.value); setEnquiryDone(false); }}>
               <option value="Bank transfer">To another bank</option><option value="Internal transfer">To Eli Digital Bank</option>
             </Field>
-            {transfer.type === 'Bank transfer' && <Field label="Destination bank" as="select" value={transfer.bank} onChange={(e) => update('bank', e.target.value)}><option value="">Select a bank</option>{banks.map((bank) => <option key={bank}>{bank}</option>)}</Field>}
+            {transfer.type === 'Bank transfer' && <Field label="Destination bank" as="select" value={transfer.bankCode || ''} onChange={(e) => { const selected = bankOptions.find((bank) => bank.code === e.target.value); setTransfer((old) => ({ ...old, bankCode: e.target.value, bank: selected?.name || '', recipientName: '', nameEnquiryRef: '' })); setEnquiryDone(false); }}><option value="">Select a bank</option>{bankOptions.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</Field>}
             <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
               <Field label="Account number" placeholder="Enter 10-digit account number" inputMode="numeric" maxLength="10" value={transfer.accountNumber} onChange={(e) => { update('accountNumber', e.target.value.replace(/\D/g, '')); setEnquiryDone(false); update('recipientName', ''); }} required />
               <Button type="button" variant="secondary" className="h-[44px]" onClick={enquiry} disabled={transfer.accountNumber.length !== 10 || (transfer.type === 'Bank transfer' && !transfer.bank)}>Verify account</Button>
@@ -475,19 +492,38 @@ function TransferReview({ transfer, accounts, onConfirm, onBack, onFlag }) {
   );
 }
 
-function AddMoney({ accounts, deposit, setDeposit, onSubmit }) {
+function StripePaymentForm({ onPaid }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async (event) => {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      const result = await stripe.confirmPayment({ elements, redirect: 'if_required' });
+      if (result.error) { setError(result.error.message || 'Card payment could not be confirmed.'); return; }
+      onPaid();
+    } catch { setError('Card payment could not be confirmed. Please retry.'); }
+    finally { setBusy(false); }
+  };
+  return <form onSubmit={submit} className="mt-5 space-y-4"><PaymentElement /><Button className="w-full" type="submit" disabled={!stripe || busy}>{busy ? 'Confirming payment…' : 'Pay securely'} <ArrowRight size={15} /></Button>{error && <p role="alert" className="text-xs text-rose-700">{error}</p>}</form>;
+}
+
+function AddMoney({ accounts, deposit, setDeposit, onSubmit, activeDeposit, onClearDeposit }) {
+  const { data: latestDeposit } = useDepositQuery(activeDeposit?.depositId, { skip: !activeDeposit?.depositId, pollingInterval: 3000 });
   return (
     <div className="fade-in">
       <PageHeader title="Add money" description="Top up your account securely with a debit or credit card." />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(260px,0.7fr)]">
         <Panel className="p-5 sm:p-7">
-          <form onSubmit={onSubmit} className="space-y-5">
+          {!activeDeposit && <form onSubmit={onSubmit} className="space-y-5">
             <Field label="Credit to" as="select" value={deposit.accountId} onChange={(e) => setDeposit((old) => ({ ...old, accountId: e.target.value }))}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · •••• {account.lastFour}</option>)}</Field>
             <Field label="Amount (NGN)" type="number" min="1000" max="5000000" step="500" placeholder="50,000.00" value={deposit.amount} onChange={(e) => setDeposit((old) => ({ ...old, amount: e.target.value }))} required />
             <div><p className="mb-2 text-[13px] font-semibold text-slate-700">Quick amounts</p><div className="grid grid-cols-4 gap-2">{['₦5,000', '₦10,000', '₦20,000', '₦50,000'].map((amount) => <button key={amount} type="button" onClick={() => setDeposit((old) => ({ ...old, amount: amount.replace(/[₦,]/g, '') }))} className="rounded-xl border border-slate-200 px-2 py-2.5 text-xs font-semibold text-slate-600 transition hover:border-brand hover:bg-gold-50 hover:text-gold-800">{amount}</button>)}</div></div>
             <div className="flex items-center gap-3 rounded-xl border border-gold-100 bg-gold-50/80 p-3.5"><span className="grid h-9 w-9 place-items-center rounded-lg bg-white text-gold-800"><CreditCard size={17} /></span><div><p className="text-xs font-bold text-ink">Secure card checkout</p><p className="mt-1 text-[10px] text-slate-500">You’ll continue to our secure payment page.</p></div><ShieldCheck size={16} className="ml-auto text-green-600" /></div>
             <Button type="submit" className="w-full">Continue to secure checkout <ArrowRight size={15} /></Button>
-          </form>
+          </form>}
+          {activeDeposit && <div className="mt-5 rounded-xl border border-slate-200 p-4"><div className="flex items-center justify-between"><h2 className="text-sm font-bold text-ink">Complete your card payment</h2><Status>{latestDeposit?.status || activeDeposit.status}</Status></div><p className="mt-2 text-xs leading-5 text-slate-500">Deposit reference {activeDeposit.depositId}. The balance updates after the payment provider confirms the charge.</p>{latestDeposit?.status === 'PENDING' && activeDeposit.clientSecret && stripePromise && <Elements stripe={stripePromise} options={{ clientSecret: activeDeposit.clientSecret }}><StripePaymentForm onPaid={() => {}} /></Elements>}{latestDeposit?.status === 'COMPLETED' && <p className="mt-3 text-xs font-semibold text-green-700">Payment confirmed and your account has been credited.</p>}{!stripePromise && <p role="alert" className="mt-3 text-xs text-amber-700">Card checkout needs VITE_STRIPE_PUBLISHABLE_KEY in the frontend environment.</p>}<button className="mt-3 text-xs font-semibold text-gold-800" onClick={onClearDeposit}>Start another deposit</button></div>}
         </Panel>
         <div className="space-y-4">
           <Panel className="p-5"><p className="text-xs font-semibold text-slate-500">Your deposit</p><p className="mt-2 text-[26px] font-bold tracking-tight text-ink">{money(Number(deposit.amount) || 0)}</p><p className="mt-1 text-[11px] text-slate-400">Estimated arrival: usually instant</p></Panel>
@@ -498,7 +534,13 @@ function AddMoney({ accounts, deposit, setDeposit, onSubmit }) {
   );
 }
 
-function Withdraw({ accounts, withdrawal, setWithdrawal, onSubmit }) {
+function Withdraw({ accounts, withdrawal, setWithdrawal, onSubmit, bankOptions, onEnquiry }) {
+  const verifyDestination = async () => {
+    try {
+      const result = await onEnquiry?.();
+      if (result?.accountName) setWithdrawal((old) => ({ ...old, verified: true, recipient: result.accountName, nameEnquiryRef: result.nameEnquiryRef }));
+    } catch { /* the parent presents the API error */ }
+  };
   return (
     <div className="fade-in">
       <PageHeader title="Withdraw to bank" description="Send money from your account to a verified bank account." />
@@ -506,8 +548,8 @@ function Withdraw({ accounts, withdrawal, setWithdrawal, onSubmit }) {
         <Panel className="p-5 sm:p-7">
           <form onSubmit={onSubmit} className="space-y-4">
             <Field label="From account" as="select" value={withdrawal.accountId} onChange={(e) => setWithdrawal((old) => ({ ...old, accountId: e.target.value }))}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · •••• {account.lastFour} · {money(account.balance)}</option>)}</Field>
-            <Field label="Destination bank" as="select" value={withdrawal.bank} onChange={(e) => setWithdrawal((old) => ({ ...old, bank: e.target.value }))}><option value="">Select destination bank</option>{banks.map((bank) => <option key={bank}>{bank}</option>)}</Field>
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"><Field label="Account number" inputMode="numeric" maxLength="10" placeholder="Enter 10-digit account number" value={withdrawal.accountNumber} onChange={(e) => setWithdrawal((old) => ({ ...old, accountNumber: e.target.value.replace(/\D/g, ''), verified: false }))} required /><Button type="button" variant="secondary" className="h-[44px]" onClick={() => setWithdrawal((old) => ({ ...old, verified: true, recipient: 'Adaeze Okafor' }))} disabled={withdrawal.accountNumber.length !== 10 || !withdrawal.bank}>Verify account</Button></div>
+            <Field label="Destination bank" as="select" value={withdrawal.bankCode || ''} onChange={(e) => { const selected = bankOptions.find((bank) => bank.code === e.target.value); setWithdrawal((old) => ({ ...old, bankCode: e.target.value, bank: selected?.name || '', verified: false, nameEnquiryRef: '' })); }}><option value="">Select destination bank</option>{bankOptions.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</Field>
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"><Field label="Account number" inputMode="numeric" maxLength="10" placeholder="Enter 10-digit account number" value={withdrawal.accountNumber} onChange={(e) => setWithdrawal((old) => ({ ...old, accountNumber: e.target.value.replace(/\D/g, ''), verified: false, nameEnquiryRef: '' }))} required /><Button type="button" variant="secondary" className="h-[44px]" onClick={verifyDestination} disabled={withdrawal.accountNumber.length !== 10 || !withdrawal.bankCode}>Verify account</Button></div>
             {withdrawal.verified && <div className="flex items-center gap-2 rounded-xl border border-green-100 bg-green-50 px-3.5 py-3 text-xs font-semibold text-green-800"><BadgeCheck size={16} /> Verified account name: {withdrawal.recipient}</div>}
             <Field label="Amount (NGN)" type="number" min="100" step="100" placeholder="0.00" value={withdrawal.amount} onChange={(e) => setWithdrawal((old) => ({ ...old, amount: e.target.value }))} required />
             <Button type="submit" className="mt-2 w-full">Review withdrawal <ArrowRight size={15} /></Button>
@@ -522,7 +564,7 @@ function Withdraw({ accounts, withdrawal, setWithdrawal, onSubmit }) {
   );
 }
 
-function LiveFaceSimulation({ verified, onVerified }) {
+function LiveFaceSimulation({ verified, onVerified, onSelfie }) {
   const [phase, setPhase] = useState('idle');
   const [cameraStream, setCameraStream] = useState(null);
   const [cameraError, setCameraError] = useState('');
@@ -562,6 +604,14 @@ function LiveFaceSimulation({ verified, onVerified }) {
       setCameraStream(stream);
       setPhase('scanning');
       timerRef.current = window.setTimeout(() => {
+        const video = videoRef.current;
+        if (video?.videoWidth && video?.videoHeight) {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          canvas.getContext('2d')?.drawImage(video, 0, 0);
+          onSelfie?.(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]);
+        }
         setPhase('complete');
         onVerified(true);
         stopCamera();
@@ -577,21 +627,30 @@ function LiveFaceSimulation({ verified, onVerified }) {
   return (
     <section aria-labelledby="live-face-title" className="rounded-2xl border border-slate-200 p-4 sm:p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div><h3 id="live-face-title" className="text-sm font-bold text-ink">Live face check <span className="text-rose-600">*</span></h3><p className="mt-1 text-xs leading-5 text-slate-500">Allow camera access to run the facial-recognition demo.</p></div>
-        {verified && <Status tone="green">Demo complete</Status>}
+        <div><h3 id="live-face-title" className="text-sm font-bold text-ink">Selfie capture <span className="text-rose-600">*</span></h3><p className="mt-1 text-xs leading-5 text-slate-500">Allow camera access so the verification service can check a still image.</p></div>
+        {verified && <Status tone="green">Selfie captured</Status>}
       </div>
-      {cameraStream && <video ref={videoRef} autoPlay muted playsInline className="mt-4 aspect-video w-full rounded-xl bg-ink object-cover" aria-label="Live camera preview for facial-recognition demo" />}
+      {cameraStream && <video ref={videoRef} autoPlay muted playsInline className="mt-4 aspect-video w-full rounded-xl bg-ink object-cover" aria-label="Live camera preview" />}
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Button type="button" onClick={startSimulation} disabled={phase === 'requesting' || phase === 'scanning'}>
           <Fingerprint size={15} />
-          {phase === 'scanning' ? 'Scanning face...' : verified ? 'Run demo again' : 'Start live face check'}
+          {phase === 'scanning' ? 'Capturing selfie…' : verified ? 'Capture selfie again' : 'Open camera'}
         </Button>
         {phase === 'scanning' && <span aria-live="polite" className="text-xs font-medium text-gold-800">Keep your face centred and look at the camera.</span>}
       </div>
       {cameraError && <p role="alert" className="mt-2 text-xs font-medium text-rose-700">{cameraError}</p>}
-      <p className="mt-3 text-[10px] leading-5 text-slate-400">Simulation only: no biometric model runs and no video or image is recorded, uploaded, or sent to the backend.</p>
+      <p className="mt-3 text-[10px] leading-5 text-slate-400">Video is not stored. A still selfie image is sent with your verification request for provider checks.</p>
     </section>
   );
+}
+
+function readImageBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read the selected image.'));
+    reader.onload = () => resolve(String(reader.result).split(',')[1]);
+    reader.readAsDataURL(file);
+  });
 }
 
 function IdentityVerification({ status, setStatus, showToast }) {
@@ -599,6 +658,8 @@ function IdentityVerification({ status, setStatus, showToast }) {
   const [documentImage, setDocumentImage] = useState(null);
   const [documentError, setDocumentError] = useState('');
   const [faceVerified, setFaceVerified] = useState(false);
+  const [selfieImage, setSelfieImage] = useState('');
+  const [submitIdentity, identityResult] = useVerifyIdentityMutation();
   const documentInputRef = useRef(null);
 
   const handleDocumentChange = (event) => {
@@ -619,29 +680,32 @@ function IdentityVerification({ status, setStatus, showToast }) {
     setDocumentImage(file);
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     if (!documentImage) {
       setDocumentError('Upload a clear image of your identity document.');
       documentInputRef.current?.focus();
       return;
     }
-    if (!faceVerified) return showToast('Complete the live facial-recognition demo first.');
-    setDocumentImage(null);
-    if (documentInputRef.current) documentInputRef.current.value = '';
-    setStatus('Pending review');
-    showToast('Document KYC demo recorded. Nothing was stored or sent.');
+    if (!faceVerified) return showToast('Capture a selfie with the camera before continuing.');
+    if (!selfieImage) return showToast('Run the live face check again so a selfie can be captured.');
+    try {
+      const result = await submitIdentity({ documentType, documentImage: await readImageBase64(documentImage), selfieImage, consentGranted: true }).unwrap();
+      setStatus(result.identityStatus || 'PENDING_REVIEW');
+      setDocumentImage(null);
+      if (documentInputRef.current) documentInputRef.current.value = '';
+      showToast('Identity verification request submitted.');
+    } catch (error) { showToast(error?.data?.detail || 'Identity verification could not be submitted.'); }
   };
 
   return (
     <div className="fade-in">
-      <PageHeader title="Identity verification" description="Verify your identity using an approved document and a live facial-recognition demo." />
-      {status === 'Pending review' ? (
+      <PageHeader title="Identity verification" description="Verify your identity using an approved document and a selfie checked by the verification provider." />
+      {['Pending review', 'PENDING_REVIEW', 'VERIFIED'].includes(status) ? (
         <Panel className="mx-auto max-w-3xl p-6 sm:p-8">
           <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gold-50 text-gold-800"><Clock3 size={25} /></div>
-          <div className="mt-4 text-center"><Status tone="amber">Pending review</Status><h2 className="mt-3 text-xl font-bold text-ink">Demo verification request recorded</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">The document was not stored or sent to Dojah, and the face check was simulated locally.</p></div>
-          <div className="mt-6 rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-xs leading-5 text-slate-600"><b className="text-ink">Privacy note:</b> No BVN is needed for document KYC. Your document file is cleared after submission.</div>
-          <div className="mt-5 flex justify-center"><Button variant="secondary" onClick={() => setStatus('Not started')}>Update details</Button></div>
+          <div className="mt-4 text-center"><Status tone={status === 'VERIFIED' ? 'green' : 'amber'}>{status === 'VERIFIED' ? 'Verified' : 'Pending review'}</Status><h2 className="mt-3 text-xl font-bold text-ink">Identity check {status === 'VERIFIED' ? 'complete' : 'submitted'}</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">Your identity verification request was received by the account service.</p></div>
+          <div className="mt-6 rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-xs leading-5 text-slate-600"><b className="text-ink">Privacy note:</b> The selected identity image and captured selfie are sent securely to the account verification API.</div>
         </Panel>
       ) : (
         <>
@@ -672,21 +736,21 @@ function IdentityVerification({ status, setStatus, showToast }) {
                     <span className="mt-1 text-[10px] text-slate-500">JPG or PNG · up to 5 MB</span>
                     <input ref={documentInputRef} id="identity-document" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" onChange={handleDocumentChange} className="sr-only" aria-describedby={documentError ? 'identity-document-error' : 'identity-document-hint'} />
                   </label>
-                  <p id="identity-document-hint" className="mt-2 text-[10px] text-slate-400">Your document stays in this demo and is not uploaded.</p>
+                  <p id="identity-document-hint" className="mt-2 text-[10px] text-slate-400">The selected image is sent to the account verification service when you submit.</p>
                   {documentError && <p id="identity-document-error" role="alert" className="mt-2 text-xs font-medium text-rose-700">{documentError}</p>}
                 </div>
-                <LiveFaceSimulation verified={faceVerified} onVerified={setFaceVerified} />
+                <LiveFaceSimulation verified={faceVerified} onVerified={setFaceVerified} onSelfie={setSelfieImage} />
                 <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 p-3.5 text-xs leading-5 text-slate-600">
                   <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-brand" required />
                   <span>I confirm this identity document belongs to me and consent to document verification.</span>
                 </label>
-                <Button type="submit" className="w-full sm:w-auto">Submit identity check <ArrowRight size={15} /></Button>
+                <Button type="submit" disabled={identityResult.isLoading} className="w-full sm:w-auto">{identityResult.isLoading ? 'Submitting…' : 'Submit identity check'} <ArrowRight size={15} /></Button>
               </form>
             </Panel>
             <div className="space-y-4">
               <Panel className="p-5"><div className="flex items-center gap-2"><ShieldCheck size={17} className="text-green-700" /><h3 className="text-sm font-bold text-ink">Your information matters</h3></div><p className="mt-3 text-xs leading-5 text-slate-500">Never share your one-time password, card PIN, or online banking password during identity verification.</p></Panel>
-              <Panel className="p-5"><h3 className="text-sm font-bold text-ink">Before you begin</h3><ul className="mt-4 space-y-3">{['Use a current government-issued document', 'Make sure all document details are legible', 'Allow camera access for the face-check demo'].map((item) => <li key={item} className="flex gap-2 text-xs text-slate-600"><Check size={14} className="mt-0.5 shrink-0 text-green-700" />{item}</li>)}</ul></Panel>
-              <div className="rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-[11px] leading-5 text-slate-600"><b className="text-ink">Demo notice:</b> The camera check is simulated. This screen does not call the backend or Dojah.</div>
+              <Panel className="p-5"><h3 className="text-sm font-bold text-ink">Before you begin</h3><ul className="mt-4 space-y-3">{['Use a current government-issued document', 'Make sure all document details are legible', 'Allow camera access to capture a selfie'].map((item) => <li key={item} className="flex gap-2 text-xs text-slate-600"><Check size={14} className="mt-0.5 shrink-0 text-green-700" />{item}</li>)}</ul></Panel>
+              <div className="rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-[11px] leading-5 text-slate-600"><b className="text-ink">Verification:</b> The account service reviews submitted document and selfie images.</div>
             </div>
           </div>
         </>
@@ -700,6 +764,8 @@ function AccountUpgrade({ status, setStatus, showToast }) {
   const [addressDocument, setAddressDocument] = useState(null);
   const [documentError, setDocumentError] = useState('');
   const [faceVerified, setFaceVerified] = useState(false);
+  const [selfieImage, setSelfieImage] = useState('');
+  const [submitUpgrade, upgradeResult] = useUpgradeAccountMutation();
   const addressDocumentRef = useRef(null);
 
   const handleAddressDocumentChange = (event) => {
@@ -720,41 +786,48 @@ function AccountUpgrade({ status, setStatus, showToast }) {
     setAddressDocument(file);
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     if (!addressDocument) {
       setDocumentError('Upload a proof-of-address image to continue.');
       addressDocumentRef.current?.focus();
       return;
     }
-    if (!faceVerified) return showToast('Complete the live facial-recognition demo first.');
-    setAddressDocument(null);
-    if (addressDocumentRef.current) addressDocumentRef.current.value = '';
-    setStatus('Pending review');
-    showToast('BVN, address, and facial-check demo recorded. Nothing was stored or sent.');
+    if (!faceVerified) return showToast('Capture a selfie with the camera before continuing.');
+    if (!selfieImage) return showToast('Run the live face check again so a selfie can be captured.');
+    const fields = new FormData(event.currentTarget);
+    try {
+      const result = await submitUpgrade({
+        bvn: fields.get('bvn'), firstName: fields.get('firstName'), lastName: fields.get('lastName'),
+        residentialAddress: fields.get('residentialAddress'), addressDocumentType,
+        addressDocumentImage: await readImageBase64(addressDocument), selfieImage, consentGranted: true,
+      }).unwrap();
+      setStatus(result.accountUpgradeStatus || 'PENDING_REVIEW');
+      setAddressDocument(null);
+      if (addressDocumentRef.current) addressDocumentRef.current.value = '';
+      showToast('Account upgrade request submitted.');
+    } catch (error) { showToast(error?.data?.detail || 'Account upgrade could not be submitted.'); }
   };
 
   return (
     <div className="fade-in">
       <PageHeader title="Upgrade your account" description="Verify your BVN, residential address, and live face to request a higher account tier." />
-      {status === 'Pending review' ? (
+      {['Pending review', 'PENDING_REVIEW', 'VERIFIED'].includes(status) ? (
         <Panel className="mx-auto max-w-3xl p-6 sm:p-8">
           <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gold-50 text-gold-800"><Clock3 size={25} /></div>
-          <div className="mt-4 text-center"><Status tone="amber">Pending review</Status><h2 className="mt-3 text-xl font-bold text-ink">Demo upgrade request recorded</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">This is a demo state. No information was saved or sent, and your transaction limits have not changed.</p></div>
-          <div className="mt-6 rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-xs leading-5 text-slate-600"><b className="text-ink">Privacy note:</b> This demo does not store or send your BVN, address document, or facial data.</div>
-          <div className="mt-5 flex justify-center"><Button variant="secondary" onClick={() => setStatus('Not started')}>Back to upgrade form</Button></div>
+          <div className="mt-4 text-center"><Status tone={status === 'VERIFIED' ? 'green' : 'amber'}>{status === 'VERIFIED' ? 'Verified' : 'Pending review'}</Status><h2 className="mt-3 text-xl font-bold text-ink">Account upgrade {status === 'VERIFIED' ? 'complete' : 'submitted'}</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">Your verification request was received by the account service.</p></div>
         </Panel>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(260px,0.7fr)]">
           <Panel className="p-5 sm:p-7">
             <div className="mb-6 flex items-start gap-3 rounded-xl bg-slate-50 p-4"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-gold-800"><BadgeCheck size={17} /></span><div><h2 className="text-sm font-bold text-ink">BVN and address verification</h2><p className="mt-1 text-xs leading-5 text-slate-500">Dojah checks your BVN, address document, and liveness. A live camera check is simulated here.</p></div></div>
             <form onSubmit={handleSubmit} className="space-y-5">
-              <Field label="Bank Verification Number (BVN)" inputMode="numeric" autoComplete="off" maxLength={11} minLength={11} pattern="[0-9]{11}" placeholder="Enter your 11-digit BVN" hint="Enter the BVN linked to your bank identity." required />
+              <Field label="Bank Verification Number (BVN)" name="bvn" inputMode="numeric" autoComplete="off" maxLength={11} minLength={11} pattern="[0-9]{11}" placeholder="Enter your 11-digit BVN" hint="Enter the BVN linked to your bank identity." required />
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="First name" autoComplete="given-name" maxLength="80" placeholder="As on your BVN" required />
-                <Field label="Last name" autoComplete="family-name" maxLength="120" placeholder="As on your BVN" required />
+                <Field label="First name" name="firstName" autoComplete="given-name" maxLength="80" placeholder="As on your BVN" required />
+                <Field label="Last name" name="lastName" autoComplete="family-name" maxLength="120" placeholder="As on your BVN" required />
               </div>
-              <Field label="Residential address" autoComplete="street-address" maxLength={500} placeholder="House number, street, city, and state" hint="Enter the address shown on your proof document." required />
+              <Field label="Residential address" name="residentialAddress" autoComplete="street-address" maxLength={500} placeholder="House number, street, city, and state" hint="Enter the address shown on your proof document." required />
               <Field label="Address document type" as="select" value={addressDocumentType} onChange={(event) => setAddressDocumentType(event.target.value)}>
                 <option value="UTILITY_BILL">Utility bill</option>
                 <option value="BANK_STATEMENT">Bank statement</option>
@@ -769,21 +842,21 @@ function AccountUpgrade({ status, setStatus, showToast }) {
                   <span className="mt-1 text-[10px] text-slate-500">JPG or PNG · up to 5 MB</span>
                   <input ref={addressDocumentRef} id="upgrade-address-document" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" onChange={handleAddressDocumentChange} className="sr-only" aria-describedby={documentError ? 'upgrade-address-error' : 'upgrade-address-hint'} />
                 </label>
-                <p id="upgrade-address-hint" className="mt-2 text-[10px] text-slate-400">The document must show your name and residential address. It stays in this demo.</p>
+                <p id="upgrade-address-hint" className="mt-2 text-[10px] text-slate-400">The document must show your name and residential address; it is sent for verification when submitted.</p>
                 {documentError && <p id="upgrade-address-error" role="alert" className="mt-2 text-xs font-medium text-rose-700">{documentError}</p>}
               </div>
-              <LiveFaceSimulation verified={faceVerified} onVerified={setFaceVerified} />
+              <LiveFaceSimulation verified={faceVerified} onVerified={setFaceVerified} onSelfie={setSelfieImage} />
               <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 p-3.5 text-xs leading-5 text-slate-600">
                 <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-brand" required />
                 <span>I consent to Dojah checking my BVN and address document. I confirm the details belong to me.</span>
               </label>
-              <Button type="submit" className="w-full sm:w-auto">Request account upgrade <ArrowRight size={15} /></Button>
+              <Button type="submit" disabled={upgradeResult.isLoading} className="w-full sm:w-auto">{upgradeResult.isLoading ? 'Submitting…' : 'Request account upgrade'} <ArrowRight size={15} /></Button>
             </form>
           </Panel>
           <div className="space-y-4">
             <Panel className="p-5"><h3 className="text-sm font-bold text-ink">How verification works</h3><ul className="mt-4 space-y-3">{['BVN identity and selfie are matched', 'Address document is checked against your address', 'Live facial-recognition demo completes in this UI', 'All accounts owned by you upgrade on success'].map((item) => <li key={item} className="flex gap-2 text-xs text-slate-600"><Check size={14} className="mt-0.5 shrink-0 text-green-700" />{item}</li>)}</ul></Panel>
             <Panel className="p-5"><div className="flex items-center gap-2"><ShieldCheck size={17} className="text-green-700" /><h3 className="text-sm font-bold text-ink">Protect your details</h3></div><p className="mt-3 text-xs leading-5 text-slate-500">Only enter your BVN on a trusted device. Never share your PIN, password, or one-time code during an account upgrade.</p></Panel>
-            <div className="rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-[11px] leading-5 text-slate-600"><b className="text-ink">Demo notice:</b> This screen is independent. It does not call the backend or Dojah and will not change account limits.</div>
+            <div className="rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-[11px] leading-5 text-slate-600"><b className="text-ink">Verification:</b> BVN, document and selfie details are submitted to the account verification API.</div>
           </div>
         </div>
       )}
@@ -791,7 +864,7 @@ function AccountUpgrade({ status, setStatus, showToast }) {
   );
 }
 
-function Transactions({ transactions, setView, onSelect }) {
+function Transactions({ transactions, setView, onSelect, statement }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('All activity');
   const filtered = useMemo(() => transactions.filter((tx) => {
@@ -799,9 +872,17 @@ function Transactions({ transactions, setView, onSelect }) {
     const matchesType = filter === 'All activity' || (filter === 'Money in' ? tx.amount > 0 : tx.amount < 0);
     return matchesText && matchesType;
   }), [transactions, query, filter]);
+  const downloadStatement = () => {
+    const lines = statement?.content || [];
+    if (!lines.length) return;
+    const rows = [['Line ID', 'Entry type', 'Reference', 'Direction', 'Amount', 'Running balance'], ...lines.map((line) => [line.lineId, line.entryType, line.reference, line.direction, line.amount, line.runningBalance])];
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a'); link.href = url; link.download = `statement-${statement.accountNumber}.csv`; link.click(); URL.revokeObjectURL(url);
+  };
   return (
     <div className="fade-in">
-      <PageHeader title="Transaction history" description="Track every movement across your accounts." actions={<Button variant="secondary"><Download size={15} /> Download statement</Button>} />
+      <PageHeader title="Transaction history" description="Track every movement across your accounts." actions={<Button variant="secondary" onClick={downloadStatement} disabled={!statement?.content?.length}><Download size={15} /> Download statement</Button>} />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">{['All activity', 'Money in', 'Money out'].map((tab) => <button key={tab} onClick={() => setFilter(tab)} className={`rounded-lg px-3 py-2 text-xs font-semibold ${filter === tab ? 'bg-brand text-ink' : 'text-slate-500 hover:bg-slate-50'}`}>{tab}</button>)}</div>
         <div className="flex flex-1 gap-2 sm:flex-none"><label className="relative min-w-[180px] flex-1 sm:w-64"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search activity..." className="form-control pl-9" /></label><Button variant="secondary" className="px-3"><Filter size={15} /><span className="hidden sm:inline">Filters</span></Button></div>
@@ -873,29 +954,11 @@ function Beneficiaries({ beneficiaries, onAdd, onRemove, onSend }) {
   );
 }
 
-function Notifications({ notifications, onMarkRead, onMarkAllRead, setView }) {
-  const [filter, setFilter] = useState('All');
-  const visibleNotifications = notifications.filter((notification) => filter === 'All' || !notification.read);
-  const iconForType = { statement: FileText, deposit: ArrowDownLeft, security: ShieldCheck };
-
+function Notifications({ setView, currentUser }) {
   return (
     <div className="fade-in">
-      <PageHeader title="Notifications" description="Important account updates and activity, all in one place." actions={<Button variant="secondary" onClick={onMarkAllRead} disabled={!notifications.some((notification) => !notification.read)}><CheckCheck size={15} />Mark all as read</Button>} />
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">{['All', 'Unread'].map((tab) => <button key={tab} onClick={() => setFilter(tab)} className={`rounded-lg px-3 py-2 text-xs font-semibold ${filter === tab ? 'bg-brand text-ink' : 'text-slate-500 hover:bg-slate-50'}`}>{tab}{tab === 'Unread' ? ` (${notifications.filter((notification) => !notification.read).length})` : ''}</button>)}</div>
-        <span className="text-xs text-slate-400">{notifications.length} updates</span>
-      </div>
-      <Panel className="divide-y divide-slate-100 px-5">
-        {visibleNotifications.map((notification) => {
-          const Icon = iconForType[notification.type] || Bell;
-          return <article key={notification.id} className={`flex gap-3 py-5 sm:gap-4 ${notification.read ? 'opacity-75' : ''}`}>
-            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${notification.type === 'deposit' ? 'bg-green-50 text-green-700' : notification.type === 'security' ? 'bg-slate-100 text-slate-600' : 'bg-gold-50 text-gold-800'}`}><Icon size={17} /></span>
-            <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-xs font-bold text-ink">{notification.title}</h2>{!notification.read && <span className="h-1.5 w-1.5 rounded-full bg-gold-600" aria-label="Unread" />}</div><p className="mt-1 text-xs leading-5 text-slate-500">{notification.detail}</p><p className="mt-2 text-[10px] text-slate-400">{notification.time}</p><div className="mt-3 flex flex-wrap gap-3"><button onClick={() => setView('transactions')} className="text-[11px] font-semibold text-gold-800 hover:text-gold-900">View activity</button>{!notification.read && <button onClick={() => onMarkRead(notification.id)} className="text-[11px] font-semibold text-slate-500 hover:text-ink">Mark as read</button>}</div></div>
-          </article>;
-        })}
-        {!visibleNotifications.length && <div className="py-12 text-center"><CheckCheck size={22} className="mx-auto text-green-700" /><p className="mt-3 text-sm font-semibold text-ink">You’re all caught up</p><p className="mt-1 text-xs text-slate-500">There are no unread notifications.</p></div>}
-      </Panel>
-      <p className="mt-4 text-[11px] leading-5 text-slate-400">These are sample notifications for the frontend demo. Notification preferences are managed in Settings.</p>
+      <PageHeader title="Email updates" description="Customer banking updates are delivered to your verified email address." />
+      <Panel className="mx-auto max-w-2xl p-6 sm:p-8"><div className="flex items-start gap-4"><span className="grid h-11 w-11 place-items-center rounded-xl bg-gold-50 text-gold-800"><Bell size={19} /></span><div><h2 className="text-sm font-bold text-ink">Your delivery address</h2><p className="mt-2 break-all text-xs text-slate-600">{currentUser?.email || '—'}</p><Status tone={currentUser?.emailVerified ? 'green' : 'amber'}>{currentUser?.emailVerified ? 'Verified' : 'Email verification required'}</Status></div></div><p className="mt-5 text-xs leading-5 text-slate-500">Payment, deposit, withdrawal, transfer, fraud, authentication, password, PIN, and one-time-code updates are sent by email.</p><Button variant="secondary" className="mt-5" onClick={() => setView('settings')}>Email settings <ArrowRight size={14} /></Button></Panel>
     </div>
   );
 }
@@ -913,7 +976,7 @@ function VerifyTransfer({ transfer, onComplete, onBack }) {
             <label className="mt-6 block text-[11px] font-bold uppercase tracking-[0.1em] text-slate-500">Enter 6-digit verification code</label>
             <input aria-label="One-time verification code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-center text-2xl font-bold tracking-[0.55em] text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-brand" placeholder="••••••" />
             <button className="mt-3 text-xs font-semibold text-gold-800">Didn’t receive a code? Resend in 00:28</button>
-            <Button onClick={onComplete} disabled={code.length !== 6} className="mt-5 w-full">Verify and complete transfer <ArrowRight size={15} /></Button>
+            <Button onClick={() => onComplete(code)} disabled={code.length !== 6} className="mt-5 w-full">Verify and complete transfer <ArrowRight size={15} /></Button>
             <p className="mt-4 rounded-xl bg-gold-50/70 p-3 text-[11px] leading-5 text-slate-500">Never share a verification code with anyone, including Eli staff.</p>
           </div>
         </Panel>
@@ -923,39 +986,45 @@ function VerifyTransfer({ transfer, onComplete, onBack }) {
   );
 }
 
-function TransferStatus({ transfer, setView, transactions }) {
+function TransferStatus({ transfer, setView }) {
+  const { data: transaction } = useTransactionQuery(transfer.transactionId, { skip: !transfer.transactionId || transfer.isWithdrawal, pollingInterval: 5000 });
+  const { data: withdrawal } = useWithdrawalQuery(transfer.transactionId, { skip: !transfer.transactionId || !transfer.isWithdrawal, pollingInterval: 5000 });
+  const { data: payout } = usePayoutQuery(transfer.transactionId, { skip: !transfer.transactionId || !transfer.isPayout, pollingInterval: 5000 });
+  const result = payout || withdrawal || transaction;
+  const status = result?.status || result?.state || transfer.status || 'PROCESSING';
+  const completed = ['COMPLETED', 'SUCCESS', 'SUCCESSFUL'].includes(status);
+  const failed = ['FAILED', 'REJECTED', 'CANCELLED', 'EXPIRED', 'REVERSED'].includes(status);
+  const tone = completed ? 'green' : failed ? 'red' : 'amber';
   return (
     <div className="fade-in">
-      <PageHeader title="Transfer status" description="Your transaction has been received and the details are below." />
+      <PageHeader title={transfer.isWithdrawal ? 'Withdrawal status' : 'Transfer status'} description="The latest status is read from your banking service." />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(270px,0.8fr)]">
         <Panel className="p-6 text-center sm:p-9">
-          <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-green-50 text-green-600"><Check size={30} strokeWidth={2.5} /></div>
-          <Status tone="green">Transfer successful</Status>
-          <h2 className="mt-3 text-2xl font-bold tracking-tight text-ink">Your money is on its way.</h2>
-          <p className="mt-2 text-xs text-slate-500">The transfer was completed successfully.</p>
+          <div className={`mx-auto grid h-16 w-16 place-items-center rounded-2xl ${completed ? 'bg-green-50 text-green-600' : failed ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-700'}`}>{completed ? <Check size={30} strokeWidth={2.5} /> : <Clock3 size={28} />}</div>
+          <Status tone={tone}>{status.replaceAll('_', ' ')}</Status>
+          <h2 className="mt-3 text-2xl font-bold tracking-tight text-ink">{completed ? 'The transaction is complete.' : failed ? 'The transaction did not complete.' : 'The transaction is being processed.'}</h2>
+          <p className="mt-2 text-xs text-slate-500">{result?.reason || result?.message || 'This status refreshes from the service as the transaction progresses.'}</p>
           <p className="mt-5 text-[32px] font-bold tracking-tight text-ink">{money(Number(transfer.amount) || 0)}</p>
           <div className="mx-auto mt-6 max-w-sm divide-y divide-slate-100 border-y border-slate-100 text-left">
-            {[['Recipient', transfer.recipientName || 'Adaeze Okafor'], ['Bank', transfer.bank || 'Access Bank'], ['Reference', transactions[0]?.id || 'TXN-849218'], ['Date', '10 Nov 2026 · 10:42 AM']].map(([label, value]) => <div key={label} className="flex justify-between gap-3 py-3 text-xs"><span className="text-slate-500">{label}</span><span className="text-right font-semibold text-ink">{value}</span></div>)}
+            {[['Recipient', transfer.recipientName || transfer.accountNumber || '—'], ['Bank', transfer.bank || '—'], ['Reference', transfer.transactionId || '—'], ['Date', result?.createdAt ? new Date(result.createdAt).toLocaleString() : '—']].map(([label, value]) => <div key={label} className="flex justify-between gap-3 py-3 text-xs"><span className="text-slate-500">{label}</span><span className="text-right font-semibold text-ink">{value}</span></div>)}
           </div>
           <div className="mt-6 flex flex-wrap justify-center gap-2"><Button variant="dark" onClick={() => window.print()}><Download size={15} /> Download receipt</Button><Button onClick={() => setView('overview')}>Back to overview <ArrowRight size={15} /></Button></div>
         </Panel>
-        <Panel className="h-fit p-5"><h3 className="text-sm font-bold text-ink">Transaction timeline</h3><div className="mt-5 space-y-4">{[['Request received', '10:42:01 AM'], ['PIN verified', '10:42:04 AM'], ['Ledger updated', '10:42:05 AM'], ['Provider confirmed', '10:42:07 AM']].map(([label, time], index) => <div key={label} className="flex gap-3"><span className="relative mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-green-50 text-green-600">{index === 3 ? <Check size={12} /> : <span className="h-1.5 w-1.5 rounded-full bg-green-600" />}{index < 3 && <span className="absolute left-1/2 top-5 h-5 w-px bg-green-100" />}</span><div className="flex flex-1 justify-between gap-2 text-xs"><span className="font-medium text-slate-700">{label}</span><span className="text-[10px] text-slate-400">{time}</span></div></div>)}</div><div className="mt-6 rounded-xl bg-slate-50 p-3 text-[11px] leading-5 text-slate-500">A receipt has been added to your transaction history.</div></Panel>
+        <Panel className="h-fit p-5"><h3 className="text-sm font-bold text-ink">Transaction details</h3><p className="mt-3 text-xs leading-5 text-slate-500">A receipt is available after the transaction settles. You’ll also receive a status email at your verified address.</p><p className="mt-4 break-all rounded-xl bg-slate-50 p-3 text-[11px] text-slate-600">{result?.description || transfer.note || '—'}</p></Panel>
       </div>
     </div>
   );
 }
 
-function SettingsPage({ setView, showToast }) {
-  const [emailAlerts, setEmailAlerts] = useState(true);
-  const [transactionAlerts, setTransactionAlerts] = useState(true);
+function SettingsPage({ setView, currentUser }) {
   return (
     <div className="fade-in">
-      <PageHeader title="Settings" description="Manage your profile and how Eli keeps you in the loop." />
+      <PageHeader title="Settings" description="Review your signed-in profile and customer email delivery." />
       <div className="grid gap-5 lg:grid-cols-[220px_1fr]">
-        <div className="space-y-1">{[['Profile information', 'settings', UserRound], ['Security & PIN', 'security', Shield], ['Notifications', 'notifications', Bell]].map(([label, view, Icon], i) => <button key={`${label}-${i}`} onClick={() => setView(view)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold ${i === 0 ? 'bg-white text-ink shadow-sm' : 'text-slate-500 hover:bg-white'}`}><Icon size={15} />{label}</button>)}</div>
+        <div className="space-y-1">{[['Profile information', 'settings', UserRound], ['Security & PIN', 'security', Shield]].map(([label, view, Icon], i) => <button key={`${label}-${i}`} onClick={() => setView(view)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold ${i === 0 ? 'bg-white text-ink shadow-sm' : 'text-slate-500 hover:bg-white'}`}><Icon size={15} />{label}</button>)}</div>
         <div className="space-y-4">
-          <Panel className="p-5 sm:p-6"><SectionHeading title="Personal information" /><div className="grid gap-4 sm:grid-cols-2"><Field label="Full name" defaultValue="Elijah Okafor" /><Field label="Email address" type="email" defaultValue="elijah.okafor@email.com" /><Field label="Phone number" type="tel" defaultValue="+234 801 234 5678" /><Field label="Preferred currency" as="select" defaultValue="NGN"><option value="NGN">NGN · Nigerian naira</option></Field></div><Button className="mt-5" onClick={() => showToast('Profile changes saved in this demo.')}>Save changes</Button></Panel>
-          <Panel className="p-5 sm:p-6"><SectionHeading title="Notifications" /><div className="space-y-4">{[['Transaction alerts', 'Get notified when money moves.', transactionAlerts, setTransactionAlerts], ['Email updates', 'Statements, security and account updates.', emailAlerts, setEmailAlerts]].map(([title, detail, checked, setter]) => <label key={title} className="flex cursor-pointer items-center justify-between gap-4"><span><span className="block text-xs font-semibold text-ink">{title}</span><span className="mt-1 block text-[11px] text-slate-400">{detail}</span></span><input type="checkbox" checked={checked} onChange={(e) => setter(e.target.checked)} className="h-4 w-4 accent-brand" /></label>)}</div></Panel>
+          <Panel className="p-5 sm:p-6"><SectionHeading title="Personal information" /><div className="grid gap-4 sm:grid-cols-2"><Field label="Full name" value={currentUser?.fullName || ''} readOnly /><Field label="Email address" type="email" value={currentUser?.email || ''} readOnly /><Field label="Account role" value={currentUser?.role || 'CUSTOMER'} readOnly /></div><p className="mt-4 text-[11px] text-slate-500">To update your legal name or email address, contact customer support.</p></Panel>
+          <Panel className="p-5 sm:p-6"><SectionHeading title="Customer email updates" /><p className="text-xs leading-5 text-slate-600">Payment, deposit, withdrawal, transfer, fraud, authentication, and one-time-code emails are sent to your verified email address.</p><p className="mt-3 text-[11px] text-slate-500">Your email address is currently {currentUser?.emailVerified ? 'verified' : 'not verified'}.</p></Panel>
         </div>
       </div>
     </div>
@@ -963,15 +1032,44 @@ function SettingsPage({ setView, showToast }) {
 }
 
 function SecurityPage({ showToast }) {
-  const [pin, setPin] = useState('');
+  const [otpRequested, setOtpRequested] = useState(false);
+  const [requestPinCode, pinCodeState] = useRequestPinCodeMutation();
+  const [changePin, pinChangeState] = useChangePinMutation();
+  const [changePassword, passwordState] = useChangePasswordMutation();
+  const [pinError, setPinError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordChanged, setPasswordChanged] = useState(false);
+  const submitPin = async (event) => {
+    event.preventDefault();
+    setPinError('');
+    if (!otpRequested) {
+      try { await requestPinCode().unwrap(); setOtpRequested(true); showToast('A PIN verification code was sent to your email.'); }
+      catch (failure) { setPinError(failure?.data?.detail || 'Could not send a PIN verification code.'); }
+      return;
+    }
+    const fields = new FormData(event.currentTarget);
+    const pin = String(fields.get('newPin') || '');
+    if (pin !== fields.get('confirmPin')) { setPinError('The new PINs do not match.'); return; }
+    try {
+      await changePin({ code: fields.get('code'), password: fields.get('password'), pin }).unwrap();
+      event.currentTarget.reset(); setOtpRequested(false); showToast('Transaction PIN updated.');
+    } catch (failure) { setPinError(failure?.data?.detail || 'Transaction PIN could not be changed.'); }
+  };
+  const submitPassword = async (event) => {
+    event.preventDefault(); setPasswordError(''); setPasswordChanged(false);
+    const fields = new FormData(event.currentTarget);
+    if (fields.get('newPassword') !== fields.get('confirmPassword')) { setPasswordError('The new passwords do not match.'); return; }
+    try { await changePassword({ currentPassword: fields.get('currentPassword'), newPassword: fields.get('newPassword') }).unwrap(); event.currentTarget.reset(); setPasswordChanged(true); showToast('Password changed successfully.'); }
+    catch (failure) { setPasswordError(failure?.data?.detail || 'Password could not be changed.'); }
+  };
   return (
     <div className="fade-in">
       <PageHeader title="Security & PIN" description="Keep your account and every transfer protected." />
       <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-        <Panel className="p-5 sm:p-6"><SectionHeading title="Transaction PIN" /><p className="mb-5 text-xs leading-5 text-slate-500">Your 4-digit PIN is required to approve transfers and other sensitive actions. Never share it with anyone.</p><form onSubmit={(e) => { e.preventDefault(); setPin(''); showToast('PIN updated in this demo.'); }} className="space-y-4"><Field label="Current PIN" type="password" inputMode="numeric" maxLength="4" placeholder="••••" /><Field label="New PIN" type="password" inputMode="numeric" maxLength="4" placeholder="Enter a new 4-digit PIN" /><Field label="Confirm new PIN" type="password" inputMode="numeric" maxLength="4" placeholder="Re-enter your new PIN" /><Button type="submit">Update transaction PIN</Button></form></Panel>
+        <div className="space-y-4"><Panel className="p-5 sm:p-6"><SectionHeading title="Transaction PIN" /><p className="mb-5 text-xs leading-5 text-slate-500">We’ll email a one-time code before you change your 4-digit transaction PIN.</p><form onSubmit={submitPin} className="space-y-4">{otpRequested && <><Field label="Email verification code" name="code" inputMode="numeric" autoComplete="one-time-code" maxLength="6" pattern="[0-9]{6}" required /><Field label="Account password" name="password" type="password" autoComplete="current-password" required /><Field label="New PIN" name="newPin" type="password" inputMode="numeric" maxLength="4" pattern="[0-9]{4}" required /><Field label="Confirm new PIN" name="confirmPin" type="password" inputMode="numeric" maxLength="4" pattern="[0-9]{4}" required />{pinError && <p role="alert" className="text-xs text-rose-700">{pinError}</p>}</>}<Button type="submit" disabled={pinCodeState.isLoading || pinChangeState.isLoading}>{!otpRequested ? (pinCodeState.isLoading ? 'Sending code…' : 'Email me a code') : (pinChangeState.isLoading ? 'Updating…' : 'Update transaction PIN')}</Button>{otpRequested && <button type="button" className="ml-3 text-xs font-semibold text-gold-800" onClick={() => setOtpRequested(false)}>Cancel</button>}</form>{!otpRequested && pinError && <p role="alert" className="mt-3 text-xs text-rose-700">{pinError}</p>}</Panel>
+        <Panel className="p-5 sm:p-6"><SectionHeading title="Password & sign-in" /><form onSubmit={submitPassword} className="space-y-4"><Field label="Current password" name="currentPassword" type="password" autoComplete="current-password" required /><Field label="New password" name="newPassword" type="password" autoComplete="new-password" minLength="8" required /><Field label="Confirm new password" name="confirmPassword" type="password" autoComplete="new-password" minLength="8" required />{passwordError && <p role="alert" className="text-xs text-rose-700">{passwordError}</p>}{passwordChanged && <p role="status" className="text-xs text-green-700">Your password was changed.</p>}<Button type="submit" disabled={passwordState.isLoading}>{passwordState.isLoading ? 'Updating…' : 'Change password'}</Button></form></Panel></div>
         <div className="space-y-4">
           <Panel className="p-5"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-green-50 text-green-700"><ShieldCheck size={18} /></span><div><h3 className="text-sm font-bold text-ink">Your account is secure</h3><p className="mt-1 text-[11px] text-slate-400">Last checked just now</p></div></div><div className="mt-5 space-y-3">{[['Email verified', true], ['Transaction PIN enabled', true], ['Fraud monitoring active', true]].map(([label, enabled]) => <div key={label} className="flex items-center justify-between text-xs"><span className="text-slate-600">{label}</span><CheckCheck size={15} className={enabled ? 'text-green-600' : 'text-slate-300'} /></div>)}</div></Panel>
-          <Panel className="p-5"><h3 className="text-sm font-bold text-ink">Password & sign-in</h3><p className="mt-2 text-xs leading-5 text-slate-500">Update your password and review the devices that can access your account.</p><Button variant="secondary" className="mt-4" onClick={() => showToast('Password reset flow is ready to connect.')}>Change password <ArrowRight size={14} /></Button></Panel>
           <Panel className="border-rose-100 p-5"><h3 className="text-sm font-bold text-rose-800">Lost your device?</h3><p className="mt-2 text-xs leading-5 text-slate-500">Contact our support team to secure your account right away.</p><button onClick={() => showToast('Support request started.')} className="mt-3 text-xs font-semibold text-rose-700">Get urgent help</button></Panel>
         </div>
       </div>
@@ -986,26 +1084,27 @@ function OpenAccount({ onCancel, onCreate }) {
     <div className="fade-in">
       <PageHeader title="Open a new account" description="Choose the account that works for your day-to-day." actions={<Button variant="secondary" onClick={onCancel}><ArrowLeft size={15} /> Back to accounts</Button>} />
       <div className="mx-auto grid max-w-4xl gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-        <Panel className="p-5 sm:p-7"><form onSubmit={(e) => { e.preventDefault(); onCreate(accountType, Number(openingDeposit)); }} className="space-y-4">
+        <Panel className="p-5 sm:p-7"><form onSubmit={(e) => { e.preventDefault(); const form = new FormData(e.currentTarget); onCreate(accountType, Number(openingDeposit), String(form.get('accountHolderName') || '').trim(), String(form.get('phone') || '').trim()); }} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             {['Savings', 'Current'].map((type) => <button type="button" key={type} onClick={() => setAccountType(type)} className={`rounded-2xl border p-4 text-left transition ${accountType === type ? 'border-brand bg-gold-50/70 ring-2 ring-gold-100' : 'border-slate-200 hover:border-slate-300'}`}><span className={`mb-3 grid h-9 w-9 place-items-center rounded-xl ${accountType === type ? 'bg-white text-gold-800' : 'bg-slate-100 text-slate-500'}`}>{type === 'Savings' ? <Landmark size={17} /> : <Wallet size={17} />}</span><span className="block text-sm font-bold text-ink">{type} account</span><span className="mt-1 block text-[11px] leading-5 text-slate-500">{type === 'Savings' ? 'Save towards your goals and earn more.' : 'Flexible everyday banking and payments.'}</span></button>)}
           </div>
-          <Field label="Account name" defaultValue={accountType === 'Savings' ? 'My savings' : 'Everyday account'} />
+          <Field name="accountHolderName" label="Account name" defaultValue={accountType === 'Savings' ? 'My savings' : 'Everyday account'} required />
+          <Field name="phone" label="Phone number" type="tel" placeholder="08012345678" required />
           <Field label="Opening deposit (NGN)" type="number" min="1000" step="1000" value={openingDeposit} onChange={(e) => setOpeningDeposit(e.target.value)} required hint="Your opening deposit will be added to your account balance." />
           <Button type="submit" className="w-full">Open {accountType.toLowerCase()} account <ArrowRight size={15} /></Button>
         </form></Panel>
-        <Panel className="h-fit p-5"><h3 className="text-sm font-bold text-ink">Your new account includes</h3><ul className="mt-4 space-y-3">{['A unique 10-digit account number', 'Instant internal transfers', 'Protected transaction history', 'No monthly maintenance fee'].map((item) => <li key={item} className="flex gap-2 text-xs text-slate-600"><Check size={14} className="mt-0.5 text-green-600" />{item}</li>)}</ul><p className="mt-5 rounded-xl bg-slate-50 p-3 text-[10px] leading-5 text-slate-500">Demo only: account details are stored in browser memory and are not submitted to a bank.</p></Panel>
+        <Panel className="h-fit p-5"><h3 className="text-sm font-bold text-ink">Your new account includes</h3><ul className="mt-4 space-y-3">{['A unique 10-digit account number', 'Instant internal transfers', 'Protected transaction history', 'No monthly maintenance fee'].map((item) => <li key={item} className="flex gap-2 text-xs text-slate-600"><Check size={14} className="mt-0.5 text-green-600" />{item}</li>)}</ul><p className="mt-5 rounded-xl bg-slate-50 p-3 text-[10px] leading-5 text-slate-500">Your account details are submitted securely to Eli Digital Bank.</p></Panel>
       </div>
     </div>
   );
 }
 
-function Support({ showToast }) {
+function Support({ setView }) {
   return (
     <div className="fade-in">
-      <PageHeader title="How can we help?" description="Find an answer or get in touch with our support team." />
-      <div className="grid gap-4 md:grid-cols-3">{[[CircleHelp, 'Help centre', 'Browse answers to common questions.'], [ShieldCheck, 'Report a concern', 'Tell us about a card or transfer issue.'], [FileText, 'Request a document', 'Get a statement or account confirmation.']].map(([Icon, title, desc]) => <Panel key={title} className="p-5"><span className="grid h-10 w-10 place-items-center rounded-xl bg-gold-50 text-gold-800"><Icon size={18} /></span><h2 className="mt-4 text-sm font-bold text-ink">{title}</h2><p className="mt-1 text-xs leading-5 text-slate-500">{desc}</p><button onClick={() => showToast(`${title} request started.`)} className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-gold-800">Get started <ArrowRight size={13} /></button></Panel>)}</div>
-      <Panel className="mt-5 p-5 sm:p-7"><h2 className="text-sm font-bold text-ink">Frequently asked questions</h2><div className="mt-3 divide-y divide-slate-100">{[['How long do transfers take?', 'Eli-to-Eli transfers are usually instant. Bank transfers may take longer depending on the receiving bank.'], ['How do I reset my PIN?', 'Go to Settings, then Security & PIN. We will verify your identity before allowing a reset.'], ['Where can I find my statement?', 'Open Transactions and select Download statement to view a statement for your selected period.']].map(([question, answer]) => <details key={question} className="group py-4"><summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-ink">{question}<ChevronDown size={15} className="transition group-open:rotate-180" /></summary><p className="mt-2 max-w-2xl text-xs leading-5 text-slate-500">{answer}</p></details>)}</div></Panel>
+      <PageHeader title="Help centre" description="Get quick answers and open the banking screens that can resolve common questions." />
+      <div className="grid gap-4 md:grid-cols-2"><Panel className="p-5"><span className="grid h-10 w-10 place-items-center rounded-xl bg-gold-50 text-gold-800"><CircleHelp size={18} /></span><h2 className="mt-4 text-sm font-bold text-ink">Transfer status</h2><p className="mt-1 text-xs leading-5 text-slate-500">Check your transaction history for the latest transfer status and receipt details.</p><Button variant="secondary" className="mt-4" onClick={() => setView('transactions')}>Open transactions <ArrowRight size={14} /></Button></Panel><Panel className="p-5"><span className="grid h-10 w-10 place-items-center rounded-xl bg-gold-50 text-gold-800"><ShieldCheck size={18} /></span><h2 className="mt-4 text-sm font-bold text-ink">Account security</h2><p className="mt-1 text-xs leading-5 text-slate-500">Change your password or transaction PIN from the security settings.</p><Button variant="secondary" className="mt-4" onClick={() => setView('security')}>Open security settings <ArrowRight size={14} /></Button></Panel></div>
+      <Panel className="mt-5 p-5 sm:p-7"><h2 className="text-sm font-bold text-ink">Frequently asked questions</h2><div className="mt-3 divide-y divide-slate-100">{[['How long do transfers take?', 'Internal transfers usually complete immediately. Bank transfers can take longer while the provider processes them; check the transaction status for updates.'], ['How do I change my PIN?', 'Open Security & PIN, request an email code, and submit the code with your account password and new PIN.'], ['Where can I download my statement?', 'Open Transactions and choose Download statement. The CSV contains the ledger entries currently available for your account.']].map(([question, answer]) => <details key={question} className="group py-4"><summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-ink">{question}<ChevronDown size={15} className="transition group-open:rotate-180" /></summary><p className="mt-2 max-w-2xl text-xs leading-5 text-slate-500">{answer}</p></details>)}</div></Panel>
     </div>
   );
 }
@@ -1013,7 +1112,44 @@ function Support({ showToast }) {
 function AuthPage({ view, setView, onSignIn, showToast }) {
   const isRegister = view === 'register';
   const isForgot = view === 'forgot-password';
+  const isReset = view === 'reset-password';
+  const resetToken = new URLSearchParams(window.location.search).get('token') || '';
   const [sent, setSent] = useState(false);
+  const [resetComplete, setResetComplete] = useState(false);
+  const [login, loginState] = useLoginMutation();
+  const [register, registerState] = useRegisterMutation();
+  const [forgotPassword, forgotState] = useForgotPasswordMutation();
+  const [resetPassword, resetState] = useResetPasswordMutation();
+  const [resendVerification] = useResendVerificationMutation();
+  const [error, setError] = useState('');
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    const fields = new FormData(event.currentTarget);
+    const email = String(fields.get('email') || '').trim();
+    try {
+      if (isReset) {
+        if (!resetToken) throw new Error('This password reset link is missing its token. Request a new reset email.');
+        if (fields.get('newPassword') !== fields.get('confirmPassword')) throw new Error('The new passwords do not match.');
+        await resetPassword({ token: resetToken, newPassword: fields.get('newPassword') }).unwrap();
+        setResetComplete(true);
+      } else if (isForgot) {
+        await forgotPassword({ email }).unwrap();
+        setSent(true);
+      } else if (isRegister) {
+        await register({ fullName: fields.get('fullName'), email, password: fields.get('password') }).unwrap();
+        sessionStorage.setItem('registrationEmail', email);
+        setView('verify-email');
+      } else {
+        const session = await login({ email, password: fields.get('password') }).unwrap();
+        localStorage.setItem('accessToken', session.accessToken);
+        localStorage.setItem('refreshToken', session.refreshToken);
+        onSignIn(session.user);
+      }
+    } catch (failure) {
+      setError(failure?.message || failure?.data?.detail || failure?.data?.message || 'We could not complete that request. Please check your details and try again.');
+    }
+  };
   return (
     <main className="grid min-h-screen bg-white lg:grid-cols-[1.05fr_0.95fr]">
       <section className="relative hidden overflow-hidden bg-ink p-12 text-white lg:flex lg:flex-col lg:justify-between xl:p-16">
@@ -1025,21 +1161,20 @@ function AuthPage({ view, setView, onSignIn, showToast }) {
       <section className="flex items-center justify-center p-5 sm:p-10">
         <div className="w-full max-w-[410px]">
           <div className="mb-8 flex items-center gap-3 lg:hidden"><BrandMark compact /><span className="text-sm font-bold text-ink">ELI DIGITAL BANK</span></div>
-          {view === 'verify-email' ? <div className="text-center"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-green-50 text-green-600"><Check size={26} /></span><h2 className="mt-5 text-2xl font-bold text-ink">Check your inbox</h2><p className="mt-2 text-sm leading-6 text-slate-500">We sent a verification link to your email address. Verify your email before signing in.</p><Button className="mt-6 w-full" onClick={() => setView('login')}>Back to sign in</Button></div> : sent ? <div className="text-center"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gold-50 text-gold-800"><Check size={26} /></span><h2 className="mt-5 text-2xl font-bold text-ink">Check your email</h2><p className="mt-2 text-sm leading-6 text-slate-500">If an account exists for that email, a secure password reset link is on its way.</p><Button className="mt-6 w-full" onClick={() => setView('login')}>Back to sign in</Button></div> : <>
-            <button onClick={() => setView('overview')} className="mb-8 hidden items-center gap-1 text-xs font-semibold text-slate-400 hover:text-ink lg:inline-flex"><ArrowLeft size={14} /> Back to demo</button>
-            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-gold-800">{isRegister ? 'GET STARTED' : isForgot ? 'ACCOUNT RECOVERY' : 'WELCOME BACK'}</p>
-            <h2 className="mt-2 text-[29px] font-bold tracking-tight text-ink">{isRegister ? 'Create your account' : isForgot ? 'Reset your password' : 'Sign in to Eli'}</h2>
-            <p className="mt-2 text-sm text-slate-500">{isRegister ? 'A better banking experience starts here.' : isForgot ? 'We’ll email you a secure link to get back in.' : 'Your money is right where you left it.'}</p>
-            <form onSubmit={(e) => { e.preventDefault(); if (isForgot) { setSent(true); return; } if (isRegister) { setView('verify-email'); return; } onSignIn(); }} className="mt-7 space-y-4">
-              {isRegister && <Field label="Full name" placeholder="Your full name" required />}
-              <Field label="Email address" type="email" placeholder="you@example.com" autoComplete="email" required />
-              {!isForgot && <Field label="Password" type="password" placeholder={isRegister ? 'At least 8 characters' : 'Enter your password'} autoComplete={isRegister ? 'new-password' : 'current-password'} required />}
-              {isRegister && <Field label="Phone number" type="tel" placeholder="+234 800 000 0000" required />}
+          {view === 'verify-email' ? <div className="text-center"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-green-50 text-green-600"><Check size={26} /></span><h2 className="mt-5 text-2xl font-bold text-ink">Check your inbox</h2><p className="mt-2 text-sm leading-6 text-slate-500">We sent a verification link to {sessionStorage.getItem('registrationEmail') || 'your email address'}. Verify your email before signing in.</p><Button className="mt-6 w-full" onClick={() => setView('login')}>Back to sign in</Button><button className="mt-4 text-xs font-semibold text-gold-800" onClick={async () => { try { await resendVerification({ email: sessionStorage.getItem('registrationEmail') }).unwrap(); showToast('If the address is registered, a new verification link is on its way.'); } catch { showToast('Could not resend the verification email.'); } }}>Resend verification email</button></div> : resetComplete ? <div className="text-center"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-green-50 text-green-600"><Check size={26} /></span><h2 className="mt-5 text-2xl font-bold text-ink">Password updated</h2><p className="mt-2 text-sm leading-6 text-slate-500">Your password has been reset. Sign in with the new password.</p><Button className="mt-6 w-full" onClick={() => setView('login')}>Back to sign in</Button></div> : sent ? <div className="text-center"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gold-50 text-gold-800"><Check size={26} /></span><h2 className="mt-5 text-2xl font-bold text-ink">Check your email</h2><p className="mt-2 text-sm leading-6 text-slate-500">If an account exists for that email, a secure password reset link is on its way.</p><Button className="mt-6 w-full" onClick={() => setView('login')}>Back to sign in</Button></div> : <>
+            <div className="mb-8 hidden items-center gap-2 text-xs font-semibold text-slate-400 lg:flex"><BrandMark compact /><span>Secure customer sign in</span></div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-gold-800">{isRegister ? 'GET STARTED' : isForgot || isReset ? 'ACCOUNT RECOVERY' : 'WELCOME BACK'}</p>
+            <h2 className="mt-2 text-[29px] font-bold tracking-tight text-ink">{isRegister ? 'Create your account' : isForgot ? 'Reset your password' : isReset ? 'Choose a new password' : 'Sign in to Eli'}</h2>
+            <p className="mt-2 text-sm text-slate-500">{isRegister ? 'A better banking experience starts here.' : isForgot ? 'We’ll email you a secure link to get back in.' : isReset ? 'Choose a strong password you have not used before.' : 'Your money is right where you left it.'}</p>
+            <form onSubmit={submit} className="mt-7 space-y-4">
+              {isRegister && <Field name="fullName" label="Full name" placeholder="Your full name" autoComplete="name" required />}
+              {!isReset && <Field name="email" label="Email address" type="email" placeholder="you@example.com" autoComplete="email" required />}
+              {isReset ? <><Field name="newPassword" label="New password" type="password" autoComplete="new-password" minLength="8" required /><Field name="confirmPassword" label="Confirm new password" type="password" autoComplete="new-password" minLength="8" required /></> : !isForgot && <Field name="password" label="Password" type="password" placeholder={isRegister ? 'At least 8 characters' : 'Enter your password'} autoComplete={isRegister ? 'new-password' : 'current-password'} required />}
               {!isRegister && !isForgot && <div className="-mt-1 flex justify-end"><button type="button" onClick={() => setView('forgot-password')} className="text-[11px] font-semibold text-gold-800">Forgot password?</button></div>}
-              <Button type="submit" className="mt-1 w-full">{isRegister ? 'Create account' : isForgot ? 'Send reset link' : 'Sign in'} <ArrowRight size={15} /></Button>
+              {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-xs text-rose-700">{error}</p>}
+              <Button type="submit" disabled={loginState.isLoading || registerState.isLoading || forgotState.isLoading || resetState.isLoading} className="mt-1 w-full">{loginState.isLoading || registerState.isLoading || forgotState.isLoading || resetState.isLoading ? 'Please wait…' : isRegister ? 'Create account' : isForgot ? 'Send reset link' : isReset ? 'Reset password' : 'Sign in'} <ArrowRight size={15} /></Button>
             </form>
             <div className="my-6 flex items-center gap-3 text-[10px] text-slate-300"><span className="h-px flex-1 bg-slate-200" />SECURE, ENCRYPTED BANKING<span className="h-px flex-1 bg-slate-200" /></div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[10px] leading-5 text-slate-500"><b className="text-slate-700">Prototype sign-in:</b> use any email and password. This demo does not authenticate against the backend.</div>
             <p className="mt-6 text-center text-xs text-slate-500">{isRegister ? 'Already banking with us?' : isForgot ? 'Remember your password?' : 'New to Eli?'} <button onClick={() => setView(isRegister || isForgot ? 'login' : 'register')} className="font-semibold text-gold-800">{isRegister || isForgot ? 'Sign in' : 'Create an account'}</button></p>
           </>}
         </div>
@@ -1048,23 +1183,24 @@ function AuthPage({ view, setView, onSignIn, showToast }) {
   );
 }
 
-function AdminDashboard({ setView, payouts }) {
+function AdminDashboard({ setView, payouts, users, accounts, transactions, reconciliation }) {
   const pendingTotal = payouts.reduce((sum, payout) => sum + payout.amount, 0);
+  const flagged = transactions.filter((transaction) => transaction.status === 'FLAGGED').length;
   return (
     <div className="fade-in">
       <PageHeader eyebrow="OPERATIONS WORKSPACE" title="Good morning, Eli" description="Here’s what needs your attention today." actions={<Button variant="secondary"><Download size={15} /> Export report</Button>} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Pending payouts" value={String(payouts.length + 8)} change="4 need your attention" icon={FileClock} color="gold" />
-        <Metric label="Payout value" value={money(pendingTotal + 8180000)} change="Across all pending requests" icon={Banknote} color="green" />
-        <Metric label="Flagged by risk" value="3" change="2 high priority" icon={ShieldAlert} color="amber" />
-        <Metric label="Active customers" value="12,408" change="+184 this month" icon={Users} color="gold" />
+        <Metric label="Pending payouts" value={String(payouts.length)} change="Awaiting operations review" icon={FileClock} color="gold" />
+        <Metric label="Payout value" value={money(pendingTotal)} change="Across pending requests" icon={Banknote} color="green" />
+        <Metric label="Flagged transactions" value={String(flagged)} change="Current transaction records" icon={ShieldAlert} color="amber" />
+        <Metric label="Active customers" value={String(users.filter((user) => user.enabled).length)} change={`${accounts.length} accounts`} icon={Users} color="gold" />
       </div>
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
         <Panel className="overflow-hidden"><div className="flex items-center justify-between border-b border-slate-100 p-5"><div><h2 className="text-sm font-bold text-ink">Payouts needing review</h2><p className="mt-1 text-[10px] text-slate-400">Requests waiting for an operations decision</p></div><button onClick={() => setView('payouts')} className="text-xs font-semibold text-gold-800">View queue <ArrowRight size={13} className="ml-1 inline" /></button></div><PayoutTable payouts={payouts.slice(0, 3)} onReview={() => setView('payouts')} compact /></Panel>
-        <Panel className="p-5"><SectionHeading title="Platform health" action="View reconciliation" onAction={() => setView('reconciliation')} /><div className="space-y-4">{[['Ledger balance', 'Reconciled', 'green'], ['Payment provider', 'Operational', 'green'], ['Notification queue', 'Operational', 'green'], ['Fraud checks', 'Monitoring', 'gold']].map(([label, value, tone]) => <div key={label} className="flex items-center justify-between"><span className="text-xs text-slate-600">{label}</span><Status tone={tone}><span className="h-1.5 w-1.5 rounded-full bg-current" />{value}</Status></div>)}</div><div className="mt-5 rounded-xl bg-slate-50 p-3 text-[10px] leading-5 text-slate-500">System indicators are sample data in this UI prototype.</div></Panel>
+        <Panel className="p-5"><SectionHeading title="Platform health" action="View reconciliation" onAction={() => setView('reconciliation')} /><div className="space-y-4"><div className="flex items-center justify-between"><span className="text-xs text-slate-600">Ledger reconciliation</span><Status tone={reconciliation?.clean ? 'green' : 'amber'}>{reconciliation ? (reconciliation.clean ? 'Balanced' : 'Issues found') : 'Loading'}</Status></div><div className="flex items-center justify-between"><span className="text-xs text-slate-600">Payout approvals</span><Status tone="slate">{payouts.length} pending</Status></div><div className="flex items-center justify-between"><span className="text-xs text-slate-600">Account records</span><Status tone="slate">{accounts.length} loaded</Status></div></div></Panel>
       </div>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <button onClick={() => setView('risk-alerts')} className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-left transition hover:bg-amber-50"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-amber-700"><ShieldAlert size={17} /></span><div><p className="text-xs font-bold text-ink">3 risk alerts need review</p><p className="mt-1 text-[10px] text-slate-500">Review suspicious transfers and payout patterns.</p></div><ArrowRight size={15} className="ml-auto text-amber-700" /></div></button>
+        <button onClick={() => setView('risk-alerts')} className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-left transition hover:bg-amber-50"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-amber-700"><ShieldAlert size={17} /></span><div><p className="text-xs font-bold text-ink">{flagged} flagged transactions</p><p className="mt-1 text-[10px] text-slate-500">Review transactions marked by the transaction service.</p></div><ArrowRight size={15} className="ml-auto text-amber-700" /></div></button>
         <button onClick={() => setView('audit-log')} className="rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:bg-slate-50"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-gold-50 text-gold-800"><FileCheck2 size={17} /></span><div><p className="text-xs font-bold text-ink">Recent admin activity</p><p className="mt-1 text-[10px] text-slate-500">All operations actions are recorded in the audit log.</p></div><ArrowRight size={15} className="ml-auto text-slate-400" /></div></button>
       </div>
     </div>
@@ -1089,54 +1225,128 @@ function Payouts({ payouts, onDecision }) {
   );
 }
 
-function RiskAlerts({ showToast }) {
-  const [alerts, setAlerts] = useState([
-    { id: 'RISK-2081', title: 'Unusual transfer velocity', customer: 'Elijah Okafor · •••• 8070', detail: '6 transfers in 4 minutes · ₦420,000 total', level: 'High', time: '4 min ago' },
-    { id: 'RISK-2079', title: 'Large payout to new beneficiary', customer: 'Tunde Bello · •••• 1160', detail: 'Payout is 92% of available balance', level: 'High', time: '18 min ago' },
-    { id: 'RISK-2074', title: 'New device sign-in', customer: 'Chika Nwosu · •••• 7004', detail: 'New device detected from an unfamiliar location', level: 'Review', time: '1 hour ago' },
-  ]);
-  return <div className="fade-in"><PageHeader title="Risk alerts" description="Review activity flagged by the fraud monitoring service." actions={<Button variant="secondary"><Filter size={15} /> Filters</Button>} /><div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><ShieldAlert size={16} /> Alerts are signals for review, not a final decision.</div><div className="space-y-3">{alerts.map((alert) => <Panel key={alert.id} className="p-5"><div className="flex flex-col gap-4 sm:flex-row sm:items-start"><span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${alert.level === 'High' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-700'}`}><ShieldAlert size={18} /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-bold text-ink">{alert.title}</h2><Status>{alert.level}</Status></div><p className="mt-1 text-xs text-slate-600">{alert.customer}</p><p className="mt-2 text-xs text-slate-500">{alert.detail}</p><p className="mt-2 text-[10px] text-slate-400">{alert.id} · {alert.time}</p></div><div className="flex gap-2 sm:flex-col"><Button variant="secondary" className="min-h-8 px-3 py-1 text-[11px]" onClick={() => { setAlerts((old) => old.filter((item) => item.id !== alert.id)); showToast('Alert dismissed.'); }}>Dismiss</Button><Button className="min-h-8 px-3 py-1 text-[11px]" onClick={() => { setAlerts((old) => old.filter((item) => item.id !== alert.id)); showToast('Alert marked as reviewed.'); }}>Review</Button></div></div></Panel>)}</div>{alerts.length === 0 && <Panel className="p-10 text-center"><ShieldCheck className="mx-auto text-green-600" /><p className="mt-3 text-sm font-semibold text-ink">You’re all caught up</p><p className="mt-1 text-xs text-slate-400">No alerts currently need your attention.</p></Panel>}</div>;
+function RiskAlerts({ transactions = [] }) {
+  const alerts = transactions.filter((tx) => tx.status === 'FLAGGED');
+  return <div className="fade-in"><PageHeader title="Flagged transactions" description="Transactions currently flagged by the transaction service." /><div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><ShieldAlert size={16} /> These records show transaction status. Investigation decisions are managed by operations controls.</div><div className="space-y-3">{alerts.map((tx) => <Panel key={tx.id} className="p-5"><div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-sm font-bold text-ink">{tx.description || 'Transaction flagged'}</h2><p className="mt-1 text-xs text-slate-600">{tx.senderAccountNumber || '—'} → {tx.receiverAccountNumber || '—'}</p><p className="mt-2 text-[10px] text-slate-400">{tx.id} · {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : '—'}</p></div><div className="text-right"><Status tone="amber">{tx.status}</Status><p className="mt-2 text-sm font-bold text-ink">{money(Number(tx.amount) || 0)}</p></div></div></Panel>)}</div>{alerts.length === 0 && <Panel className="p-10 text-center"><ShieldCheck className="mx-auto text-green-600" /><p className="mt-3 text-sm font-semibold text-ink">No flagged transactions</p><p className="mt-1 text-xs text-slate-400">The transaction service returned no records marked for review.</p></Panel>}</div>;
 }
 
-function AuditLog() {
-  const events = [
-    ['Payout approved', 'Eli Operations · PO-4882', 'Today, 10:12 AM', 'Approved'],
-    ['Risk alert reviewed', 'Eli Operations · RISK-2061', 'Today, 09:54 AM', 'Reviewed'],
-    ['Customer account blocked', 'Eli Operations · ACC-7751', 'Today, 09:18 AM', 'Security'],
-    ['Payout rejected', 'Eli Operations · PO-4878', 'Yesterday, 04:42 PM', 'Rejected'],
-    ['Reconciliation completed', 'System · Daily ledger check', 'Yesterday, 03:00 AM', 'System'],
-  ];
-  return <div className="fade-in"><PageHeader title="Audit log" description="A clear, time-stamped record of administrative and system activity." actions={<Button variant="secondary"><Download size={15} /> Export log</Button>} /><Panel className="overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5"><div><h2 className="text-sm font-bold text-ink">Recent events</h2><p className="mt-1 text-[10px] text-slate-400">Events are append-only and cannot be edited.</p></div><div className="flex gap-2"><Button variant="secondary" className="min-h-8 px-3 py-1.5 text-xs"><Search size={13} /> Search</Button><Button variant="secondary" className="min-h-8 px-3 py-1.5 text-xs"><Filter size={13} /> Filter</Button></div></div><div className="overflow-x-auto"><table className="w-full min-w-[600px] text-left"><thead><tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400"><th className="px-5 py-3">Event</th><th className="px-4 py-3">Actor / Reference</th><th className="px-4 py-3">Time</th><th className="px-5 py-3">Category</th></tr></thead><tbody>{events.map(([event, actor, time, type]) => <tr key={event} className="border-b border-slate-50 last:border-0"><td className="px-5 py-4 text-xs font-semibold text-ink">{event}</td><td className="px-4 py-4 text-xs text-slate-500">{actor}</td><td className="whitespace-nowrap px-4 py-4 text-[11px] text-slate-500">{time}</td><td className="px-5 py-4"><Status tone="slate">{type}</Status></td></tr>)}</tbody></table></div></Panel><p className="mt-3 text-[10px] text-slate-400">Showing sample events. Production audit records will come from the backend.</p></div>;
+function AuditLog({ entries = [] }) {
+  return <div className="fade-in"><PageHeader title="Audit log" description="A time-stamped record of administrative and system activity." /><Panel className="overflow-hidden"><div className="border-b border-slate-100 p-5"><h2 className="text-sm font-bold text-ink">Recent events</h2><p className="mt-1 text-[10px] text-slate-400">Events are append-only and cannot be edited.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left"><thead><tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400"><th className="px-5 py-3">Event</th><th className="px-4 py-3">Actor / Reference</th><th className="px-4 py-3">Time</th><th className="px-5 py-3">Source</th></tr></thead><tbody>{entries.map((entry) => <tr key={`${entry.source}-${entry.id}`} className="border-b border-slate-50 last:border-0"><td className="px-5 py-4 text-xs font-semibold text-ink">{entry.action} · {entry.entityType}</td><td className="px-4 py-4 text-xs text-slate-500">{entry.actor || 'System'} · {entry.entityId || '—'}</td><td className="whitespace-nowrap px-4 py-4 text-[11px] text-slate-500">{entry.occurredAt ? new Date(entry.occurredAt).toLocaleString() : '—'}</td><td className="px-5 py-4"><Status tone="slate">{entry.source}</Status></td></tr>)}</tbody></table></div>{entries.length === 0 && <p className="p-8 text-center text-xs text-slate-400">No audit records returned.</p>}</Panel></div>;
 }
 
-function Customers({ showToast }) {
+function Customers({ showToast, users = [], accounts = [], onBlock }) {
   const [query, setQuery] = useState('');
-  const customers = [['Elijah Okafor', 'elijah.okafor@email.com', '•••• 8070', 'Active', '₦4,850,250'], ['Adaeze Okafor', 'adaeze.okafor@email.com', '•••• 4821', 'Active', '₦1,240,000'], ['Tunde Bello', 'tunde.bello@email.com', '•••• 1160', 'Review', '₦890,500'], ['Chika Nwosu', 'chika.nwosu@email.com', '•••• 7004', 'Active', '₦2,310,400']];
-  const results = customers.filter(([name, email]) => `${name} ${email}`.toLowerCase().includes(query.toLowerCase()));
-  return <div className="fade-in"><PageHeader title="Customers" description="Search customer profiles and review account status." actions={<Button variant="secondary"><Download size={15} /> Export</Button>} /><div className="mb-4 flex items-center gap-2"><label className="relative w-full max-w-sm"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(e) => setQuery(e.target.value)} className="form-control pl-9" placeholder="Search name or email" /></label><Button variant="secondary"><Filter size={15} /></Button></div><Panel className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[650px] text-left"><thead><tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400"><th className="px-5 py-3">Customer</th><th className="px-4 py-3">Account</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Balance</th><th className="px-5 py-3" /></tr></thead><tbody>{results.map(([name, email, account, status, balance]) => <tr key={email} className="border-b border-slate-50 last:border-0"><td className="px-5 py-3.5"><div className="text-xs font-semibold text-ink">{name}</div><div className="mt-1 text-[10px] text-slate-400">{email}</div></td><td className="px-4 py-3.5 text-xs text-slate-600">{account}</td><td className="px-4 py-3.5"><Status tone={status === 'Active' ? 'green' : 'amber'}>{status}</Status></td><td className="px-4 py-3.5 text-xs font-semibold text-ink">{balance}</td><td className="px-5 py-3.5 text-right"><button onClick={() => showToast(`Customer profile for ${name} is ready to connect.`)} className="text-xs font-semibold text-gold-800">View profile</button></td></tr>)}</tbody></table></div>{results.length === 0 && <p className="p-8 text-center text-xs text-slate-400">No customers found.</p>}</Panel></div>;
+  const results = users.filter((user) => `${user.fullName} ${user.email}`.toLowerCase().includes(query.toLowerCase()));
+  return <div className="fade-in"><PageHeader title="Customers" description="Search customer profiles and review linked account status." /><div className="mb-4 flex items-center gap-2"><label className="relative w-full max-w-sm"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(e) => setQuery(e.target.value)} className="form-control pl-9" placeholder="Search name or email" /></label></div><Panel className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[750px] text-left"><thead><tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400"><th className="px-5 py-3">Customer</th><th className="px-4 py-3">Account</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Balance</th><th className="px-5 py-3" /></tr></thead><tbody>{results.map((user) => { const account = accounts.find((row) => row.ownerId === user.id); return <tr key={user.id} className="border-b border-slate-50 last:border-0"><td className="px-5 py-3.5"><div className="text-xs font-semibold text-ink">{user.fullName}</div><div className="mt-1 text-[10px] text-slate-400">{user.email}</div></td><td className="px-4 py-3.5 text-xs text-slate-600">{account ? `•••• ${account.accountNumber.slice(-4)}` : 'No account'}</td><td className="px-4 py-3.5"><Status tone={user.enabled ? 'green' : 'red'}>{user.enabled ? 'Active' : 'Disabled'}</Status></td><td className="px-4 py-3.5 text-xs font-semibold text-ink">{account ? money(Number(account.balance)) : '—'}</td><td className="px-5 py-3.5 text-right">{account?.status === 'ACTIVE' && <button onClick={() => onBlock(account)} className="text-xs font-semibold text-rose-700">Block account</button>}</td></tr>; })}</tbody></table></div>{results.length === 0 && <p className="p-8 text-center text-xs text-slate-400">No customer records found.</p>}</Panel></div>;
 }
 
-function Reconciliation({ showToast }) {
-  return <div className="fade-in"><PageHeader title="Ledger reconciliation" description="Confirm the ledger is balanced and review any entries that need attention." actions={<Button onClick={() => showToast('A new reconciliation run has been queued in this demo.')}><RefreshCw size={15} /> Run reconciliation</Button>} /><Panel className="mb-5 flex flex-col gap-4 border-green-100 bg-green-50/60 p-5 sm:flex-row sm:items-center"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-green-700"><CheckCheck size={21} /></span><div className="flex-1"><h2 className="text-sm font-bold text-green-900">Ledger is balanced</h2><p className="mt-1 text-xs text-green-800/70">Last reconciliation completed today at 03:00 AM.</p></div><Status tone="green">All checks passed</Status></Panel><div className="grid gap-4 sm:grid-cols-3"><Metric label="Journal entries checked" value="18,492" icon={FileCheck2} /><Metric label="Unbalanced entries" value="0" icon={Activity} color="green" /><Metric label="Pending settlements" value="2" icon={Clock3} color="amber" /></div><Panel className="mt-5 overflow-hidden"><div className="border-b border-slate-100 p-5"><h2 className="text-sm font-bold text-ink">Recent reconciliation runs</h2></div><div className="overflow-x-auto"><table className="w-full min-w-[540px] text-left"><thead><tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400"><th className="px-5 py-3">Run</th><th className="px-4 py-3">Date</th><th className="px-4 py-3">Entries</th><th className="px-5 py-3">Result</th></tr></thead><tbody>{[['REC-1127', 'Today, 03:00 AM', '18,492'], ['REC-1126', 'Yesterday, 03:00 AM', '18,317'], ['REC-1125', '08 Nov, 03:00 AM', '18,104']].map(([id, date, entries]) => <tr key={id} className="border-b border-slate-50 last:border-0"><td className="px-5 py-4 text-xs font-semibold text-ink">{id}</td><td className="px-4 py-4 text-xs text-slate-500">{date}</td><td className="px-4 py-4 text-xs text-slate-500">{entries}</td><td className="px-5 py-4"><Status tone="green">Balanced</Status></td></tr>)}</tbody></table></div></Panel></div>;
+function Reconciliation({ data }) {
+  const clean = Boolean(data?.clean);
+  const issues = data?.issues || [];
+  return <div className="fade-in"><PageHeader title="Ledger reconciliation" description="Review the current account and ledger consistency check." /><Panel className={`mb-5 flex flex-col gap-4 p-5 sm:flex-row sm:items-center ${clean ? 'border-green-100 bg-green-50/60' : 'border-amber-200 bg-amber-50/60'}`}><span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white ${clean ? 'text-green-700' : 'text-amber-700'}`}><CheckCheck size={21} /></span><div className="flex-1"><h2 className="text-sm font-bold text-ink">{data ? (clean ? 'Ledger is balanced' : 'Reconciliation found issues') : 'Loading reconciliation'}</h2><p className="mt-1 text-xs text-slate-600">{data ? `${issues.length} issue${issues.length === 1 ? '' : 's'} reported by the ledger service.` : 'Fetching the latest report from the ledger service.'}</p></div><Status tone={clean ? 'green' : 'amber'}>{data ? (clean ? 'All checks passed' : 'Review issues') : 'Loading'}</Status></Panel>{issues.length > 0 && <Panel className="p-5"><h2 className="text-sm font-bold text-ink">Issues requiring review</h2><ul className="mt-3 space-y-2">{issues.map((issue, index) => <li key={`${index}-${issue}`} className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900">{issue}</li>)}</ul></Panel>}</div>;
 }
 
 function App() {
-  const [view, setView] = useState('overview');
-  const [accounts, setAccounts] = useState(initialAccounts);
-  const [transactions, setTransactions] = useState(initialTransactions);
-  const [payouts, setPayouts] = useState(initialPayouts);
-  const [beneficiaries, setBeneficiaries] = useState(initialBeneficiaries);
-  const [notifications, setNotifications] = useState(initialNotifications);
+  const [view, setView] = useState(() => window.location.pathname === '/reset-password' ? 'reset-password' : localStorage.getItem('accessToken') ? 'overview' : 'login');
+  const [accounts, setAccounts] = useState([]);
+  const [transactions, setTransactions] = useState([]);
+  const [payouts, setPayouts] = useState([]);
+  const [beneficiaries, setBeneficiaries] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [adminMode, setAdminMode] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [toast, setToast] = useState('');
-  const [transfer, setTransfer] = useState({ type: 'Bank transfer', bank: 'Access Bank', accountNumber: '', accountId: initialAccounts[0].id, amount: '', recipientName: '', note: '' });
-  const [deposit, setDeposit] = useState({ accountId: initialAccounts[0].id, amount: '' });
-  const [withdrawal, setWithdrawal] = useState({ accountId: initialAccounts[0].id, bank: '', accountNumber: '', amount: '', verified: false, recipient: '' });
+  const [transfer, setTransfer] = useState({ type: 'Bank transfer', bank: '', bankCode: '', nameEnquiryRef: '', accountNumber: '', accountId: '', amount: '', recipientName: '', note: '', transactionId: '' });
+  const [deposit, setDeposit] = useState({ accountId: '', amount: '' });
+  const [withdrawal, setWithdrawal] = useState({ accountId: '', bank: '', bankCode: '', accountNumber: '', amount: '', verified: false, recipient: '', nameEnquiryRef: '' });
   const [openAccount, setOpenAccount] = useState(false);
   const [modal, setModal] = useState(null);
   const [kycStatus, setKycStatus] = useState('Not started');
   const [upgradeStatus, setUpgradeStatus] = useState('Not started');
+  const [pinValue, setPinValue] = useState('');
+  const [activeDeposit, setActiveDeposit] = useState(null);
+
+  const hasSession = Boolean(localStorage.getItem('accessToken'));
+  const { data: currentUser, isError: currentUserFailed } = useCurrentUserQuery(undefined, { skip: !hasSession });
+  const isAdmin = currentUser?.role === 'ADMIN';
+  const { data: accountRows = [], isLoading: accountsLoading } = useMyAccountsQuery(undefined, { skip: !hasSession });
+  const primaryAccountNumber = accounts[0]?.number;
+  const { data: transactionRows = [] } = useTransactionHistoryQuery(primaryAccountNumber, { skip: !hasSession || !primaryAccountNumber });
+  const { data: statementData } = useAccountStatementQuery({ accountNumber: primaryAccountNumber, size: 200 }, { skip: !hasSession || !primaryAccountNumber });
+  const { data: bankRows = [] } = useBanksQuery(undefined, { skip: !hasSession });
+  const [openAccountRequest] = useOpenAccountMutation();
+  const [submitTransferRequest] = useTransferMutation();
+  const [verifyTransferRequest] = useVerifyTransferMutation();
+  const [submitDepositRequest] = useCreateDepositMutation();
+  const [submitWithdrawalRequest] = useCreateWithdrawalMutation();
+  const [logoutRequest] = useLogoutMutation();
+  const [nameEnquiryRequest] = useNameEnquiryMutation();
+  const [fetchAccount] = useLazyAccountQuery();
+  const { data: verificationStatus } = useVerificationStatusQuery(undefined, { skip: !hasSession });
+  const { data: reconciliationData } = useReconciliationQuery(undefined, { skip: !hasSession || !adminMode });
+  const { data: auditData } = useAdminAuditQuery({ limit: 100 }, { skip: !hasSession || !adminMode || view !== 'audit-log' });
+  const { data: adminUsers = [] } = useUsersQuery(undefined, { skip: !hasSession || !adminMode });
+  const { data: adminAccounts = [] } = useAllAccountsQuery(undefined, { skip: !hasSession || !adminMode });
+  const { data: adminTransactions = [] } = useAllTransactionsQuery(undefined, { skip: !hasSession || !adminMode });
+  const { data: payoutRows = [] } = usePendingPayoutsQuery({ state: 'PENDING_APPROVAL' }, { skip: !hasSession || !adminMode });
+  const [blockAccountRequest] = useBlockAccountMutation();
+  const [approvePayoutRequest] = useApprovePayoutMutation();
+  const [rejectPayoutRequest] = useRejectPayoutMutation();
+
+  useEffect(() => {
+    if (!accountRows.length) return;
+    setAccounts(accountRows.map((account) => ({
+      id: account.id,
+      number: account.accountNumber,
+      name: account.accountType === 'CURRENT' ? 'Everyday account' : 'Savings account',
+      lastFour: account.accountNumber.slice(-4),
+      type: account.accountType,
+      balance: Number(account.balance || 0),
+      status: account.status,
+      accent: 'gold',
+    })));
+  }, [accountRows]);
+
+  useEffect(() => {
+    if (!transactionRows.length) { setTransactions([]); return; }
+    setTransactions(transactionRows.map((tx) => ({
+      id: tx.id,
+      title: tx.description || `${tx.type === 'TRANSFER' ? 'Transfer' : tx.type} ${tx.receiverAccountNumber ? `to ${tx.receiverAccountNumber}` : ''}`,
+      subtitle: tx.createdAt ? new Date(tx.createdAt).toLocaleString() : tx.status,
+      type: tx.type,
+      amount: tx.senderAccountNumber === primaryAccountNumber ? -Number(tx.amount) : Number(tx.amount),
+      status: tx.status,
+    })));
+  }, [transactionRows, primaryAccountNumber]);
+
+  useEffect(() => {
+    setPayouts(payoutRows.map((payout) => ({
+      id: String(payout.payoutId),
+      payoutId: payout.payoutId,
+      name: payout.destinationAccountName || 'Bank customer',
+      bank: `${payout.bankCode} · ${payout.destinationAccountNumber?.slice(-4) || ''}`,
+      amount: Number(payout.amount),
+      risk: payout.status,
+      requested: payout.status,
+    })));
+  }, [payoutRows]);
+
+  useEffect(() => {
+    if (currentUserFailed) {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      setView('login');
+    }
+  }, [currentUserFailed]);
+
+  useEffect(() => {
+    if (!isAdmin && adminMode) { setAdminMode(false); setView('overview'); }
+  }, [isAdmin, adminMode]);
+
+  useEffect(() => {
+    if (verificationStatus?.identityStatus) setKycStatus(verificationStatus.identityStatus);
+    if (verificationStatus?.accountUpgradeStatus) setUpgradeStatus(verificationStatus.accountUpgradeStatus);
+  }, [verificationStatus]);
 
   const notify = (message) => {
     setToast(message);
@@ -1147,6 +1357,16 @@ function App() {
     setView(nextView);
     setMobileNavOpen(false);
     setOpenAccount(false);
+  };
+  const signOut = async () => {
+    const refreshToken = localStorage.getItem('refreshToken');
+    try { if (refreshToken) await logoutRequest({ refreshToken }).unwrap(); } catch { /* local sign out still clears this browser session */ }
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    setAdminMode(false);
+    setAccounts([]);
+    setTransactions([]);
+    moveTo('login');
   };
   const updateAccountBalance = (accountId, amount) => setAccounts((old) => old.map((account) => account.id === accountId ? { ...account, balance: Math.max(0, account.balance + amount) } : account));
   const addTransaction = (record) => setTransactions((old) => [record, ...old]);
@@ -1182,85 +1402,130 @@ function App() {
     }
     moveTo('transfer-review');
   };
-  const completeTransfer = () => {
-    const amount = Number(transfer.amount) || 0;
-    updateAccountBalance(transfer.accountId, -amount);
-    addTransaction({ id: `TXN-${Math.floor(100000 + Math.random() * 900000)}`, title: `Transfer to ${transfer.recipientName || 'Adaeze Okafor'}`, subtitle: `${transfer.bank || 'Eli Digital Bank'} · Just now`, type: 'Transfer', amount: -amount, status: 'Success' });
-    moveTo('transfer-status');
+  const completeTransfer = async (pin = pinValue) => {
+    const source = accounts.find((account) => account.id === transfer.accountId);
+    try {
+      const result = await submitTransferRequest({
+        idempotencyKey: crypto.randomUUID(),
+        body: {
+          senderAccountNumber: source.number,
+          receiverAccountNumber: transfer.accountNumber,
+          amount: Number(transfer.amount),
+          description: transfer.note || `Transfer to ${transfer.recipientName}`,
+          type: 'TRANSFER',
+          pin,
+          ...(transfer.type === 'Bank transfer' ? { bankCode: transfer.bankCode, nameEnquiryRef: transfer.nameEnquiryRef } : {}),
+        },
+      }).unwrap();
+      const id = result.transactionId || result.id || result.payoutId;
+      setTransfer((old) => ({ ...old, transactionId: String(id || ''), status: result.status || 'PROCESSING', isWithdrawal: false, isPayout: Boolean(result.payoutId) }));
+      setPinValue('');
+      setModal(null);
+      moveTo(result.status === 'PENDING_VERIFICATION' ? 'verify' : 'transfer-status');
+    } catch (failure) {
+      notify(failure?.data?.detail || 'Transfer could not be submitted. Please try again.');
+    }
   };
-  const submitDeposit = (event) => {
+  const submitDeposit = async (event) => {
     event.preventDefault();
     const amount = Number(deposit.amount);
     if (amount <= 0) return notify('Enter a valid deposit amount.');
-    updateAccountBalance(deposit.accountId, amount);
-    addTransaction({ id: `DEP-${Math.floor(100000 + Math.random() * 900000)}`, title: 'Card top-up', subtitle: 'Demo card · Just now', type: 'Deposit', amount, status: 'Success' });
-    notify('Demo deposit completed successfully.');
-    setDeposit((old) => ({ ...old, amount: '' }));
-    moveTo('transactions');
+    const account = accounts.find((item) => item.id === deposit.accountId);
+    try {
+      const result = await submitDepositRequest({ idempotencyKey: crypto.randomUUID(), body: { accountNumber: account.number, amount: amount.toFixed(2) } }).unwrap();
+      setActiveDeposit(result);
+      notify('Deposit started. Complete the secure card payment to credit your account.');
+    } catch (failure) { notify(failure?.data?.detail || 'Deposit could not be started.'); }
   };
   const submitWithdrawal = (event) => {
     event.preventDefault();
     if (!withdrawal.verified) return notify('Verify the destination account before continuing.');
     const source = accounts.find((account) => account.id === withdrawal.accountId);
     if (Number(withdrawal.amount) > (source?.balance || 0)) return notify('The amount is greater than your available balance.');
+    setPinValue('');
     setModal({ kind: 'withdrawal', amount: Number(withdrawal.amount) });
   };
-  const confirmWithdrawal = () => {
-    const amount = Number(withdrawal.amount);
-    updateAccountBalance(withdrawal.accountId, -amount);
-    addTransaction({ id: `WDL-${Math.floor(100000 + Math.random() * 900000)}`, title: `Withdrawal to ${withdrawal.recipient || 'bank account'}`, subtitle: `${withdrawal.bank} · Just now`, type: 'Withdrawal', amount: -amount, status: 'Pending' });
-    setPayouts((old) => [{ id: `PO-${Math.floor(1000 + Math.random() * 9000)}`, name: 'Elijah Okafor', bank: `${withdrawal.bank} · ${withdrawal.accountNumber.slice(-4)}`, amount, risk: 'Review', requested: 'Just now' }, ...old]);
-    setModal(null);
-    notify('Withdrawal request submitted for review.');
-    moveTo('transactions');
+  const confirmWithdrawal = async () => {
+    const source = accounts.find((item) => item.id === withdrawal.accountId);
+    try {
+      const result = await submitWithdrawalRequest({ idempotencyKey: crypto.randomUUID(), body: {
+        accountNumber: source.number, amount: Number(withdrawal.amount).toFixed(2), bankCode: withdrawal.bankCode,
+        destinationAccountNumber: withdrawal.accountNumber, nameEnquiryRef: withdrawal.nameEnquiryRef,
+        narration: 'Customer withdrawal', pin: pinValue,
+      } }).unwrap();
+      setPayouts((old) => [result, ...old]);
+      setTransfer((old) => ({ ...old, transactionId: String(result.payoutId), status: result.status, isWithdrawal: true, isPayout: false }));
+      setPinValue(''); setModal(null);
+      notify('Withdrawal request submitted.'); moveTo('transfer-status');
+    } catch (failure) { notify(failure?.data?.detail || 'Withdrawal could not be submitted.'); }
   };
-  const decidePayout = (payout, status) => {
-    setPayouts((old) => old.filter((item) => item.id !== payout.id));
-    notify(`Payout ${payout.id} ${status.toLowerCase()} in this demo.`);
+  const decidePayout = async (payout, status) => {
+    try {
+      if (status === 'Approved') await approvePayoutRequest({ id: payout.payoutId }).unwrap();
+      else await rejectPayoutRequest({ id: payout.payoutId, reason: 'Rejected by operations review' }).unwrap();
+      notify(`Payout ${payout.id} ${status.toLowerCase()}.`);
+    } catch (failure) { notify(failure?.data?.detail || 'The payout decision could not be saved.'); }
   };
-  const createAccount = (type, openingBalance) => {
-    const lastFour = String(Math.floor(1000 + Math.random() * 9000));
-    setAccounts((old) => [...old, { id: `acc-${Date.now()}`, name: type === 'Savings' ? 'Goal savings' : 'New everyday account', lastFour, number: `369361${lastFour}`, type, balance: openingBalance, status: 'Active', accent: type === 'Savings' ? 'gold' : 'gold-muted' }]);
-    setOpenAccount(false);
-    notify('Your new demo account is ready.');
-    moveTo('accounts');
+  const createAccount = async (type, openingBalance, accountHolderName, phone) => {
+    try {
+      await openAccountRequest({ accountHolderName, phone, accountType: type.toUpperCase(), initialDeposit: openingBalance }).unwrap();
+      setOpenAccount(false); notify('Your account has been opened.'); moveTo('accounts');
+    } catch (failure) { notify(failure?.data?.detail || 'Account could not be opened.'); }
   };
 
-  if (['login', 'register', 'forgot-password', 'verify-email'].includes(view)) return <AuthPage view={view} setView={setView} onSignIn={() => moveTo('overview')} showToast={notify} />;
+  if (['login', 'register', 'forgot-password', 'reset-password', 'verify-email'].includes(view)) return <AuthPage view={view} setView={setView} onSignIn={() => moveTo('overview')} showToast={notify} />;
 
   const screen = (() => {
     switch (view) {
       case 'accounts': return <Accounts accounts={accounts} setView={moveTo} setOpenAccount={setOpenAccount} />;
-      case 'transfers': return <TransferForm accounts={accounts} transfer={transfer} setTransfer={setTransfer} onSubmit={submitTransfer} />;
+      case 'transfers': return <TransferForm accounts={accounts} transfer={transfer} setTransfer={setTransfer} onSubmit={submitTransfer} bankOptions={bankRows} onEnquiry={async () => {
+        if (transfer.type === 'Internal transfer') {
+          const account = await fetchAccount(transfer.accountNumber).unwrap();
+          return { accountName: account.accountHolderName };
+        }
+        const result = await nameEnquiryRequest({ bankCode: transfer.bankCode, accountNumber: transfer.accountNumber }).unwrap();
+        setTransfer((old) => ({ ...old, recipientName: result.accountName, nameEnquiryRef: result.nameEnquiryRef }));
+        return result;
+      }} />;
       case 'transfer-review': return <TransferReview transfer={transfer} accounts={accounts} onConfirm={() => setModal({ kind: 'pin' })} onBack={() => moveTo('transfers')} onFlag={() => moveTo('verify')} />;
-      case 'add-money': return <AddMoney accounts={accounts} deposit={deposit} setDeposit={setDeposit} onSubmit={submitDeposit} />;
-      case 'withdraw': return <Withdraw accounts={accounts} withdrawal={withdrawal} setWithdrawal={setWithdrawal} onSubmit={submitWithdrawal} />;
+      case 'add-money': return <AddMoney accounts={accounts} deposit={deposit} setDeposit={setDeposit} onSubmit={submitDeposit} activeDeposit={activeDeposit} onClearDeposit={() => setActiveDeposit(null)} />;
+      case 'withdraw': return <Withdraw accounts={accounts} withdrawal={withdrawal} setWithdrawal={setWithdrawal} onSubmit={submitWithdrawal} bankOptions={bankRows} onEnquiry={async () => {
+        const result = await nameEnquiryRequest({ bankCode: withdrawal.bankCode, accountNumber: withdrawal.accountNumber }).unwrap();
+        setWithdrawal((old) => ({ ...old, recipient: result.accountName, nameEnquiryRef: result.nameEnquiryRef }));
+        return result;
+      }} />;
       case 'kyc': return <IdentityVerification status={kycStatus} setStatus={setKycStatus} showToast={notify} />;
       case 'account-upgrade': return <AccountUpgrade status={upgradeStatus} setStatus={setUpgradeStatus} showToast={notify} />;
-      case 'transactions': return <Transactions transactions={transactions} setView={moveTo} onSelect={(tx) => setModal({ kind: 'transaction', transaction: tx })} />;
+      case 'transactions': return <Transactions transactions={transactions} setView={moveTo} statement={statementData} onSelect={(tx) => setModal({ kind: 'transaction', transaction: tx })} />;
       case 'beneficiaries': return <Beneficiaries beneficiaries={beneficiaries} onAdd={addBeneficiary} onRemove={removeBeneficiary} onSend={sendToBeneficiary} />;
-      case 'notifications': return <Notifications notifications={notifications} onMarkRead={markNotificationRead} onMarkAllRead={markAllNotificationsRead} setView={moveTo} />;
-      case 'verify': return <VerifyTransfer transfer={transfer} onComplete={completeTransfer} onBack={() => moveTo('transfer-review')} />;
-      case 'transfer-status': return <TransferStatus transfer={transfer} setView={moveTo} transactions={transactions} />;
-      case 'settings': return <SettingsPage setView={moveTo} showToast={notify} />;
+      case 'notifications': return <Notifications setView={moveTo} currentUser={currentUser} />;
+      case 'verify': return <VerifyTransfer transfer={transfer} onComplete={async (code) => {
+        try { await verifyTransferRequest({ transactionId: transfer.transactionId, otp: code }).unwrap(); moveTo('transfer-status'); }
+        catch (failure) { notify(failure?.data?.detail || 'That verification code was not accepted.'); }
+      }} onBack={() => moveTo('transfer-review')} />;
+      case 'transfer-status': return <TransferStatus transfer={transfer} setView={moveTo} />;
+      case 'settings': return <SettingsPage setView={moveTo} currentUser={currentUser} />;
       case 'security': return <SecurityPage showToast={notify} />;
       case 'account-open': return <OpenAccount onCancel={() => moveTo('accounts')} onCreate={createAccount} />;
-      case 'support': return <Support showToast={notify} />;
-      case 'ops-dashboard': return <AdminDashboard setView={moveTo} payouts={payouts} />;
+      case 'support': return <Support setView={moveTo} />;
+      case 'ops-dashboard': return <AdminDashboard setView={moveTo} payouts={payouts} users={adminUsers} accounts={adminAccounts} transactions={adminTransactions} reconciliation={reconciliationData} />;
       case 'payouts': return <Payouts payouts={payouts} onDecision={decidePayout} />;
-      case 'risk-alerts': return <RiskAlerts showToast={notify} />;
-      case 'audit-log': return <AuditLog />;
-      case 'customers': return <Customers showToast={notify} />;
-      case 'reconciliation': return <Reconciliation showToast={notify} />;
+      case 'risk-alerts': return <RiskAlerts transactions={adminTransactions} />;
+      case 'audit-log': return <AuditLog entries={auditData?.entries || []} />;
+      case 'customers': return <Customers showToast={notify} users={adminUsers} accounts={adminAccounts} onBlock={async (account) => {
+        try { await blockAccountRequest(account.accountNumber).unwrap(); notify(`Account ending ${account.accountNumber.slice(-4)} blocked.`); }
+        catch (failure) { notify(failure?.data?.detail || 'Account could not be blocked.'); }
+      }} />;
+      case 'reconciliation': return <Reconciliation showToast={notify} data={reconciliationData} />;
       default: return <Overview accounts={accounts} transactions={transactions} setView={moveTo} />;
     }
   })();
 
   return (
     <div className="min-h-screen bg-canvas xl:flex">
-      <Sidebar view={view} setView={moveTo} adminMode={adminMode} setAdminMode={setAdminMode} open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} unreadCount={unreadCount} />
+      <Sidebar view={view} setView={moveTo} adminMode={adminMode} setAdminMode={setAdminMode} open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} unreadCount={unreadCount} currentUser={currentUser} isAdmin={isAdmin} onLogout={signOut} />
       <div className="min-w-0 flex-1">
-        <TopBar setView={moveTo} onMenu={() => setMobileNavOpen(true)} adminMode={adminMode} notifications={notifications} unreadCount={unreadCount} />
+        <TopBar setView={moveTo} onMenu={() => setMobileNavOpen(true)} adminMode={adminMode} notifications={notifications} unreadCount={unreadCount} currentUser={currentUser} />
         <main className="mx-auto max-w-[1500px] px-4 py-6 sm:px-7 sm:py-8 lg:px-9">
           {viewTitles[view] && <div className="mb-3 hidden text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-400 sm:block">{adminMode ? 'Operations' : 'Workspace'} <span className="mx-1 text-slate-300">/</span> <span className="text-slate-500">{viewTitles[view]}</span></div>}
           {openAccount ? <OpenAccount onCancel={() => setOpenAccount(false)} onCreate={createAccount} /> : screen}
@@ -1268,8 +1533,8 @@ function App() {
         </main>
       </div>
       {toast && <div role="status" className="fixed bottom-5 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-2 rounded-xl bg-ink px-4 py-3 text-xs font-medium text-white shadow-xl"><Check size={15} className="text-green-300" />{toast}</div>}
-      {modal?.kind === 'pin' && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4"><Panel className="w-full max-w-sm p-6"><div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-gold-50 text-gold-800"><Fingerprint size={22} /></div><h2 className="mt-4 text-center text-lg font-bold text-ink">Enter your transaction PIN</h2><p className="mt-1 text-center text-xs text-slate-500">Authorize this transfer securely.</p><form onSubmit={(e) => { e.preventDefault(); setModal(null); completeTransfer(); }}><input aria-label="Transaction PIN" type="password" inputMode="numeric" maxLength="4" placeholder="••••" className="form-control mt-5 text-center text-xl tracking-[0.5em]" required /><Button className="mt-3 w-full" type="submit">Confirm transfer <ArrowRight size={14} /></Button><button type="button" onClick={() => setModal(null)} className="mt-3 w-full text-xs font-semibold text-slate-400">Cancel</button></form></Panel></div>}
-      {modal?.kind === 'withdrawal' && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4"><Panel className="w-full max-w-sm p-6"><h2 className="text-lg font-bold text-ink">Review withdrawal</h2><p className="mt-1 text-xs text-slate-500">Confirm this payout request before you continue.</p><div className="my-5 rounded-xl bg-slate-50 p-4"><p className="text-[10px] text-slate-400">Amount</p><p className="mt-1 text-2xl font-bold text-ink">{money(modal.amount)}</p><p className="mt-3 text-xs text-slate-600">{withdrawal.bank} · {withdrawal.accountNumber.slice(-4)}</p><p className="mt-1 text-xs text-slate-500">{withdrawal.recipient}</p></div><Button className="w-full" onClick={confirmWithdrawal}>Submit withdrawal <ArrowRight size={14} /></Button><button onClick={() => setModal(null)} className="mt-3 w-full text-xs font-semibold text-slate-400">Cancel</button></Panel></div>}
+      {modal?.kind === 'pin' && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4"><Panel className="w-full max-w-sm p-6"><div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-gold-50 text-gold-800"><Fingerprint size={22} /></div><h2 className="mt-4 text-center text-lg font-bold text-ink">Enter your transaction PIN</h2><p className="mt-1 text-center text-xs text-slate-500">Authorize this transfer securely.</p><form onSubmit={(e) => { e.preventDefault(); completeTransfer(pinValue); }}><input aria-label="Transaction PIN" type="password" inputMode="numeric" maxLength="4" value={pinValue} onChange={(e) => setPinValue(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="••••" className="form-control mt-5 text-center text-xl tracking-[0.5em]" required /><Button className="mt-3 w-full" type="submit">Confirm transfer <ArrowRight size={14} /></Button><button type="button" onClick={() => setModal(null)} className="mt-3 w-full text-xs font-semibold text-slate-400">Cancel</button></form></Panel></div>}
+      {modal?.kind === 'withdrawal' && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4"><Panel className="w-full max-w-sm p-6"><h2 className="text-lg font-bold text-ink">Review withdrawal</h2><p className="mt-1 text-xs text-slate-500">Confirm this payout request before you continue.</p><div className="my-5 rounded-xl bg-slate-50 p-4"><p className="text-[10px] text-slate-400">Amount</p><p className="mt-1 text-2xl font-bold text-ink">{money(modal.amount)}</p><p className="mt-3 text-xs text-slate-600">{withdrawal.bank} · {withdrawal.accountNumber.slice(-4)}</p><p className="mt-1 text-xs text-slate-500">{withdrawal.recipient}</p></div><Field label="Transaction PIN" type="password" inputMode="numeric" maxLength="4" value={pinValue} onChange={(e) => setPinValue(e.target.value.replace(/\D/g, '').slice(0, 4))} required /><Button className="mt-4 w-full" onClick={confirmWithdrawal} disabled={pinValue.length !== 4}>Submit withdrawal <ArrowRight size={14} /></Button><button onClick={() => setModal(null)} className="mt-3 w-full text-xs font-semibold text-slate-400">Cancel</button></Panel></div>}
       {modal?.kind === 'transaction' && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4" onClick={() => setModal(null)}><Panel className="w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}><div className="flex items-start justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-gold-800">Transaction details</p><h2 className="mt-1 text-lg font-bold text-ink">{modal.transaction.title}</h2></div><button onClick={() => setModal(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X size={16} /></button></div><p className={`mt-5 text-[26px] font-bold ${modal.transaction.amount > 0 ? 'text-green-700' : 'text-ink'}`}>{modal.transaction.amount > 0 ? '+' : '−'}{money(Math.abs(modal.transaction.amount))}</p><div className="mt-4 space-y-3 border-y border-slate-100 py-4">{[['Reference', modal.transaction.id], ['Type', modal.transaction.type], ['Status', modal.transaction.status], ['Date', modal.transaction.subtitle]].map(([key, value]) => <div key={key} className="flex justify-between gap-3 text-xs"><span className="text-slate-500">{key}</span><span className="text-right font-semibold text-ink">{value}</span></div>)}</div><Button variant="secondary" className="mt-4 w-full" onClick={() => window.print()}><Download size={14} /> Download receipt</Button></Panel></div>}
     </div>
   );

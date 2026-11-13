@@ -24,6 +24,7 @@ import org.elibanking.paymentservice.security.Caller;
 import org.elibanking.paymentservice.stripe.DepositEvents;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.elibanking.common.events.KafkaEventEnvelope;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -149,11 +150,12 @@ public class PaymentService {
 
             Map<String, Object> message = new HashMap<>();
             message.put("paymentId", payment.getId());
+            message.put("userId", accountClient.getAccount(payment.getAccountNumber()).ownerId());
             message.put("accountNumber", payment.getAccountNumber());
             message.put("amount", payment.getAmount());
             message.put("stripePaymentId", paymentIntent.getId());
 
-            kafkaTemplate.send(PAYMENT_COMPLETED_TOPIC, payment.getId(), message);
+            kafkaTemplate.send(KafkaEventEnvelope.record(PAYMENT_COMPLETED_TOPIC, payment.getId(), message));
             log.info("Payment completed: {}", payment.getId());
 
         } catch (Exception e) {
@@ -181,11 +183,12 @@ public class PaymentService {
 
             Map<String, Object> message = new HashMap<>();
             message.put("paymentId", payment.getId());
+            message.put("userId", accountClient.getAccount(payment.getAccountNumber()).ownerId());
             message.put("accountNumber", payment.getAccountNumber());
             message.put("amount", payment.getAmount());
             message.put("reason", reason);
 
-            kafkaTemplate.send(PAYMENT_FAILED_TOPIC, payment.getId(), message);
+            kafkaTemplate.send(KafkaEventEnvelope.record(PAYMENT_FAILED_TOPIC, payment.getId(), message));
             log.warn("Payment failed: {}", payment.getId());
 
         } catch (Exception e) {

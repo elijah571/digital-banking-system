@@ -1,5 +1,7 @@
 package org.elibanking.accountservice.outbox;
 
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.elibanking.common.events.KafkaEventHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -8,8 +10,10 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -27,11 +31,14 @@ public class OutboxRelay {
     private final JdbcTemplate jdbc;
     private final KafkaTemplate<String, String> kafka;
     private final TransactionTemplate tx;
+    private final ObjectMapper mapper;
 
-    public OutboxRelay(JdbcTemplate jdbc, KafkaTemplate<String, String> outboxKafkaTemplate, TransactionTemplate tx) {
+    public OutboxRelay(JdbcTemplate jdbc, KafkaTemplate<String, String> outboxKafkaTemplate,
+                       TransactionTemplate tx, ObjectMapper mapper) {
         this.jdbc = jdbc;
         this.kafka = outboxKafkaTemplate;
         this.tx = tx;
+        this.mapper = mapper;
     }
 
     /**
@@ -81,7 +88,12 @@ public class OutboxRelay {
 
     private void send(Pending row) {
         try {
-            kafka.send(row.topic(), row.aggregateId(), row.payload()).get(15, TimeUnit.SECONDS);
+            Map<?, ?> envelope = mapper.readValue(row.payload(), Map.class);
+            ProducerRecord<String, String> record = new ProducerRecord<>(row.topic(), row.aggregateId(), row.payload());
+            KafkaEventHeaders.apply(envelope, (name, value) -> record.headers().add(name, value));
+            kafka.send(record).get(15, TimeUnit.SECONDS);
+        } catch (RuntimeException e) {
+            throw e;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("interrupted while publishing outbox event " + row.id(), e);

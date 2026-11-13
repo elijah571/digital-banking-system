@@ -1,37 +1,43 @@
 package org.elibanking.notificationservice.service;
 
+import org.elibanking.notificationservice.client.AuthRecipientClient;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-/** A PIN code is emailed to the user; a transfer code is not (wallet-plan 3.5, D-P4). Plain mocks, no context. */
+/** PIN and transfer verification codes use the same branded, private email channel. */
 class PinCodeEmailTest {
 
-    private final EmailSender emailSender = mock(EmailSender.class);
-    private final NotificationService notifications = new NotificationService(emailSender);
+    private final CustomerEmailDelivery delivery = mock(CustomerEmailDelivery.class);
+    private final AuthRecipientClient recipients = mock(AuthRecipientClient.class);
+    private final NotificationService notifications = new NotificationService(delivery, recipients);
 
     @Test
-    void aPinCodeIsEmailedToTheUser() {
-        notifications.consumeOtp(Map.of("purpose", "PIN_CHANGE", "userId", "alice", "email", "alice@example.test",
-                "otp", "483920", "reason", "PIN change"));
+    void aPinCodeIsEmailedToTheAddressInThePinRequest() {
+        Map<String, Object> event = Map.of("purpose", "PIN_CHANGE", "userId", "alice", "email", "alice@example.test",
+                "otp", "483920", "reason", "PIN change");
+        notifications.consumeOtp(event);
 
-        verify(emailSender).send(eq("alice@example.test"), eq("Your EliBanking PIN code"), anyString(),
-                contains("Your OTP is 483920"));
+        verify(delivery).send(eq(event), eq("alice@example.test"), any());
     }
 
     @Test
-    void aTransferCodeIsNotEmailed() {
-        notifications.consumeOtp(Map.of("transactionId", "tx-1", "accountNumber", "1000000001",
-                "otp", "111222", "reason", "large amount", "amount", "250.00"));
+    void aTransferCodeIsEmailedToTheVerifiedAccountOwner() {
+        Map<String, Object> event = Map.of("eventId", "evt-1", "payload", Map.of("transactionId", "tx-1",
+                "userId", "alice", "accountNumber", "1000000001", "otp", "111222", "reason", "large amount", "amount", "250.00"));
+        when(recipients.get("alice")).thenReturn(new AuthRecipientClient.Recipient("alice@example.test", "Alice"));
 
-        verify(emailSender, never()).send(any(), any(), any(), any());
+        notifications.consumeOtp(event);
+
+        var email = org.mockito.ArgumentCaptor.forClass(CustomerEmailTemplates.Email.class);
+        verify(delivery).send(eq(event), eq("alice@example.test"), email.capture());
+        assertTrue(email.getValue().plainText().contains("verify your transfer: 111222"));
     }
 }

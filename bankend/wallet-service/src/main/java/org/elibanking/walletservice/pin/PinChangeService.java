@@ -1,5 +1,6 @@
 package org.elibanking.walletservice.pin;
 
+import org.elibanking.common.events.KafkaEventEnvelope;
 import feign.FeignException;
 import lombok.extern.slf4j.Slf4j;
 import org.elibanking.walletservice.client.AuthServiceClient;
@@ -105,7 +106,8 @@ public class PinChangeService {
 
     private void notifyChanged(String userId, String email) {
         try {
-            kafka.send(CHANGED_TOPIC, userId, Map.of("userId", userId, "email", email)).get(10, TimeUnit.SECONDS);
+            kafka.send(KafkaEventEnvelope.record(CHANGED_TOPIC, userId, Map.of("userId", userId, "email", email)))
+                    .get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
             // The PIN has already changed. A missing email is logged, and the change stands.
             log.warn("PIN change notice not sent for user {}", userId);

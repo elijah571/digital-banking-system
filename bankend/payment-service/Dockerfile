@@ -3,13 +3,11 @@
 #   docker build -f payment-service/Dockerfile .
 FROM eclipse-temurin:25-jdk AS build
 WORKDIR /src
-# Shared library first: it changes rarely, so this layer is usually cached.
 COPY libs/banking-common libs/banking-common
-RUN --mount=type=cache,target=/root/.m2 \
-    libs/banking-common/mvnw -q -B -f libs/banking-common/pom.xml -DskipTests install
 COPY payment-service payment-service
-RUN --mount=type=cache,target=/root/.m2 \
-    payment-service/mvnw -q -B -f payment-service/pom.xml -DskipTests package \
+RUN --mount=type=cache,target=/root/.m2,sharing=locked \
+    libs/banking-common/mvnw -q -B -f libs/banking-common/pom.xml -DskipTests install \
+    && payment-service/mvnw -q -B -f payment-service/pom.xml -DskipTests package \
     && cp payment-service/target/*.jar /src/app.jar
 
 FROM eclipse-temurin:25-jre

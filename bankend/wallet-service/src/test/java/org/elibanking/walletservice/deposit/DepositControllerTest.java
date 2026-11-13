@@ -15,6 +15,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -51,6 +53,9 @@ class DepositControllerTest {
 
     @Autowired
     JdbcTemplate jdbc;
+
+    @Autowired
+    StringRedisTemplate redis;
 
     @Autowired
     ObjectMapper json;
@@ -105,6 +110,30 @@ class DepositControllerTest {
                 .andReturn().getResponse().getContentAsString();
 
         assertEquals(json.readTree(first).get("depositId").asText(), json.readTree(second).get("depositId").asText());
+        assertEquals(1, depositsFor(user));
+        verify(payments, times(1)).createIntent(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void aRedisFlushDoesNotAllowTheSameDepositToBeOpenedTwice() throws Exception {
+        String user = newUser();
+        String account = newAccount();
+        String key = newKey();
+        when(accounts.check(account)).thenReturn(new AccountCheck(user, "ACTIVE", "NGN"));
+        when(payments.createIntent(anyString(), anyString(), anyString()))
+                .thenReturn(new Intent("pi_test_flush", "pi_test_flush_secret"));
+
+        String first = mvc.perform(deposit(user, key, account, "25000.00"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        try (RedisConnection connection = redis.getConnectionFactory().getConnection()) {
+            connection.serverCommands().flushDb();
+        }
+        String replay = mvc.perform(deposit(user, key, account, "25000.00"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals(json.readTree(first).get("depositId").asText(), json.readTree(replay).get("depositId").asText());
         assertEquals(1, depositsFor(user));
         verify(payments, times(1)).createIntent(anyString(), anyString(), anyString());
     }

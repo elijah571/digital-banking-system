@@ -81,6 +81,7 @@ internal-auth:
   jwt-secret: ${INTERNAL_JWT_SECRET:}
   subject: transaction-service
   audience: account-service
+  inbound-audience: transaction-service
 
 # Key for the hash of a transfer OTP (wallet-plan 3c.5 review). Only this service has it, and it must be at least 32 bytes.
 otp:

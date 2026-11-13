@@ -3,13 +3,11 @@
 #   docker build -f fraud-detection-service/Dockerfile .
 FROM eclipse-temurin:25-jdk AS build
 WORKDIR /src
-# Shared library first: it changes rarely, so this layer is usually cached.
 COPY libs/banking-common libs/banking-common
-RUN --mount=type=cache,target=/root/.m2 \
-    libs/banking-common/mvnw -q -B -f libs/banking-common/pom.xml -DskipTests install
 COPY fraud-detection-service fraud-detection-service
-RUN --mount=type=cache,target=/root/.m2 \
-    fraud-detection-service/mvnw -q -B -f fraud-detection-service/pom.xml -DskipTests package \
+RUN --mount=type=cache,target=/root/.m2,sharing=locked \
+    libs/banking-common/mvnw -q -B -f libs/banking-common/pom.xml -DskipTests install \
+    && fraud-detection-service/mvnw -q -B -f fraud-detection-service/pom.xml -DskipTests package \
     && cp fraud-detection-service/target/*.jar /src/app.jar
 
 FROM eclipse-temurin:25-jre

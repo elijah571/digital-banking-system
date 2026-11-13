@@ -108,6 +108,76 @@
     {
       "key": "withdrawalAmount",
       "value": "5000.00"
+    },
+    {
+      "key": "authServiceUrl",
+      "value": "http://localhost:8083",
+      "type": "string"
+    },
+    {
+      "key": "accountServiceUrl",
+      "value": "http://localhost:8081",
+      "type": "string"
+    },
+    {
+      "key": "transactionServiceUrl",
+      "value": "http://localhost:8082",
+      "type": "string"
+    },
+    {
+      "key": "walletServiceUrl",
+      "value": "http://localhost:8087",
+      "type": "string"
+    },
+    {
+      "key": "paymentServiceUrl",
+      "value": "http://localhost:8085",
+      "type": "string"
+    },
+    {
+      "key": "serviceToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "accountNumber",
+      "value": "3693618070",
+      "type": "string"
+    },
+    {
+      "key": "entryId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "idempotencyKey",
+      "value": "postman-idempotency-key",
+      "type": "string"
+    },
+    {
+      "key": "payoutId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "paymentIntentId",
+      "value": "pi_test",
+      "type": "string"
+    },
+    {
+      "key": "afterLineId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "size",
+      "value": "20",
+      "type": "string"
+    },
+    {
+      "key": "fraudServiceUrl",
+      "value": "http://localhost:8086",
+      "type": "string"
     }
   ],
   "item": [
@@ -612,6 +682,746 @@
               }
             }
           ]
+        },
+        {
+          "name": "POST /internal/v1/auth/verify-password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{authServiceUrl}}/internal/v1/auth/verify-password",
+              "host": [
+                "{{authServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "auth",
+                "verify-password"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{value}}\",\n  \"password\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Set a new password with the emailed token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/reset-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "reset-password"
+              ],
+              "query": []
+            },
+            "description": "Also logs the user out everywhere (all refresh tokens are revoked).",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{value}}\",\n  \"newPassword\": \"NewSecret456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resend the verification email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/resend-verification",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "resend-verification"
+              ],
+              "query": []
+            },
+            "description": "Always returns 200 with the same message, so it cannot be used to discover registered emails.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alice@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register a new user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register"
+              ],
+              "query": []
+            },
+            "description": "Creates a USER account and emails a verification link (valid 24 h). Login is refused until the email is verified.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Alice Johnson\",\n  \"email\": \"alice@example.com\",\n  \"password\": \"Secret123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get a new access token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "refresh"
+              ],
+              "query": []
+            },
+            "description": "Exchanges a refresh token for a new access + refresh token pair. Each refresh token works once.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Log out",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ],
+              "query": []
+            },
+            "description": "Revokes the refresh token. The access token simply expires (15 min).",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Log in",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": []
+            },
+            "description": "Returns a JWT access token (send it as `Authorization: Bearer <token>`) and a refresh token.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alice@example.com\",\n  \"password\": \"Secret123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Request a password reset email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "forgot-password"
+              ],
+              "query": []
+            },
+            "description": "Emails a reset token (valid 30 min). Always returns 200 with the same message.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alice@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change password (logged in)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "change-password"
+              ],
+              "query": []
+            },
+            "description": "Requires the current password. Logs out all other sessions.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"Secret123\",\n  \"newPassword\": \"NewSecret456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get a user",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{payoutId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{payoutId}}"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change a user's role and/or enable/disable them",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{payoutId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{payoutId}}"
+              ],
+              "query": []
+            },
+            "description": "Disabling a user logs them out (refresh tokens revoked) and blocks future logins. An admin cannot demote or disable themselves.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /internal/v1/audit",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authServiceUrl}}/internal/v1/audit",
+              "host": [
+                "{{authServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "audit"
+              ],
+              "query": [
+                {
+                  "key": "beforeAt",
+                  "value": "{{beforeAt}}",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "beforeId",
+                  "value": "{{beforeId}}",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List all users (newest first)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify email (link from the verification email)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/verify-email",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "verify-email"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "description": "Token from the email link",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Opened in the browser from the email. Returns a small HTML page.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Current user profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Notification recipient lookup (internal)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authServiceUrl}}/internal/v1/notifications/users/{{userId}}",
+              "host": [
+                "{{authServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "notifications",
+                "users",
+                "{{userId}}"
+              ]
+            },
+            "description": "Returns only the registered email and name. A notification-service SERVICE token is required."
+          },
+          "response": []
         }
       ]
     },
@@ -752,6 +1562,897 @@
               }
             }
           ]
+        },
+        {
+          "name": "PUT /api/v1/admin/accounts/{accountNumber}/deduct",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/accounts/{{accountNumber}}/deduct",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "accounts",
+                "{{accountNumber}}",
+                "deduct"
+              ],
+              "query": [
+                {
+                  "key": "amount",
+                  "value": "{{amount}}",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "reason",
+                  "value": "{{reason}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/v1/admin/accounts/{accountNumber}/credit",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/accounts/{{accountNumber}}/credit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "accounts",
+                "{{accountNumber}}",
+                "credit"
+              ],
+              "query": [
+                {
+                  "key": "amount",
+                  "value": "{{amount}}",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "reason",
+                  "value": "{{reason}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Block an account (ADMIN)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/accounts/{{accountNumber}}/block",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "{{accountNumber}}",
+                "block"
+              ],
+              "query": []
+            },
+            "description": "Sets the account status to BLOCKED. A blocked account can no longer send money. Also triggered automatically when a wrong OTP is entered.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /internal/v1/ledger/receipts/quarantine",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{accountServiceUrl}}/internal/v1/ledger/receipts/quarantine",
+              "host": [
+                "{{accountServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "ledger",
+                "receipts",
+                "quarantine"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"{{value}}\",\n  \"providerReference\": \"{{value}}\",\n  \"reason\": \"{{value}}\",\n  \"currency\": \"{{value}}\",\n  \"amount\": \"{{value}}\",\n  \"payload\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /internal/v1/ledger/entries",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{accountServiceUrl}}/internal/v1/ledger/entries",
+              "host": [
+                "{{accountServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "ledger",
+                "entries"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /internal/v1/ledger/entries/{entryId}/reverse",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{accountServiceUrl}}/internal/v1/ledger/entries/{{entryId}}/reverse",
+              "host": [
+                "{{accountServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "ledger",
+                "entries",
+                "{{entryId}}",
+                "reverse"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Upgrade owned accounts using BVN, address, and facial verification",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/accounts/verification/upgrade",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "verification",
+                "upgrade"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bvn\": \"{{value}}\",\n  \"firstName\": \"{{value}}\",\n  \"lastName\": \"{{value}}\",\n  \"addressDocumentType\": \"{{value}}\",\n  \"residentialAddress\": \"{{value}}\",\n  \"addressDocumentImage\": \"{{value}}\",\n  \"selfieImage\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify an identity document and selfie",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/accounts/verification/identity",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "verification",
+                "identity"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentType\": \"{{value}}\",\n  \"documentImage\": \"{{value}}\",\n  \"selfieImage\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Open a new account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/accounts/create",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "create"
+              ],
+              "query": []
+            },
+            "description": "Creates an ACTIVE account owned by the logged-in user, with a generated 10-digit account number. The account email is the user's login email. The initial deposit becomes the opening balance. Daily limit: SAVINGS 100,000 \u00b7 CURRENT 5,000,000.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountHolderName\": \"Alice Johnson\",\n  \"phone\": \"08012345678\",\n  \"accountType\": \"SAVINGS\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /internal/v1/ledger/entries/{entryId}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{accountServiceUrl}}/internal/v1/ledger/entries/{{entryId}}",
+              "host": [
+                "{{accountServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "ledger",
+                "entries",
+                "{{entryId}}"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /internal/v1/ledger/entries/by-key/{idempotencyKey}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{accountServiceUrl}}/internal/v1/ledger/entries/by-key/{{idempotencyKey}}",
+              "host": [
+                "{{accountServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "ledger",
+                "entries",
+                "by-key",
+                "{{idempotencyKey}}"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /internal/v1/ledger/accounts/{accountNumber}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{accountServiceUrl}}/internal/v1/ledger/accounts/{{accountNumber}}",
+              "host": [
+                "{{accountServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "ledger",
+                "accounts",
+                "{{accountNumber}}"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /internal/v1/audit",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{accountServiceUrl}}/internal/v1/audit",
+              "host": [
+                "{{accountServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "audit"
+              ],
+              "query": [
+                {
+                  "key": "beforeAt",
+                  "value": "{{beforeAt}}",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "beforeId",
+                  "value": "{{beforeId}}",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/v1/admin/ledger/reconciliation",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/ledger/reconciliation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "ledger",
+                "reconciliation"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List all accounts (ADMIN)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts"
+              ],
+              "query": []
+            },
+            "description": "Every account in the bank, newest first.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get account details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/accounts/{{accountNumber}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "{{accountNumber}}"
+              ],
+              "query": []
+            },
+            "description": "Users can only read their own accounts; admins can read any.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/v1/accounts/{accountNumber}/statement",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/accounts/{{accountNumber}}/statement",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "{{accountNumber}}",
+                "statement"
+              ],
+              "query": [
+                {
+                  "key": "afterLineId",
+                  "value": "{{afterLineId}}",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "size",
+                  "value": "{{size}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get account balance",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/accounts/{{accountNumber}}/balance",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "{{accountNumber}}",
+                "balance"
+              ],
+              "query": []
+            },
+            "description": "Returns the current balance as a JSON string with two decimal places, e.g. `\"9000.00\"` (wallet-plan D3).",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get identity verification and account upgrade status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/accounts/verification",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "verification"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "My accounts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/accounts/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "me"
+              ],
+              "query": []
+            },
+            "description": "Accounts owned by the logged-in user.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -948,6 +2649,266 @@
               }
             }
           ]
+        },
+        {
+          "name": "List all transactions (ADMIN)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions"
+              ],
+              "query": []
+            },
+            "description": "Every transaction, newest first.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Transfer money",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions"
+              ],
+              "query": []
+            },
+            "description": "Sends money **from one of your own accounts**. Debits the sender immediately and returns the transaction with status **PROCESSING**.\nIf `bankCode` is another bank's code, include a recent `nameEnquiryRef` from `POST /api/v1/transfers/name-enquiry`; the request opens an external payout through wallet-service and returns **202** with its payout status. An omitted or own-bank `bankCode` keeps the internal transfer flow, and a name-enquiry reference is optional there.\nThe fraud-detection service then checks it asynchronously (usually < 1 s):\n\n* **clean** \u2192 status becomes **COMPLETED** and the receiver is credited\n* **suspicious** (> 5 transfers/min, amount > 5\u00d7 the account's average, or > 90 % of balance)\n  \u2192 status becomes **PENDING_VERIFICATION** and an OTP is sent (valid 5 minutes).\n  Confirm with `POST /api/v1/transactions/{id}/verify`.\n\nPoll `GET /api/v1/transactions/{id}` to follow the status.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"senderAccountNumber\": \"3693612260\",\n  \"receiverAccountNumber\": \"3583221418\",\n  \"amount\": 1000,\n  \"type\": \"TRANSFER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify OTP for a flagged transfer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}",
+                "verify"
+              ],
+              "query": [
+                {
+                  "key": "otp",
+                  "value": "{{otp}}",
+                  "description": "6-digit OTP",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Only for transactions in **PENDING_VERIFICATION**.\n\n* correct OTP \u2192 **COMPLETED**, receiver credited\n* wrong OTP, first or second attempt \u2192 **400** (`Incorrect OTP. N attempts left`), still PENDING_VERIFICATION\n* wrong OTP, third attempt \u2192 **FLAGGED**, sender refunded and sender account **BLOCKED**\n* OTP expired (5 min) \u2192 **EXPIRED**, sender refunded. A transfer whose code is never sent is also **EXPIRED** by the recovery job, once it is older than the code's lifetime plus five minutes.\n\nThe OTP is delivered by notification-service (currently written to its log).",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /internal/v1/audit",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{transactionServiceUrl}}/internal/v1/audit",
+              "host": [
+                "{{transactionServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "audit"
+              ],
+              "query": [
+                {
+                  "key": "beforeAt",
+                  "value": "{{beforeAt}}",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "beforeId",
+                  "value": "{{beforeId}}",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get a transaction",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/{{transactionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "{{transactionId}}"
+              ],
+              "query": []
+            },
+            "description": "Status is one of PROCESSING, PENDING_VERIFICATION, COMPLETED, FLAGGED.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Transaction history of an account",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transactions/account/{{accountNumber}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transactions",
+                "account",
+                "{{accountNumber}}"
+              ],
+              "query": []
+            },
+            "description": "Transfers **sent** by this account, newest first. Empty list if there are none.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -1029,6 +2990,415 @@
               "raw": "{}"
             }
           }
+        },
+        {
+          "name": "POST /webhooks/flutterwave",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{paymentServiceUrl}}/webhooks/flutterwave",
+              "host": [
+                "{{paymentServiceUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "flutterwave"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"{{value}}\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /internal/v1/payouts",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{paymentServiceUrl}}/internal/v1/payouts",
+              "host": [
+                "{{paymentServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "payouts"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"key\": \"{{value}}\",\n  \"amount\": \"{{value}}\",\n  \"bankCode\": \"{{value}}\",\n  \"accountNumber\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /internal/v1/payments/intents",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{paymentServiceUrl}}/internal/v1/payments/intents",
+              "host": [
+                "{{paymentServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "payments",
+                "intents"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"depositId\": \"{{value}}\",\n  \"amount\": \"{{value}}\",\n  \"currency\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /internal/v1/payments/intents/{paymentIntentId}/cancel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{paymentServiceUrl}}/internal/v1/payments/intents/{{paymentIntentId}}/cancel",
+              "host": [
+                "{{paymentServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "payments",
+                "intents",
+                "{{paymentIntentId}}",
+                "cancel"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /internal/v1/accounts/resolve",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{paymentServiceUrl}}/internal/v1/accounts/resolve",
+              "host": [
+                "{{paymentServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "accounts",
+                "resolve"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bankCode\": \"{{value}}\",\n  \"accountNumber\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stripe webhook (called by Stripe, public)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/payments/webhook",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "webhook"
+              ],
+              "query": []
+            },
+            "description": "Receives `payment_intent.succeeded` / `payment_intent.payment_failed`, updates the payment and publishes `payment.completed` / `payment.failed`. Not meant to be called manually \u2014 the `Stripe-Signature` header is verified with STRIPE_WEBHOOK_SECRET. To test locally: `stripe listen --forward-to localhost:8080/api/v1/payments/webhook`.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"{{value}}\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create a Stripe payment order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/payments/create-order",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "create-order"
+              ],
+              "query": []
+            },
+            "description": "Creates a Stripe PaymentIntent in USD for one of **your own** accounts. Use the returned `clientSecret` and `stripePublishableKey` with Stripe.js / Stripe Elements on the frontend to collect the card. The final result arrives through the webhook. Amount must have at most 2 decimals.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 25.5,\n  \"accountNumber\": \"3693612260\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /internal/v1/payouts/{key}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{paymentServiceUrl}}/internal/v1/payouts/{{idempotencyKey}}",
+              "host": [
+                "{{paymentServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "payouts",
+                "{{idempotencyKey}}"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /internal/v1/banks",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{paymentServiceUrl}}/internal/v1/banks",
+              "host": [
+                "{{paymentServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "banks"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -1413,6 +3783,36 @@
               }
             }
           ]
+        },
+        {
+          "name": "List payout approvals",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/payouts?state=PENDING_APPROVAL",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "payouts"
+              ],
+              "query": [
+                {
+                  "key": "state",
+                  "value": "PENDING_APPROVAL"
+                }
+              ]
+            }
+          }
         }
       ]
     },
@@ -1559,6 +3959,946 @@
               }
             }
           ]
+        },
+        {
+          "name": "PUT /api/v1/wallet/pin",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/pin",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "pin"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /internal/v1/pin/verify",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{walletServiceUrl}}/internal/v1/pin/verify",
+              "host": [
+                "{{walletServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "pin",
+                "verify"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /internal/v1/outbound-transfers",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{walletServiceUrl}}/internal/v1/outbound-transfers",
+              "host": [
+                "{{walletServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "outbound-transfers"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{value}}\",\n  \"accountName\": \"{{value}}\",\n  \"accountNumber\": \"{{value}}\",\n  \"amount\": \"{{value}}\",\n  \"bankCode\": \"{{value}}\",\n  \"destinationAccountNumber\": \"{{value}}\",\n  \"nameEnquiryRef\": \"{{value}}\",\n  \"pin\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /internal/v1/name-enquiries/validate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{walletServiceUrl}}/internal/v1/name-enquiries/validate",
+              "host": [
+                "{{walletServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "name-enquiries",
+                "validate"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{value}}\",\n  \"nameEnquiryRef\": \"{{value}}\",\n  \"bankCode\": \"{{value}}\",\n  \"accountNumber\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/v1/wallet/withdrawals",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/withdrawals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "withdrawals"
+              ],
+              "query": [
+                {
+                  "key": "caller",
+                  "value": "{{caller}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"{{value}}\",\n  \"amount\": \"{{value}}\",\n  \"bankCode\": \"{{value}}\",\n  \"destinationAccountNumber\": \"{{value}}\",\n  \"nameEnquiryRef\": \"{{value}}\",\n  \"pin\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/v1/wallet/payouts/{id}/reject",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/payouts/{{payoutId}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "payouts",
+                "{{payoutId}}",
+                "reject"
+              ],
+              "query": [
+                {
+                  "key": "caller",
+                  "value": "{{caller}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/v1/wallet/withdrawals/{id}/reject",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/withdrawals/{{payoutId}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "withdrawals",
+                "{{payoutId}}",
+                "reject"
+              ],
+              "query": [
+                {
+                  "key": "caller",
+                  "value": "{{caller}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/v1/wallet/withdrawals/{id}/cancel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/withdrawals/{{payoutId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "withdrawals",
+                "{{payoutId}}",
+                "cancel"
+              ],
+              "query": [
+                {
+                  "key": "caller",
+                  "value": "{{caller}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/v1/wallet/withdrawals/{id}/approve",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/withdrawals/{{payoutId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "withdrawals",
+                "{{payoutId}}",
+                "approve"
+              ],
+              "query": [
+                {
+                  "key": "caller",
+                  "value": "{{caller}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/v1/wallet/payouts/{id}/approve",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/payouts/{{payoutId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "payouts",
+                "{{payoutId}}",
+                "approve"
+              ],
+              "query": [
+                {
+                  "key": "caller",
+                  "value": "{{caller}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/v1/wallet/pin/otp",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/pin/otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "pin",
+                "otp"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/v1/wallet/deposits",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/deposits",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "deposits"
+              ],
+              "query": [
+                {
+                  "key": "caller",
+                  "value": "{{caller}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"{{value}}\",\n  \"amount\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/v1/transfers/name-enquiry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/transfers/name-enquiry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "transfers",
+                "name-enquiry"
+              ],
+              "query": [
+                {
+                  "key": "caller",
+                  "value": "{{caller}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bankCode\": \"{{value}}\",\n  \"accountNumber\": \"{{value}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /internal/v1/audit",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{walletServiceUrl}}/internal/v1/audit",
+              "host": [
+                "{{walletServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "audit"
+              ],
+              "query": [
+                {
+                  "key": "beforeAt",
+                  "value": "{{beforeAt}}",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "beforeId",
+                  "value": "{{beforeId}}",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/v1/wallet/withdrawals/{id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/withdrawals/{{payoutId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "withdrawals",
+                "{{payoutId}}"
+              ],
+              "query": [
+                {
+                  "key": "caller",
+                  "value": "{{caller}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/v1/wallet/payouts/{id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/payouts/{{payoutId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "payouts",
+                "{{payoutId}}"
+              ],
+              "query": [
+                {
+                  "key": "caller",
+                  "value": "{{caller}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/v1/wallet/deposits/{depositId}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wallet/deposits/{{depositId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wallet",
+                "deposits",
+                "{{depositId}}"
+              ],
+              "query": [
+                {
+                  "key": "caller",
+                  "value": "{{caller}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/v1/banks",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/banks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "banks"
+              ],
+              "query": []
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/v1/admin/audit",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/audit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "audit"
+              ],
+              "query": [
+                {
+                  "key": "cursor",
+                  "value": "{{cursor}}",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -1776,6 +5116,59 @@
           }
         }
       }
+    },
+    {
+      "name": "Fraud",
+      "item": [
+        {
+          "name": "Fraud check (internal wallet caller)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transactionId\": \"{{transactionId}}\",\n  \"userId\": \"{{userId}}\",\n  \"accountNumber\": \"{{accountNumber}}\",\n  \"amount\": \"1000.00\",\n  \"currency\": \"NGN\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{fraudServiceUrl}}/internal/v1/fraud/check",
+              "host": [
+                "{{fraudServiceUrl}}"
+              ],
+              "path": [
+                "internal",
+                "v1",
+                "fraud",
+                "check"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

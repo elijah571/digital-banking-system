@@ -1,5 +1,6 @@
 package org.elibanking.walletservice.pin;
 
+import org.elibanking.common.events.KafkaEventEnvelope;
 import org.elibanking.walletservice.exception.PinOtpCooldownException;
 import org.elibanking.walletservice.exception.PinOtpUnavailableException;
 import org.springframework.beans.factory.annotation.Value;
@@ -79,7 +80,7 @@ public class PinOtpService {
                 "otp", code,
                 "reason", "PIN change");
         try {
-            kafka.send(TOPIC, userId, event).get(10, java.util.concurrent.TimeUnit.SECONDS);
+            kafka.send(KafkaEventEnvelope.record(TOPIC, userId, event)).get(10, java.util.concurrent.TimeUnit.SECONDS);
         } catch (Exception e) {
             // The code cannot reach the user, so it must not wait: the next request may ask again at once.
             redis.delete(cooldownKey(userId));

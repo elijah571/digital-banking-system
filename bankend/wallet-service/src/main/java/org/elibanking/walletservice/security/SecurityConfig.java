@@ -42,7 +42,10 @@ public class SecurityConfig {
                         .access(CallerAllowList.only(CallerAllowList.TRANSACTION))
                         .requestMatchers(HttpMethod.POST, "/internal/v1/name-enquiries/validate", "/internal/v1/outbound-transfers")
                         .access(CallerAllowList.only(CallerAllowList.TRANSACTION))
+                        .requestMatchers(HttpMethod.GET, "/internal/v1/audit")
+                        .access(CallerAllowList.only(CallerAllowList.WALLET))
                         .requestMatchers("/internal/v1/**").denyAll()
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/**").access(CallerAllowList.users())
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(oauth -> oauth.authenticationManagerResolver(bearerTokens));

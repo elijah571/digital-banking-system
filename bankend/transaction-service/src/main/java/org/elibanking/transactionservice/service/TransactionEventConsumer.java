@@ -1,6 +1,6 @@
 package org.elibanking.transactionservice.service;
 
-import org.elibanking.transactionservice.config.OtpTopicConfig;
+import org.elibanking.common.events.KafkaEventEnvelope;
 import org.elibanking.transactionservice.exception.TransactionNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.elibanking.transactionservice.entity.Transaction;
@@ -8,7 +8,6 @@ import org.elibanking.transactionservice.entity.TransactionStatus;
 import org.elibanking.transactionservice.repository.TransactionRepository;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Service;
 
@@ -22,23 +21,25 @@ public class TransactionEventConsumer {
     private final TransactionalService transactionalService;
     private final TransactionRepository transactionRepository;
     private final RedisTemplate<String, String> redisTemplate;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
     private final OtpCodes otps;
 
     public TransactionEventConsumer(TransactionalService transactionalService,
                                     TransactionRepository transactionRepository,
                                     RedisTemplate<String, String> redisTemplate,
-                                    KafkaTemplate<String, Object> kafkaTemplate,
                                     OtpCodes otps) {
         this.transactionalService = transactionalService;
         this.transactionRepository = transactionRepository;
         this.redisTemplate = redisTemplate;
-        this.kafkaTemplate = kafkaTemplate;
         this.otps = otps;
     }
 
     @KafkaListener(topics = "transaction.verification.required", groupId = "transaction-service-group")
-    public void consumeVerificationRequired(@Payload Map<String, Object> payload) {
+    public void consumeVerificationRequired(@Payload Map<String, Object> event) {
+        Map<String, Object> payload = KafkaEventEnvelope.payload(event);
+        KafkaEventEnvelope.withContext(event, () -> handleVerificationRequired(payload));
+    }
+
+    private void handleVerificationRequired(Map<String, Object> payload) {
         try {
             String transactionId = (String) payload.get("transactionId");
             String accountNumber = (String) payload.get("accountNumber");
@@ -61,19 +62,17 @@ public class TransactionEventConsumer {
             redisTemplate.opsForValue().set(OtpCodes.codeKey(transactionId), otps.hash(transactionId, otp), OtpCodes.TTL);
             redisTemplate.opsForValue().set(OtpCodes.attemptsKey(transactionId), "0", OtpCodes.TTL);
 
-            transaction.setStatus(TransactionStatus.PENDING_VERIFICATION);
-            transactionRepository.save(transaction);
-
             log.info("OTP generated for transaction: {} expires in {} minutes", transactionId, OtpCodes.TTL.toMinutes());
 
             Map<String, Object> otpEvent = new HashMap<>();
             otpEvent.put("transactionId", transactionId);
+            otpEvent.put("userId", transaction.getSenderUserId());
             otpEvent.put("accountNumber", accountNumber);
             otpEvent.put("reason", reason);
             otpEvent.put("otp", otp);
             otpEvent.put("amount", payload.get("amount"));
 
-            kafkaTemplate.send(OtpTopicConfig.NOTIFICATION_OTP_TOPIC, transactionId, otpEvent);
+            transactionalService.markPendingVerification(transaction, otpEvent);
 
         } catch (Exception e) {
             log.error("Error handling verification required: {}", e.getMessage(), e);
@@ -81,7 +80,12 @@ public class TransactionEventConsumer {
     }
 
     @KafkaListener(topics = "fraud.check.clean", groupId = "transaction-service-group")
-    public void consumeFraudCheckCleanResult(@Payload Map<String, Object> payload) {
+    public void consumeFraudCheckCleanResult(@Payload Map<String, Object> event) {
+        Map<String, Object> payload = KafkaEventEnvelope.payload(event);
+        KafkaEventEnvelope.withContext(event, () -> handleFraudCheckCleanResult(payload));
+    }
+
+    private void handleFraudCheckCleanResult(Map<String, Object> payload) {
         try {
             String transactionId = (String) payload.get("transactionId");
             transactionalService.processCleanResult(transactionId);

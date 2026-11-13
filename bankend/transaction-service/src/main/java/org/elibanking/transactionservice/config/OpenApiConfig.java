@@ -8,6 +8,7 @@ import io.swagger.v3.oas.models.security.SecurityScheme;
 import io.swagger.v3.oas.models.servers.Server;
 import org.elibanking.transactionservice.security.Caller;
 import org.springdoc.core.utils.SpringDocUtils;
+import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -19,6 +20,15 @@ public class OpenApiConfig {
     static {
         // Caller is resolved from the verified user token, not something API clients send
         SpringDocUtils.getConfig().addRequestWrapperToIgnore(Caller.class);
+    }
+
+    @Bean
+    public OpenApiCustomizer publicApiOnly() {
+        return openApi -> {
+            if (openApi.getPaths() != null) {
+                openApi.getPaths().keySet().removeIf(path -> path.startsWith("/internal/"));
+            }
+        };
     }
 
     @Bean

@@ -17,6 +17,7 @@ import org.elibanking.transactionservice.exception.InvalidOtpException;
 import org.elibanking.transactionservice.repository.TransactionRepository;
 import org.elibanking.transactionservice.security.Caller;
 import org.elibanking.transactionservice.security.UserTokens;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,8 +27,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -43,9 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -74,6 +74,12 @@ class OtpTest {
     RedisTemplate<String, String> redis;
 
     @Autowired
+    JdbcTemplate jdbc;
+
+    @Autowired
+    ObjectMapper mapper;
+
+    @Autowired
     OtpCodes otps;
 
     @MockitoBean
@@ -81,9 +87,6 @@ class OtpTest {
 
     @MockitoBean
     LedgerClient ledger;
-
-    @MockitoBean
-    KafkaTemplate<String, Object> kafka;
 
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
 
@@ -139,7 +142,7 @@ class OtpTest {
 
         assertEquals(TransactionStatus.FLAGGED, transactions.findById(id).orElseThrow().getStatus());
         assertNull(redis.opsForValue().get(OtpCodes.codeKey(id)), "the code is gone after the third wrong one");
-        verify(kafka).send(eq("fraud.detected"), eq(id), any());
+        assertEquals(1, outboxCount("fraud.detected", id));
         ArgumentCaptor<LedgerEntryRequest> posted = ArgumentCaptor.forClass(LedgerEntryRequest.class);
         verify(ledger, times(1)).post(posted.capture());
         assertEquals("tx-" + id + "-release", posted.getValue().idempotencyKey(), "the refund is a release");
@@ -175,14 +178,11 @@ class OtpTest {
         assertThrows(InvalidOtpException.class, () -> transfers.verifyOTP(id, wrong, new Caller(null, null, null)));
         transfers.verifyOTP(id, otp, new Caller(null, null, null));
 
-        ArgumentCaptor<String> topics = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<Object> values = ArgumentCaptor.forClass(Object.class);
-        verify(kafka, atLeastOnce()).send(topics.capture(), anyString(), values.capture());
-        List<String> sent = topics.getAllValues();
+        List<String> sent = outboxTopics(id);
         assertTrue(sent.contains(OtpTopicConfig.NOTIFICATION_OTP_TOPIC), "the code is sent on notification.otp");
         for (int i = 0; i < sent.size(); i++) {
             if (!sent.get(i).equals(OtpTopicConfig.NOTIFICATION_OTP_TOPIC)) {
-                assertFalse(String.valueOf(values.getAllValues().get(i)).contains(otp),
+                assertFalse(outboxPayloads(id).get(i).contains(otp),
                         "no code in " + sent.get(i));
             }
         }
@@ -227,7 +227,7 @@ class OtpTest {
         assertEquals(1, Concurrently.count(outcomes, TransactionResponse.class), "the third wrong code flags the transfer");
         assertEquals(7, Concurrently.count(outcomes, IllegalStateException.class), "the rest are refused, not counted again");
         assertEquals(TransactionStatus.FLAGGED, transactions.findById(id).orElseThrow().getStatus());
-        verify(kafka, times(1)).send(eq("fraud.detected"), eq(id), any());
+        assertEquals(1, outboxCount("fraud.detected", id));
         verify(ledger, times(1)).post(any());
     }
 
@@ -259,11 +259,29 @@ class OtpTest {
     private String generateCode(String id) {
         consumer.consumeVerificationRequired(Map.of("transactionId", id, "accountNumber", "1000000001",
                 "reason", "large amount", "amount", "250.00"));
-        ArgumentCaptor<String> topic = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
-        verify(kafka).send(topic.capture(), eq(id), event.capture());
-        assertEquals(OtpTopicConfig.NOTIFICATION_OTP_TOPIC, topic.getValue());
-        return String.valueOf(((Map<?, ?>) event.getValue()).get("otp"));
+        JsonNode event = latestOutboxEvent(OtpTopicConfig.NOTIFICATION_OTP_TOPIC, id);
+        return event.path("payload").path("otp").asString();
+    }
+
+    private long outboxCount(String topic, String aggregateId) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM outbox WHERE topic = ? AND aggregate_id = ?",
+                Long.class, topic, aggregateId);
+    }
+
+    private List<String> outboxTopics(String aggregateId) {
+        return jdbc.query("SELECT topic FROM outbox WHERE aggregate_id = ? ORDER BY id",
+                (rs, row) -> rs.getString("topic"), aggregateId);
+    }
+
+    private List<String> outboxPayloads(String aggregateId) {
+        return jdbc.query("SELECT payload FROM outbox WHERE aggregate_id = ? ORDER BY id",
+                (rs, row) -> rs.getString("payload"), aggregateId);
+    }
+
+    private JsonNode latestOutboxEvent(String topic, String aggregateId) {
+        String payload = jdbc.queryForObject("SELECT payload FROM outbox WHERE topic = ? AND aggregate_id = ? ORDER BY id DESC LIMIT 1",
+                String.class, topic, aggregateId);
+        return mapper.readTree(payload);
     }
 
     private String processingTransfer() {

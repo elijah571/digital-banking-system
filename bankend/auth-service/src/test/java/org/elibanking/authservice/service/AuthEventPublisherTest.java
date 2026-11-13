@@ -4,14 +4,14 @@ import org.elibanking.authservice.entity.User;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.util.Map;
 
-import static org.mockito.ArgumentMatchers.anyMap;
-import static org.mockito.ArgumentMatchers.eq;
+import org.mockito.ArgumentCaptor;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -41,14 +41,38 @@ class AuthEventPublisherTest {
         for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
             synchronization.afterCommit();
         }
-        verify(kafka).send(eq(AuthEventPublisher.VERIFICATION_TOPIC), eq("user-1"), anyMap());
+        ProducerRecord<String, Object> record = captureRecord();
+        org.junit.jupiter.api.Assertions.assertTrue(isVerificationEnvelope(record));
     }
 
     @Test
     void outsideATransactionTheEventIsSentAtOnce() {
         publisher.passwordChanged(user());
 
-        verify(kafka).send(eq(AuthEventPublisher.PASSWORD_CHANGED_TOPIC), eq("user-1"), anyMap());
+        ProducerRecord<String, Object> record = captureRecord();
+        org.junit.jupiter.api.Assertions.assertNotNull(record);
+        org.junit.jupiter.api.Assertions.assertEquals(AuthEventPublisher.PASSWORD_CHANGED_TOPIC, record.topic());
+        org.junit.jupiter.api.Assertions.assertEquals("user-1", record.key());
+        org.junit.jupiter.api.Assertions.assertTrue(record.value() instanceof Map<?, ?> envelope
+                && "auth.password.changed".equals(envelope.get("type")));
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private ProducerRecord<String, Object> captureRecord() {
+        ArgumentCaptor<ProducerRecord<String, Object>> captor = ArgumentCaptor.forClass((Class) ProducerRecord.class);
+        verify(kafka).send(captor.capture());
+        return captor.getValue();
+    }
+
+    private static boolean isVerificationEnvelope(ProducerRecord<String, Object> record) {
+        return record != null
+                && AuthEventPublisher.VERIFICATION_TOPIC.equals(record.topic())
+                && "user-1".equals(record.key())
+                && record.value() instanceof Map<?, ?> envelope
+                && "auth.email-verification.requested".equals(envelope.get("type"))
+                && envelope.containsKey("eventId")
+                && envelope.get("payload") instanceof Map<?, ?> payload
+                && "a@example.test".equals(payload.get("email"));
     }
 
     private static User user() {

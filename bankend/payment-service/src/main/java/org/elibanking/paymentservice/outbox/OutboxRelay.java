@@ -2,6 +2,8 @@ package org.elibanking.paymentservice.outbox;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.elibanking.common.events.KafkaEventHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
@@ -42,7 +44,11 @@ public class OutboxRelay {
         for (Map<String, Object> row : rows) {
             try {
                 Object event = mapper.readValue(row.get("payload").toString(), Map.class);
-                kafka.send((String) row.get("topic"), (String) row.get("message_key"), event).get(10, TimeUnit.SECONDS);
+                ProducerRecord<String, Object> record = new ProducerRecord<>(
+                        (String) row.get("topic"), (String) row.get("message_key"), event);
+                KafkaEventHeaders.apply((Map<?, ?>) event,
+                        (name, value) -> record.headers().add(name, value));
+                kafka.send(record).get(10, TimeUnit.SECONDS);
                 jdbc.update("UPDATE outbox SET sent_at = NOW(6) WHERE id = ?", row.get("id"));
                 sent++;
             } catch (Exception e) {

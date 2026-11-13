@@ -1,6 +1,7 @@
 package org.elibanking.walletservice.withdrawal;
 
 import lombok.extern.slf4j.Slf4j;
+import org.elibanking.common.web.RequestIdContext;
 import org.elibanking.walletservice.outbox.OutboxWriter;
 import org.elibanking.walletservice.payout.OutboundPayoutRepository;
 import org.springframework.dao.DuplicateKeyException;
@@ -43,6 +44,10 @@ public class PayoutEventConsumer {
     @Transactional
     public void receive(String message) {
         JsonNode event = mapper.readTree(message);
+        RequestIdContext.withId(event.path("correlationId").asString(null), () -> receiveEvent(event));
+    }
+
+    private void receiveEvent(JsonNode event) {
         String eventId = event.path("eventId").asText();
         String payoutKey = event.path("payload").path("payoutKey").asText();
         String type = event.path("type").asText();
@@ -80,6 +85,7 @@ public class PayoutEventConsumer {
         envelope.put("type", ALERT_TOPIC);
         envelope.put("version", 1);
         envelope.put("occurredAt", Instant.now().toString());
+        envelope.put("correlationId", RequestIdContext.current().orElse(null));
         envelope.put("payload", payload);
         outbox.append(ALERT_TOPIC, payoutKey, payoutKey, envelope);
     }

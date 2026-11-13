@@ -32,4 +32,11 @@ public class ServiceClientConfig {
                                      @Value("${fraud-service.audience}") String audience) {
         return new ServiceTokens(secret, subject, audience);
     }
+
+    @Bean
+    ServiceTokens transactionServiceTokens(@Value("${internal-auth.jwt-secret:}") String secret,
+                                           @Value("${internal-auth.subject}") String subject,
+                                           @Value("${transaction-service.audience}") String audience) {
+        return new ServiceTokens(secret, subject, audience);
+    }
 }

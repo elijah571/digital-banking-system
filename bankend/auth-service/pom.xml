@@ -104,7 +104,6 @@
             <groupId>org.elibanking</groupId>
             <artifactId>banking-common</artifactId>
             <version>0.0.1-SNAPSHOT</version>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

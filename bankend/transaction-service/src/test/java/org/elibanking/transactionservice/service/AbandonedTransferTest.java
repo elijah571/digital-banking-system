@@ -18,8 +18,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -73,8 +74,8 @@ class AbandonedTransferTest {
     @MockitoBean
     LedgerClient ledger;
 
-    @MockitoBean
-    KafkaTemplate<String, Object> kafka;
+    @Autowired
+    ObjectMapper mapper;
 
     /** Other tests leave transfers waiting for a code. None of them may be swept up by these tests. */
     @BeforeEach
@@ -144,7 +145,7 @@ class AbandonedTransferTest {
         transfers.expireAbandonedVerifications();
 
         assertEquals(TransactionStatus.FLAGGED, statusOf(id));
-        verify(kafka, times(1)).send(eq("fraud.detected"), eq(id), any());
+        assertEquals(1, outboxCount("fraud.detected", id));
         verify(ledger, times(1)).post(any());
     }
 
@@ -233,10 +234,19 @@ class AbandonedTransferTest {
     private String generateCode(String id) {
         consumer.consumeVerificationRequired(Map.of("transactionId", id, "accountNumber", "1000000001",
                 "reason", "large amount", "amount", "250.00"));
-        ArgumentCaptor<String> topic = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
-        verify(kafka).send(topic.capture(), eq(id), event.capture());
-        return String.valueOf(((Map<?, ?>) event.getValue()).get("otp"));
+        JsonNode event = latestOutboxEvent("notification.otp", id);
+        return event.path("payload").path("otp").asString();
+    }
+
+    private long outboxCount(String topic, String aggregateId) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM outbox WHERE topic = ? AND aggregate_id = ?",
+                Long.class, topic, aggregateId);
+    }
+
+    private JsonNode latestOutboxEvent(String topic, String aggregateId) {
+        String payload = jdbc.queryForObject("SELECT payload FROM outbox WHERE topic = ? AND aggregate_id = ? ORDER BY id DESC LIMIT 1",
+                String.class, topic, aggregateId);
+        return mapper.readTree(payload);
     }
 
     /** Puts the transfer's creation far enough back that it is past the code's lifetime and the margin. */

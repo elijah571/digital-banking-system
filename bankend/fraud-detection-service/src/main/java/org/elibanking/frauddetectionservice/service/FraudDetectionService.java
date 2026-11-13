@@ -7,6 +7,7 @@ import org.elibanking.frauddetectionservice.model.FraudCheckResult;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.elibanking.common.events.KafkaEventEnvelope;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -51,14 +52,14 @@ public class FraudDetectionService {
             verificationEvent.put("accountNumber", accountNumber);
             verificationEvent.put("amount", amount);
             verificationEvent.put("reason", result.getReason());
-            kafkaTemplate.send(VERIFICATION_REQUIRED_TOPIC, transactionId, verificationEvent);
+            kafkaTemplate.send(KafkaEventEnvelope.record(VERIFICATION_REQUIRED_TOPIC, transactionId, verificationEvent));
         } else {
             log.info("Transaction is clean");
             Map<String, Object> transactionCleanEvent = new HashMap<>();
             transactionCleanEvent.put("transactionId", transactionId);
             transactionCleanEvent.put("isFraud", false);
             transactionCleanEvent.put("reason", null);
-            kafkaTemplate.send(FRAUD_CHECK_CLEAN_RESULT_TOPIC, transactionId, transactionCleanEvent);
+            kafkaTemplate.send(KafkaEventEnvelope.record(FRAUD_CHECK_CLEAN_RESULT_TOPIC, transactionId, transactionCleanEvent));
         }
     }
 

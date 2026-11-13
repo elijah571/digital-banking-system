@@ -3,13 +3,11 @@
 #   docker build -f wallet-service/Dockerfile .
 FROM eclipse-temurin:25-jdk AS build
 WORKDIR /src
-# Shared library first: it changes rarely, so this layer is usually cached.
 COPY libs/banking-common libs/banking-common
-RUN --mount=type=cache,target=/root/.m2 \
-    libs/banking-common/mvnw -q -B -f libs/banking-common/pom.xml -DskipTests install
 COPY wallet-service wallet-service
-RUN --mount=type=cache,target=/root/.m2 \
-    wallet-service/mvnw -q -B -f wallet-service/pom.xml -DskipTests package \
+RUN --mount=type=cache,target=/root/.m2,sharing=locked \
+    libs/banking-common/mvnw -q -B -f libs/banking-common/pom.xml -DskipTests install \
+    && wallet-service/mvnw -q -B -f wallet-service/pom.xml -DskipTests package \
     && cp wallet-service/target/*.jar /src/app.jar
 
 FROM eclipse-temurin:25-jre

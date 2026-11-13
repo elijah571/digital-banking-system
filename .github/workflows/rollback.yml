@@ -1,0 +1,87 @@
+name: Roll back deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub deployment environment
+        type: choice
+        options: [staging, production]
+        required: true
+      revision:
+        description: Release tag or commit to restore
+        type: string
+        required: true
+      reconciliation_confirmed:
+        description: Confirm reconciliation is clean before reopening the API gateway
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    name: Roll back ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Skip when the environment has no deploy host
+        if: vars.DEPLOY_HOST == ''
+        run: echo "Skipping rollback because this environment has no DEPLOY_HOST variable."
+      - uses: actions/checkout@v4
+        if: vars.DEPLOY_HOST != ''
+      - name: Roll back, keep the gateway paused, then optionally resume after reconciliation
+        if: vars.DEPLOY_HOST != ''
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_APP_DIR: ${{ vars.DEPLOY_APP_DIR }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          ROLLBACK_REF: ${{ inputs.revision }}
+          RECONCILIATION_CONFIRMED: ${{ inputs.reconciliation_confirmed }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$RUNNER_TEMP/deploy-ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy-ssh/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/deploy-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/deploy-ssh/key" "$RUNNER_TEMP/deploy-ssh/known_hosts"
+          app_dir_b64="$(printf '%s' "$DEPLOY_APP_DIR" | base64 -w0)"
+          rollback_ref_b64="$(printf '%s' "$ROLLBACK_REF" | base64 -w0)"
+          reconciliation_b64="$(printf '%s' "$RECONCILIATION_CONFIRMED" | base64 -w0)"
+          ssh -i "$RUNNER_TEMP/deploy-ssh/key" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/deploy-ssh/known_hosts" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "APP_DIR_B64=$app_dir_b64 ROLLBACK_REF_B64=$rollback_ref_b64 RECONCILIATION_CONFIRMED_B64=$reconciliation_b64 bash -s" <<'REMOTE'
+          set -euo pipefail
+          app_dir="$(printf '%s' "$APP_DIR_B64" | base64 -d)"
+          rollback_ref="$(printf '%s' "$ROLLBACK_REF_B64" | base64 -d)"
+          reconciliation_confirmed="$(printf '%s' "$RECONCILIATION_CONFIRMED_B64" | base64 -d)"
+          cd "$app_dir"
+          git fetch --prune --tags origin
+          cd bankend
+          docker compose -f compose.yaml -f compose.prod.yaml stop api-gateway
+          cd "$app_dir"
+          git checkout --detach "$rollback_ref"
+          cd bankend
+          docker compose -f compose.yaml -f compose.prod.yaml up -d --build --no-deps --wait --wait-timeout 900 \
+            auth-service account-service transaction-service wallet-service fraud-detection-service \
+            payment-service notification-service
+          if [[ "$reconciliation_confirmed" == "true" ]]; then
+            docker compose -f compose.yaml -f compose.prod.yaml up -d --no-deps --wait --wait-timeout 300 api-gateway
+            echo "Gateway resumed after the operator confirmed reconciliation."
+          else
+            echo "Gateway remains stopped. Run the rollback reconciliation steps in docs/deploy.md, then rerun this workflow with reconciliation_confirmed=true."
+          fi
+          REMOTE
+
+  rollback-not-configured:
+    name: Rollback skipped
+    if: vars.DEPLOY_HOST == ''
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - run: echo "Skipping rollback because this environment has no DEPLOY_HOST variable."

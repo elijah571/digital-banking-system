@@ -54,3 +54,25 @@ Money configuration also includes `CARD_DEPOSIT_MIN`, `WITHDRAWAL_MIN`, `WITHDRA
 Run `docker compose -f compose.yaml -f compose.prod.yaml up -d` after providing the production configuration. The production override enables the `prod` Spring profile, suppresses the internal service host ports, and leaves only the API gateway published. The payment-service rejects a test key under `prod`; use the simulator until the Flutterwave live integration is explicitly enabled for production.
 
 For local Flutterwave sandbox development, set `PAYOUT_PROVIDER=flutterwave` with a test secret key (`FLWSECK_TEST-...`), the test webhook secret hash, and the default base URL. Start with bank listing and account resolution, then run one small transfer to a Flutterwave test account. Verify the payout through the API (`GET /api/v1/wallet/payouts/{id}`) and confirm the webhook is delivered to `/webhooks/flutterwave`. Because the gateway never routes `/webhooks/**`, expose payment-service (port 8085) with ngrok and set the public `https://<id>.ngrok-free.app/webhooks/flutterwave` URL and the matching secret hash in the Flutterwave dashboard; the ngrok URL changes per session and never belongs in source or Compose. Keep this separate from the throwaway simulator smoke test.
+
+## GitHub release deployment
+
+`ci.yml` runs service integration tests and the throwaway Compose smoke test on pushes and pull requests. Publishing a GitHub Release triggers `release.yml`, which deploys its tag to staging first and then production. Production is skipped if staging deployment fails. Each job checks out the tagged revision on the host and runs the production Compose build with health checks.
+
+Configure a `staging` and `production` GitHub Environment. In each environment, add these variables and secrets:
+
+| Name | Type | Purpose |
+| --- | --- | --- |
+| `DEPLOY_HOST` | Variable | SSH host name covered by the known-hosts file. |
+| `DEPLOY_USER` | Variable | SSH account that can update the checkout and run Docker Compose. |
+| `DEPLOY_APP_DIR` | Variable | Existing checkout root containing `bankend/` and a remote named `origin`. |
+| `DEPLOY_SSH_KEY` | Secret | Private key for the deploy account. |
+| `DEPLOY_KNOWN_HOSTS` | Secret | Pinned SSH host-key line(s); the workflow refuses unverified host keys. |
+
+If an environment has no `DEPLOY_HOST`, its release job reports a skip. The deploy host must already have the project checkout, `bankend/.env`, Docker Engine, and Docker Compose. The workflow never copies `.env` or prints its values. Use GitHub Environment protection rules to require approval before the production job.
+
+## Rollback
+
+Start `rollback.yml` from Actions with the target environment and a tag or commit. The workflow stops `api-gateway` before changing the host checkout, rebuilds and starts the rollback service versions, and leaves the gateway stopped by default. This pause prevents new customer requests while operators reconcile the ledger after a rollback across the ledger release (D15).
+
+With the gateway stopped, inspect the account-service logs and database-backed reconciliation using the operator's approved internal access procedure. Do not reopen customer traffic until reconciliation reports `clean: true`; if it reports issues, keep the gateway stopped and resolve them first. After reconciliation, rerun the rollback workflow for the same revision with `reconciliation_confirmed=true` to start the gateway. That input is an operator attestation; the workflow does not infer reconciliation from a green container health check.

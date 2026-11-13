@@ -1,6 +1,7 @@
 package org.elibanking.walletservice.deposit;
 
 import lombok.extern.slf4j.Slf4j;
+import org.elibanking.common.web.RequestIdContext;
 import org.elibanking.walletservice.client.AccountServiceClient;
 import org.elibanking.walletservice.client.AccountServiceClient.LedgerLine;
 import org.elibanking.walletservice.outbox.OutboxWriter;
@@ -66,6 +67,10 @@ public class DepositSettlementService {
     @Transactional
     public void apply(String message) {
         JsonNode event = mapper.readTree(message);
+        RequestIdContext.withId(event.path("correlationId").asString(null), () -> applyEvent(message, event));
+    }
+
+    private void applyEvent(String message, JsonNode event) {
         String type = event.path("type").asText();
         String eventId = event.path("eventId").asText();
         JsonNode body = event.path("payload");
@@ -141,6 +146,8 @@ public class DepositSettlementService {
         audit(id, "DEPOSIT_COMPLETED", "credited " + requested.toPlainString());
         outbox.append(COMPLETED_TOPIC, id, id, envelope(COMPLETED_TOPIC, Map.of(
                 "depositId", id,
+                "userId", deposit.getUserId(),
+                "accountNumber", deposit.getAccountNumber(),
                 "amount", requested.toPlainString(),
                 "currency", DepositService.CURRENCY,
                 "received", received.toPlainString(),
@@ -155,6 +162,10 @@ public class DepositSettlementService {
         audit(id, "DEPOSIT_FAILED", trimmed);
         outbox.append(FAILED_TOPIC, id, id, envelope(FAILED_TOPIC, Map.of(
                 "depositId", id,
+                "userId", deposit.getUserId(),
+                "accountNumber", deposit.getAccountNumber(),
+                "amount", deposit.getAmount().toPlainString(),
+                "currency", deposit.getCurrency(),
                 "reason", trimmed,
                 "stripeEventId", stripeEventId)));
     }
@@ -162,11 +173,17 @@ public class DepositSettlementService {
     /** Raises an alert for a person to act on (D26): an audit row and an outbox event, in the same transaction. */
     private void alert(String depositId, String reason, BigDecimal amount, String stripeEventId) {
         audit(depositId, "DEPOSIT_ALERT", reason);
-        outbox.append(ALERT_TOPIC, depositId, depositId, envelope(ALERT_TOPIC, Map.of(
-                "depositId", depositId,
-                "reason", reason,
-                "amount", amount.toPlainString(),
-                "stripeEventId", stripeEventId)));
+        Map<String, Object> notice = new java.util.LinkedHashMap<>();
+        notice.put("depositId", depositId);
+        notice.put("reason", reason);
+        notice.put("amount", amount.toPlainString());
+        notice.put("stripeEventId", stripeEventId);
+        deposits.findById(depositId).ifPresent(deposit -> {
+            notice.put("userId", deposit.getUserId());
+            notice.put("accountNumber", deposit.getAccountNumber());
+            notice.put("currency", deposit.getCurrency());
+        });
+        outbox.append(ALERT_TOPIC, depositId, depositId, envelope(ALERT_TOPIC, notice));
     }
 
     private void postSuspense(String key, String depositId, BigDecimal amount, String stripeEventId) {

@@ -7,9 +7,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 SKIP=(-DskipTests)
 [[ "${1:-}" == "--test" ]] && SKIP=()
+OFFLINE=()
+[[ "${MAVEN_OFFLINE:-false}" == "true" ]] && OFFLINE=(-o)
 echo "==> Building libs/banking-common"
-libs/banking-common/mvnw -q -B -f libs/banking-common/pom.xml "${SKIP[@]}" install   # services depend on it
-for s in auth-service account-service transaction-service fraud-detection-service payment-service notification-service API-GATEWAY; do
+libs/banking-common/mvnw -q -B -f libs/banking-common/pom.xml "${OFFLINE[@]}" "${SKIP[@]}" clean install   # services depend on it
+for s in auth-service account-service transaction-service wallet-service fraud-detection-service payment-service notification-service API-GATEWAY; do
   echo "==> Building $s"
-  "$s/mvnw" -q -B -f "$s/pom.xml" "${SKIP[@]}" verify
+  "$s/mvnw" -q -B -f "$s/pom.xml" "${OFFLINE[@]}" "${SKIP[@]}" clean verify
 done

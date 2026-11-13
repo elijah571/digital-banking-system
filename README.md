@@ -211,7 +211,7 @@ Production runs the same services under Docker Compose, with only the gateway ex
 
 ```bash
 ./scripts/build.sh
-docker compose -f compose.prod.yaml up -d
+docker compose -f compose.yaml -f compose.prod.yaml up -d
 ```
 
 | Branch      | Environment | Trigger        |

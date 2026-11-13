@@ -10,6 +10,9 @@ import org.elibanking.transactionservice.client.LedgerClient;
 import org.elibanking.transactionservice.exception.InvalidOtpException;
 import org.elibanking.transactionservice.exception.TransactionRejectedException;
 import org.elibanking.transactionservice.outbox.OutboxWriter;
+import org.elibanking.transactionservice.config.OtpTopicConfig;
+import org.elibanking.common.web.RequestIdContext;
+import org.elibanking.common.events.KafkaEventEnvelope;
 import org.elibanking.transactionservice.exception.TransactionAccessDeniedException;
 import org.elibanking.transactionservice.security.Caller;
 import org.elibanking.transactionservice.dto.TransactionRequest;
@@ -20,7 +23,7 @@ import org.elibanking.transactionservice.event.TransactionCompleteEvent;
 import org.elibanking.transactionservice.event.TransactionInitiatedEvent;
 import org.elibanking.transactionservice.repository.TransactionRepository;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.stereotype.Service;
 
@@ -56,8 +59,8 @@ public class TransactionalService {
     private final AccountService accountService;
     private final LedgerClient ledger;
     private final OutboxWriter outbox;
+    private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
-    private final KafkaTemplate<String, Object> kafkaTemplate; // Fixed: removed duplicate declaration
     private final RedisTemplate<String, String> redisTemplate;
     private final OtpCodes otps;
     private final PinGate pins;
@@ -104,10 +107,16 @@ public class TransactionalService {
         // by the relay only after the hold, so a refused transfer never reaches the fraud check.
         Transaction savedTransaction = tx.execute(status -> {
             Transaction saved = transactionRepository.save(transaction);
+            auditStatus(saved, null, TransactionStatus.PROCESSING);
             recordInSameTransaction.accept(saved.getId());
-            outbox.append(TRANSACTION_INITIATED_TOPIC, saved.getId(), saved.getId(), new TransactionInitiatedEvent(
-                    saved.getId(), saved.getSenderAccountNumber(), saved.getReceiverAccountNumber(),
-                    saved.getAmount(), saved.getDescription()));
+            Map<String, Object> initiated = new HashMap<>();
+            initiated.put("transactionId", saved.getId());
+            initiated.put("senderAccountNumber", saved.getSenderAccountNumber());
+            initiated.put("receiverAccountNumber", saved.getReceiverAccountNumber());
+            initiated.put("amount", saved.getAmount());
+            initiated.put("description", saved.getDescription());
+            outbox.append(TRANSACTION_INITIATED_TOPIC, saved.getId(), saved.getId(),
+                    KafkaEventEnvelope.wrap(TRANSACTION_INITIATED_TOPIC, initiated, RequestIdContext.current().orElse(null)));
             return saved;
         });
         log.info("Transaction saved: {}", savedTransaction.getId());
@@ -127,9 +136,8 @@ public class TransactionalService {
                     system(IN_FLIGHT, "CREDIT", transaction.getAmount())));
         } catch (FeignException e) {
             if (e.status() >= 400 && e.status() < 500) {
-                transaction.setStatus(TransactionStatus.FAILED);
                 transaction.setFailureReason("Hold refused by account-service (" + e.status() + ")");
-                transactionRepository.save(transaction);
+                updateStatus(transaction, TransactionStatus.FAILED);
             }
             throw e;
         }
@@ -150,9 +158,8 @@ public class TransactionalService {
                 holdFunds(transaction);
                 log.info("Recovered the hold for transaction {}", transaction.getId());
             } catch (TransactionRejectedException e) {
-                transaction.setStatus(TransactionStatus.FAILED);
                 transaction.setFailureReason(e.getMessage());
-                transactionRepository.save(transaction);
+                updateStatus(transaction, TransactionStatus.FAILED);
             } catch (RuntimeException e) {
                 log.warn("Recovery of transaction {} failed, will retry: {}", transaction.getId(), e.getMessage());
             }
@@ -376,28 +383,36 @@ public class TransactionalService {
                 system(IN_FLIGHT, "DEBIT", transaction.getAmount()),
                 account(transaction.getSenderAccountNumber(), "CREDIT", transaction.getAmount())));
 
-        transaction.setStatus(endState);
         transaction.setFailureReason(reason + " | Refunded at " + LocalDateTime.now());
-        transactionRepository.save(transaction);
 
         Map<String, Object> refundEvent = new HashMap<>();
         refundEvent.put("transactionId", transaction.getId());
+        refundEvent.put("userId", transaction.getSenderUserId());
         refundEvent.put("senderAccountNumber", transaction.getSenderAccountNumber());
         refundEvent.put("amount", transaction.getAmount());
         refundEvent.put("reason", reason);
 
-        kafkaTemplate.send(TRANSACTION_REFUNDED_TOPIC, transaction.getId(), refundEvent);
+        updateStatus(transaction, endState, () -> {
+            outbox.append(TRANSACTION_REFUNDED_TOPIC, transaction.getId(), transaction.getId(),
+                    KafkaEventEnvelope.wrap(TRANSACTION_REFUNDED_TOPIC, refundEvent,
+                            RequestIdContext.current().orElse(null)));
+            if (endState == TransactionStatus.FLAGGED) {
+                Map<String, Object> fraudEvent = new HashMap<>();
+                fraudEvent.put("transactionId", transaction.getId());
+                fraudEvent.put("userId", transaction.getSenderUserId());
+                fraudEvent.put("accountNumber", transaction.getSenderAccountNumber());
+                fraudEvent.put("reason", reason);
+                outbox.append(FRAUD_DETECTED_TOPIC, transaction.getId(), transaction.getId(),
+                        KafkaEventEnvelope.wrap(FRAUD_DETECTED_TOPIC, fraudEvent,
+                                RequestIdContext.current().orElse(null)));
+            }
+        });
         log.info("Compensation completed for transaction: {}", transaction.getId());
     }
 
     private void blockAccountAndCompensate(Transaction transaction, String reason) {
-        Map<String, Object> fraudEvent = new HashMap<>();
-        fraudEvent.put("transactionId", transaction.getId());
-        fraudEvent.put("accountNumber", transaction.getSenderAccountNumber());
-        fraudEvent.put("reason", reason);
-
-        kafkaTemplate.send(FRAUD_DETECTED_TOPIC, transaction.getId(), fraudEvent);
-        log.warn("fraud.detected published - account: {} blocked", transaction.getSenderAccountNumber());
+        log.warn("fraud.detected will be published from the transaction outbox - account: {} blocked",
+                transaction.getSenderAccountNumber());
 
         compensateTransaction(transaction, reason);
     }
@@ -408,10 +423,7 @@ public class TransactionalService {
         ledger.post(entry("TRANSFER_SETTLE", transaction, "tx-" + transaction.getId() + "-settle",
                 system(IN_FLIGHT, "DEBIT", transaction.getAmount()),
                 account(transaction.getReceiverAccountNumber(), "CREDIT", transaction.getAmount())));
-        transaction.setStatus(TransactionStatus.COMPLETED);
         transaction.setCompletedAt(LocalDateTime.now());
-        transactionRepository.save(transaction);
-
         TransactionCompleteEvent completeEvent = new TransactionCompleteEvent(
                 transaction.getId(),
                 transaction.getSenderAccountNumber(),
@@ -420,7 +432,17 @@ public class TransactionalService {
                 transaction.getDescription()
         );
 
-        kafkaTemplate.send(TRANSACTION_COMPLETED_TOPIC, transaction.getId(), completeEvent);
+        Map<String, Object> completed = new HashMap<>();
+        completed.put("transactionId", completeEvent.getTransactionId());
+        completed.put("userId", transaction.getSenderUserId());
+        completed.put("senderAccountNumber", completeEvent.getSenderAccountNumber());
+        completed.put("receiverAccountNumber", completeEvent.getReceiverAccountNumber());
+        completed.put("amount", completeEvent.getAmount());
+        completed.put("description", completeEvent.getDescription());
+        updateStatus(transaction, TransactionStatus.COMPLETED, () -> outbox.append(
+                TRANSACTION_COMPLETED_TOPIC, transaction.getId(), transaction.getId(),
+                KafkaEventEnvelope.wrap(TRANSACTION_COMPLETED_TOPIC, completed,
+                        RequestIdContext.current().orElse(null))));
         log.info("COMPLETE - Transaction {} completed successfully", transaction.getId());
     }
 
@@ -437,6 +459,37 @@ public class TransactionalService {
 
         // Fixed: Clean fraud check should complete or progress the transaction, not refund it
         completeTransaction(transaction);
+    }
+
+    /** The verification event changes the transaction and audit row atomically in transaction_db. */
+    public void markPendingVerification(Transaction transaction, Map<String, Object> otpEvent) {
+        updateStatus(transaction, TransactionStatus.PENDING_VERIFICATION, () -> outbox.append(
+                OtpTopicConfig.NOTIFICATION_OTP_TOPIC, transaction.getId(), transaction.getId(),
+                KafkaEventEnvelope.wrap(OtpTopicConfig.NOTIFICATION_OTP_TOPIC, otpEvent,
+                        RequestIdContext.current().orElse(null))));
+    }
+
+    private void updateStatus(Transaction transaction, TransactionStatus next) {
+        updateStatus(transaction, next, () -> {});
+    }
+
+    private void updateStatus(Transaction transaction, TransactionStatus next, Runnable appendEvents) {
+        TransactionStatus previous = transaction.getStatus();
+        if (previous == next) return;
+        tx.executeWithoutResult(status -> {
+            transaction.setStatus(next);
+            transactionRepository.save(transaction);
+            auditStatus(transaction, previous, next);
+            appendEvents.run();
+        });
+    }
+
+    private void auditStatus(Transaction transaction, TransactionStatus previous, TransactionStatus next) {
+        jdbc.update("INSERT INTO audit_log (actor, action, entity_type, entity_id, correlation_id, details) " +
+                        "VALUES (?, 'TRANSACTION_STATUS_CHANGED', 'transaction', ?, ?, JSON_OBJECT('from', ?, 'to', ?))",
+                transaction.getSenderUserId() == null ? "transaction-service" : transaction.getSenderUserId(),
+                transaction.getId(), RequestIdContext.current().orElse(null),
+                previous == null ? null : previous.name(), next.name());
     }
 
     private void requireActive(AccountInfo account, String role) {
