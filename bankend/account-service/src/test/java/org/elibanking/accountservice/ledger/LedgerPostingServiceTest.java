@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.SplittableRandom;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -292,6 +293,48 @@ class LedgerPostingServiceTest {
         assertEquals(0, movedToTransfers.add(movedToHolds).compareTo(new BigDecimal("100.00")),
                 "every success moved exactly 10.00 out of the wallet");
         assertEquals(0, cmp(balance(a), "0.00"));
+        assertReconciles();
+    }
+
+    @Test
+    void twoThousandRandomizedTransfersPreserveFundsAndJournalInvariants() {
+        long a = wallet();
+        long b = wallet();
+        long startingCents = 10_000_000L;
+        fund(a, BigDecimal.valueOf(startingCents, 2).toPlainString());
+        long aCents = startingCents;
+        long bCents = 0;
+        SplittableRandom random = new SplittableRandom(0x6c65646765724cL);
+
+        for (int i = 0; i < 2_000; i++) {
+            boolean forward = (random.nextInt() & 1) == 0;
+            long available = forward ? aCents : bCents;
+            if (available == 0) {
+                forward = !forward;
+                available = forward ? aCents : bCents;
+            }
+            long cents = random.nextLong(1, Math.min(available, 100_000L) + 1);
+            String amount = BigDecimal.valueOf(cents, 2).toPlainString();
+            if (forward) {
+                transfer(a, b, amount, key());
+                aCents -= cents;
+                bCents += cents;
+            } else {
+                transfer(b, a, amount, key());
+                bCents -= cents;
+                aCents += cents;
+            }
+
+            assertTrue(aCents >= 0 && bCents >= 0, "the model cannot overdraw a customer wallet");
+            assertEquals(startingCents, aCents + bCents, "every transfer conserves the total");
+            if (i % 100 == 99) {
+                assertEquals(0, balance(a).compareTo(BigDecimal.valueOf(aCents, 2)));
+                assertEquals(0, balance(b).compareTo(BigDecimal.valueOf(bCents, 2)));
+            }
+        }
+
+        assertEquals(0, balance(a).compareTo(BigDecimal.valueOf(aCents, 2)));
+        assertEquals(0, balance(b).compareTo(BigDecimal.valueOf(bCents, 2)));
         assertReconciles();
     }
 

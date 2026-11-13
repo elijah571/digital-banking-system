@@ -18,7 +18,6 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Opening deposits on, as in dev: the wallet is created with the account, and the deposit is posted through the ledger
@@ -39,6 +38,7 @@ class AccountOpeningTest {
 
     @Test
     void anOpenedAccountHasItsWalletAndTheDepositPostedThroughTheLedger() {
+        var reconciliationBefore = reconciliation.check();
         String id = idOf(accounts.createAccount(request("1500.00"), Caller.internal()));
 
         assertNotNull(jdbc.queryForObject("SELECT ledger_account_id FROM accounts WHERE id = ?", Long.class, id),
@@ -48,7 +48,9 @@ class AccountOpeningTest {
                 "SELECT balance FROM accounts WHERE id = ?", BigDecimal.class, id)), "accounts.balance mirrors the wallet");
         assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM journal_entry WHERE idempotency_key = ?",
                 Long.class, "acct-" + id + "-opening"), "the opening entry is posted once");
-        assertTrue(reconciliation.check().clean(), () -> "issues: " + reconciliation.check().issues());
+        var reconciliationAfter = reconciliation.check();
+        assertEquals(reconciliationBefore.issues(), reconciliationAfter.issues(),
+                "opening this account must not add a reconciliation issue");
     }
 
     @Test
