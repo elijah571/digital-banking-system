@@ -48,7 +48,7 @@ export const initialNotifications = [
   { id: 'notice-security', title: 'Keep your account secure', detail: 'Eli‑Pay will never ask you to share your password or transaction PIN.', time: '8 Nov · 10:00 AM', type: 'security', read: true },
 ];
 
-export const banks = ['Access Bank', 'First Bank', 'GTBank', 'UBA', 'Zenith Bank', 'Stanbic IBTC', 'Fidelity Bank'];
+export const banks = ['Access Bank', 'First Bank', 'GTBank', 'UBA', 'Zenith Bank', 'Stanbic IBTC', 'Fidelity Bank'].sort();
 
 export const money = (value) =>
   new Intl.NumberFormat('en-NG', {
