@@ -3,6 +3,7 @@ package org.elibanking.common.testsupport;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
 /**
@@ -28,7 +29,11 @@ public final class TestImages {
     }
 
     public static KafkaContainer kafka() {
-        return new KafkaContainer(DockerImageName.parse(KAFKA));
+        // The 4.3 image no longer emits the exact recovery log line expected by every
+        // Testcontainers version. Its Kafka listener is the stable readiness signal.
+        return new KafkaContainer(DockerImageName.parse(KAFKA))
+                .waitingFor(Wait.forListeningPort())
+                .withStartupTimeout(java.time.Duration.ofMinutes(3));
     }
 
     /** Use with {@code @ServiceConnection(name = "redis")}. */
