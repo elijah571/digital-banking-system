@@ -46,7 +46,7 @@ import {
   X,
 } from 'lucide-react';
 import { money } from './data';
-import { useAccountStatementQuery, useAdminAuditQuery, useAllAccountsQuery, useAllTransactionsQuery, useApprovePayoutMutation, useBanksQuery, useBlockAccountMutation, useChangePasswordMutation, useChangePinMutation, useCreateDepositMutation, useCreateWithdrawalMutation, useCurrentUserQuery, useDepositQuery, useForgotPasswordMutation, useLazyAccountQuery, useLoginMutation, useLogoutMutation, useMyAccountsQuery, useNameEnquiryMutation, useOpenAccountMutation, usePayoutQuery, usePendingPayoutsQuery, useReconciliationQuery, useRegisterMutation, useRejectPayoutMutation, useRequestPinCodeMutation, useResetPasswordMutation, useTransactionHistoryQuery, useTransactionQuery, useTransferMutation, useUsersQuery, useVerificationStatusQuery, useVerifyIdentityMutation, useUpgradeAccountMutation, useVerifyTransferMutation, useWithdrawalQuery } from './services/api';
+import { useAccountStatementQuery, useAdminAuditQuery, useAdjustAccountMutation, useAllAccountsQuery, useAllTransactionsQuery, useApprovePayoutMutation, useBanksQuery, useBlockAccountMutation, useCancelWithdrawalMutation, useChangePasswordMutation, useChangePinMutation, useCreateDepositMutation, useCreateWithdrawalMutation, useCurrentUserQuery, useDepositQuery, useForgotPasswordMutation, useLazyAccountQuery, useLoginMutation, useLogoutMutation, useMyAccountsQuery, useNameEnquiryMutation, useOpenAccountMutation, usePayoutQuery, usePendingPayoutsQuery, useReconciliationQuery, useRegisterMutation, useRejectPayoutMutation, useRequestPinCodeMutation, useResetPasswordMutation, useTransactionHistoryQuery, useTransactionQuery, useTransferMutation, useUpdateUserMutation, useUsersQuery, useVerificationStatusQuery, useVerifyIdentityMutation, useUpgradeAccountMutation, useVerifyTransferMutation, useWithdrawalQuery } from './services/api';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
 
@@ -992,6 +992,8 @@ function TransferStatus({ transfer, setView }) {
   const { data: payout } = usePayoutQuery(transfer.transactionId, { skip: !transfer.transactionId || !transfer.isPayout, pollingInterval: 5000 });
   const result = payout || withdrawal || transaction;
   const status = result?.status || result?.state || transfer.status || 'PROCESSING';
+  const [cancelWithdrawal, cancelState] = useCancelWithdrawalMutation();
+  const [cancelError, setCancelError] = useState('');
   const completed = ['COMPLETED', 'SUCCESS', 'SUCCESSFUL'].includes(status);
   const failed = ['FAILED', 'REJECTED', 'CANCELLED', 'EXPIRED', 'REVERSED'].includes(status);
   const tone = completed ? 'green' : failed ? 'red' : 'amber';
@@ -1008,7 +1010,8 @@ function TransferStatus({ transfer, setView }) {
           <div className="mx-auto mt-6 max-w-sm divide-y divide-slate-100 border-y border-slate-100 text-left">
             {[['Recipient', transfer.recipientName || transfer.accountNumber || '—'], ['Bank', transfer.bank || '—'], ['Reference', transfer.transactionId || '—'], ['Date', result?.createdAt ? new Date(result.createdAt).toLocaleString() : '—']].map(([label, value]) => <div key={label} className="flex justify-between gap-3 py-3 text-xs"><span className="text-slate-500">{label}</span><span className="text-right font-semibold text-ink">{value}</span></div>)}
           </div>
-          <div className="mt-6 flex flex-wrap justify-center gap-2"><Button variant="dark" onClick={() => window.print()}><Download size={15} /> Download receipt</Button><Button onClick={() => setView('overview')}>Back to overview <ArrowRight size={15} /></Button></div>
+          {cancelError && <p role="alert" className="mt-3 text-xs text-rose-700">{cancelError}</p>}
+          <div className="mt-6 flex flex-wrap justify-center gap-2">{transfer.isWithdrawal && status === 'PENDING_APPROVAL' && <Button variant="secondary" disabled={cancelState.isLoading} onClick={async () => { setCancelError(''); try { await cancelWithdrawal(transfer.transactionId).unwrap(); } catch (failure) { setCancelError(failure?.data?.detail || 'This withdrawal can no longer be cancelled.'); } }}>{cancelState.isLoading ? 'Cancelling…' : 'Cancel withdrawal'}</Button>}<Button variant="dark" onClick={() => window.print()}><Download size={15} /> Download receipt</Button><Button onClick={() => setView('overview')}>Back to overview <ArrowRight size={15} /></Button></div>
         </Panel>
         <Panel className="h-fit p-5"><h3 className="text-sm font-bold text-ink">Transaction details</h3><p className="mt-3 text-xs leading-5 text-slate-500">A receipt is available after the transaction settles. You’ll also receive a status email at your verified address.</p><p className="mt-4 break-all rounded-xl bg-slate-50 p-3 text-[11px] text-slate-600">{result?.description || transfer.note || '—'}</p></Panel>
       </div>
@@ -1246,10 +1249,29 @@ function AuditLog({ entries = [] }) {
   return <div className="fade-in"><PageHeader title="Audit log" description="A time-stamped record of administrative and system activity." /><Panel className="overflow-hidden"><div className="border-b border-slate-100 p-5"><h2 className="text-sm font-bold text-ink">Recent events</h2><p className="mt-1 text-[10px] text-slate-400">Events are append-only and cannot be edited.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left"><thead><tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400"><th className="px-5 py-3">Event</th><th className="px-4 py-3">Actor / Reference</th><th className="px-4 py-3">Time</th><th className="px-5 py-3">Source</th></tr></thead><tbody>{entries.map((entry) => <tr key={`${entry.source}-${entry.id}`} className="border-b border-slate-50 last:border-0"><td className="px-5 py-4 text-xs font-semibold text-ink">{entry.action} · {entry.entityType}</td><td className="px-4 py-4 text-xs text-slate-500">{entry.actor || 'System'} · {entry.entityId || '—'}</td><td className="whitespace-nowrap px-4 py-4 text-[11px] text-slate-500">{entry.occurredAt ? new Date(entry.occurredAt).toLocaleString() : '—'}</td><td className="px-5 py-4"><Status tone="slate">{entry.source}</Status></td></tr>)}</tbody></table></div>{entries.length === 0 && <p className="p-8 text-center text-xs text-slate-400">No audit records returned.</p>}</Panel></div>;
 }
 
-function Customers({ showToast, users = [], accounts = [], onBlock }) {
+function Customers({ users = [], accounts = [], onBlock, onAdjust }) {
   const [query, setQuery] = useState('');
+  const [adjustingAccount, setAdjustingAccount] = useState(null);
+  const [adjustError, setAdjustError] = useState('');
+  const [adjustBusy, setAdjustBusy] = useState(false);
+  const [userActionBusy, setUserActionBusy] = useState('');
   const results = users.filter((user) => `${user.fullName} ${user.email}`.toLowerCase().includes(query.toLowerCase()));
-  return <div className="fade-in"><PageHeader title="Customers" description="Search customer profiles and review linked account status." /><div className="mb-4 flex items-center gap-2"><label className="relative w-full max-w-sm"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(e) => setQuery(e.target.value)} className="form-control pl-9" placeholder="Search name or email" /></label></div><Panel className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[750px] text-left"><thead><tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400"><th className="px-5 py-3">Customer</th><th className="px-4 py-3">Account</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Balance</th><th className="px-5 py-3" /></tr></thead><tbody>{results.map((user) => { const account = accounts.find((row) => row.ownerId === user.id); return <tr key={user.id} className="border-b border-slate-50 last:border-0"><td className="px-5 py-3.5"><div className="text-xs font-semibold text-ink">{user.fullName}</div><div className="mt-1 text-[10px] text-slate-400">{user.email}</div></td><td className="px-4 py-3.5 text-xs text-slate-600">{account ? `•••• ${account.accountNumber.slice(-4)}` : 'No account'}</td><td className="px-4 py-3.5"><Status tone={user.enabled ? 'green' : 'red'}>{user.enabled ? 'Active' : 'Disabled'}</Status></td><td className="px-4 py-3.5 text-xs font-semibold text-ink">{account ? money(Number(account.balance)) : '—'}</td><td className="px-5 py-3.5 text-right">{account?.status === 'ACTIVE' && <button onClick={() => onBlock(account)} className="text-xs font-semibold text-rose-700">Block account</button>}</td></tr>; })}</tbody></table></div>{results.length === 0 && <p className="p-8 text-center text-xs text-slate-400">No customer records found.</p>}</Panel></div>;
+  const submitAdjustment = async (event) => {
+    event.preventDefault();
+    const fields = new FormData(event.currentTarget);
+    setAdjustError(''); setAdjustBusy(true);
+    try {
+      await onAdjust(adjustingAccount, fields.get('action'), String(fields.get('amount') || '').trim(), String(fields.get('reason') || '').trim());
+      setAdjustingAccount(null);
+    } catch (failure) { setAdjustError(failure?.data?.detail || failure?.message || 'The adjustment could not be recorded.'); }
+    finally { setAdjustBusy(false); }
+  };
+  return <div className="fade-in">
+    <PageHeader title="Customers" description="Search customer profiles, review account status, and record audited balance adjustments." />
+    <div className="mb-4"><label className="relative block w-full max-w-sm"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="form-control pl-9" placeholder="Search name or email" /></label></div>
+    <Panel className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left"><thead><tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400"><th className="px-5 py-3">Customer</th><th className="px-4 py-3">Account</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Balance</th><th className="px-5 py-3 text-right">Operations</th></tr></thead><tbody>{results.map((user) => { const account = accounts.find((row) => row.ownerId === user.id); return <tr key={user.id} className="border-b border-slate-50 last:border-0"><td className="px-5 py-3.5"><div className="text-xs font-semibold text-ink">{user.fullName}</div><div className="mt-1 text-[10px] text-slate-400">{user.email}</div></td><td className="px-4 py-3.5 text-xs text-slate-600">{account ? `•••• ${account.accountNumber.slice(-4)}` : 'No account'}</td><td className="px-4 py-3.5"><Status tone={user.enabled ? 'green' : 'red'}>{user.enabled ? 'Active' : 'Disabled'}</Status></td><td className="px-4 py-3.5 text-xs font-semibold text-ink">{account ? money(Number(account.balance)) : '—'}</td><td className="px-5 py-3.5 text-right"><div className="flex justify-end gap-3">{user.role !== 'ADMIN' && <button disabled={userActionBusy === user.id} onClick={async () => { setUserActionBusy(user.id); try { await onUserStatus(user, !user.enabled); } catch {} finally { setUserActionBusy(''); } }} className={`text-xs font-semibold ${user.enabled ? 'text-rose-700' : 'text-green-700'}`}>{userActionBusy === user.id ? 'Saving…' : user.enabled ? 'Disable user' : 'Enable user'}</button>}{account?.status === 'ACTIVE' && <><button onClick={() => setAdjustingAccount(account)} className="text-xs font-semibold text-gold-800">Adjust balance</button><button onClick={() => onBlock(account)} className="text-xs font-semibold text-rose-700">Block account</button></>}</div></td></tr>; })}</tbody></table></div>{results.length === 0 && <p className="p-8 text-center text-xs text-slate-400">No customer records found.</p>}</Panel>
+    {adjustingAccount && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4" onClick={() => !adjustBusy && setAdjustingAccount(null)}><Panel className="w-full max-w-md p-6" onClick={(event) => event.stopPropagation()}><div className="flex items-start justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-gold-800">Audited ledger action</p><h2 className="mt-1 text-lg font-bold text-ink">Adjust account balance</h2><p className="mt-1 text-xs text-slate-500">Account ending {adjustingAccount.accountNumber.slice(-4)}</p></div><button type="button" disabled={adjustBusy} onClick={() => setAdjustingAccount(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X size={17} /></button></div><form onSubmit={submitAdjustment} className="mt-5 space-y-4"><label className="block text-xs font-semibold text-slate-600">Action<select name="action" className="form-control mt-1" required><option value="credit">Credit account</option><option value="deduct">Deduct from account</option></select></label><Field name="amount" label="Amount (NGN)" type="number" min="0.01" step="0.01" required /><Field name="reason" label="Reason for adjustment" placeholder="Required audit reason" minLength="3" maxLength="200" required />{adjustError && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-xs text-rose-700">{adjustError}</p>}<div className="flex gap-2"><Button type="button" variant="secondary" className="flex-1" disabled={adjustBusy} onClick={() => setAdjustingAccount(null)}>Cancel</Button><Button type="submit" className="flex-1" disabled={adjustBusy}>{adjustBusy ? 'Recording…' : 'Record adjustment'}</Button></div><p className="text-[10px] leading-4 text-slate-400">This posts a ledger entry and records your reason in the audit trail.</p></form></Panel></div>}
+  </div>;
 }
 
 function Reconciliation({ data }) {
@@ -1302,6 +1324,8 @@ function App() {
   const { data: adminTransactions = [] } = useAllTransactionsQuery(undefined, { skip: !hasSession || !adminMode });
   const { data: payoutRows = [], refetch: refetchPayouts } = usePendingPayoutsQuery({ state: 'PENDING_APPROVAL' }, { skip: !hasSession || !adminMode });
   const [blockAccountRequest] = useBlockAccountMutation();
+  const [adjustAccountRequest] = useAdjustAccountMutation();
+  const [updateUserRequest] = useUpdateUserMutation();
   const [approvePayoutRequest] = useApprovePayoutMutation();
   const [rejectPayoutRequest] = useRejectPayoutMutation();
 
@@ -1478,6 +1502,14 @@ function App() {
       notify(`Payout ${payout.id} ${status.toLowerCase()}.`);
     } catch (failure) { notify(failure?.data?.detail || 'The payout decision could not be saved.'); }
   };
+  const adjustAccount = async (account, action, amount, reason) => {
+    await adjustAccountRequest({ accountNumber: account.accountNumber, action, amount, reason, idempotencyKey: crypto.randomUUID() }).unwrap();
+    notify(`Account adjustment recorded for account ending ${account.accountNumber.slice(-4)}.`);
+  };
+  const setUserEnabled = async (user, enabled) => {
+    try { await updateUserRequest({ id: user.id, body: { enabled } }).unwrap(); notify(`${user.fullName} was ${enabled ? 'enabled' : 'disabled'}.`); }
+    catch (failure) { notify(failure?.data?.detail || 'User status could not be updated.'); throw failure; }
+  };
   const createAccount = async (type, openingBalance, accountHolderName, phone) => {
     try {
       await openAccountRequest({ accountHolderName, phone, accountType: type.toUpperCase(), initialDeposit: openingBalance }).unwrap();
@@ -1524,7 +1556,7 @@ function App() {
       case 'payouts': return <Payouts payouts={payouts} onDecision={decidePayout} onRefresh={refetchPayouts} />;
       case 'risk-alerts': return <RiskAlerts transactions={adminTransactions} />;
       case 'audit-log': return <AuditLog entries={auditData?.entries || []} />;
-      case 'customers': return <Customers showToast={notify} users={adminUsers} accounts={adminAccounts} onBlock={async (account) => {
+      case 'customers': return <Customers users={adminUsers} accounts={adminAccounts} onAdjust={adjustAccount} onUserStatus={setUserEnabled} onBlock={async (account) => {
         try { await blockAccountRequest(account.accountNumber).unwrap(); notify(`Account ending ${account.accountNumber.slice(-4)} blocked.`); }
         catch (failure) { notify(failure?.data?.detail || 'Account could not be blocked.'); }
       }} />;

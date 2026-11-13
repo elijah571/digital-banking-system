@@ -79,7 +79,7 @@ export const bankingApi = createApi({
     updateUser: build.mutation({ query: ({ id, body }) => ({ url: `/api/v1/users/${encodeURIComponent(id)}`, method: 'PATCH', body }), invalidatesTags: ['User'] }),
     adminAudit: build.query({ query: (params) => ({ url: '/api/v1/admin/audit', params }), providesTags: ['Audit'] }),
     reconciliation: build.query({ query: () => '/api/v1/admin/ledger/reconciliation', providesTags: ['Reconciliation'] }),
-    adjustAccount: build.mutation({ query: ({ accountNumber, action, body, idempotencyKey }) => ({ url: `/api/v1/admin/accounts/${encodeURIComponent(accountNumber)}/${action}`, method: 'PUT', body, headers: { 'Idempotency-Key': idempotencyKey } }), invalidatesTags: ['Account', 'Reconciliation'] }),
+    adjustAccount: build.mutation({ query: ({ accountNumber, action, amount, reason, idempotencyKey }) => ({ url: `/api/v1/admin/accounts/${encodeURIComponent(accountNumber)}/${action}`, method: 'PUT', params: { amount, reason }, headers: { 'Idempotency-Key': idempotencyKey } }), invalidatesTags: ['Account', 'Reconciliation'] }),
     approvePayout: build.mutation({ query: ({ id }) => ({ url: `/api/v1/wallet/withdrawals/${encodeURIComponent(id)}/approve`, method: 'POST' }), invalidatesTags: ['Withdrawal', 'Audit'] }),
     rejectPayout: build.mutation({ query: ({ id, reason }) => ({ url: `/api/v1/wallet/withdrawals/${encodeURIComponent(id)}/reject`, method: 'POST', body: { reason } }), invalidatesTags: ['Withdrawal', 'Audit'] }),
   }),
