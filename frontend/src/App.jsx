@@ -34,6 +34,8 @@ import {
   CustomersPage,
   ReconciliationPage,
   KycReviewsPage,
+  CryptoPage,
+  CryptoOperationsPage,
   AuthPage,
 } from './pages';
 import {
@@ -89,6 +91,8 @@ const viewTitles = {
   customers: 'Customers',
   reconciliation: 'Reconciliation',
   'kyc-reviews': 'KYC review',
+  crypto: 'Crypto',
+  'crypto-operations': 'Crypto operations',
 };
 
 function App() {
@@ -741,6 +745,8 @@ function App() {
             showToast={notify}
           />
         );
+      case 'crypto':
+        return <CryptoPage showToast={notify} />;
       case 'account-upgrade':
         return (
           <AccountUpgradePage
@@ -858,6 +864,8 @@ function App() {
         return <ReconciliationPage data={reconciliationData} />;
       case 'kyc-reviews':
         return <KycReviewsPage showToast={notify} />;
+      case 'crypto-operations':
+        return <CryptoOperationsPage showToast={notify} />;
       default:
         return (
           <OverviewPage

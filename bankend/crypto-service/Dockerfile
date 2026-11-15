@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1
+FROM eclipse-temurin:25-jdk AS build
+WORKDIR /src
+COPY libs/banking-common libs/banking-common
+COPY crypto-service crypto-service
+RUN --mount=type=cache,target=/root/.m2,sharing=locked \
+    libs/banking-common/mvnw -q -B -f libs/banking-common/pom.xml -DskipTests install \
+    && libs/banking-common/mvnw -q -B -f crypto-service/pom.xml -DskipTests package \
+    && cp crypto-service/target/*.jar /src/app.jar
+FROM eclipse-temurin:25-jre
+WORKDIR /app
+RUN useradd --system --no-create-home app
+COPY --from=build /src/app.jar app.jar
+USER app
+EXPOSE 8088
+HEALTHCHECK --interval=10s --timeout=10s --start-period=60s --retries=12 \
+  CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/8088 && printf "GET /actuator/health HTTP/1.0\r\nHost: localhost\r\n\r\n" >&3 && grep -q "\"status\":\"UP\"" <&3'
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]

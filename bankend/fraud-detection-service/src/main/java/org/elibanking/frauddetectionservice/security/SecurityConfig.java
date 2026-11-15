@@ -31,6 +31,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/internal/v1/fraud/check")
                         .access(CallerAllowList.only(CallerAllowList.WALLET))
+                        .requestMatchers(HttpMethod.POST, "/internal/v1/fraud/crypto-check")
+                        .access(CallerAllowList.only(CallerAllowList.CRYPTO))
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.decoder(internalTokenDecoder)));
         return http.build();

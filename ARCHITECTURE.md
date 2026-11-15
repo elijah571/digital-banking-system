@@ -1,6 +1,6 @@
 # Architecture
 
-> **Status:** Living document · **Last updated:** 2026-11-06 · **Owner:** Elijah
+> **Status:** Living document · **Last updated:** 2026-11-15 · **Owner:** Elijah
 
 This document covers how the Digital Banking System is put together, the reasoning behind the main decisions, and how the services talk to each other. For setup and usage, see the [README](README.md).
 
@@ -34,8 +34,9 @@ This document covers how the Digital Banking System is put together, the reasoni
 
 - Small project, so I stayed with tools I know well: Spring, MySQL, Kafka, Redis
 - Single region at launch
-- Has to integrate with outside payment providers (Stripe, Flutterwave) and an email provider
-- Customer wallets are NGN only; there is no currency conversion inside a transfer
+- Has to integrate with outside payment providers (Stripe, Flutterwave), a custody provider, and an email provider
+- NGN account transfers do not perform currency conversion; supported crypto assets use a separate integer-base-unit subledger
+- Custodial crypto is disabled until Fireblocks credentials and supported assets are explicitly configured
 
 **Non-goals**
 
@@ -66,11 +67,17 @@ Who and what talks to the system.
         │      Banking Services      │
         └────────────────────────────┘
                        │
-           ┌───────────┴────────────┐
+           ┌───────────┬────────────┬─────────────┐
            ▼                        ▼
  ┌──────────────────────┐ ┌───────────────────┐
  │ Stripe / Flutterwave │ │    Email / SMTP   │
  └──────────────────────┘ └───────────────────┘
+                                      ▲
+                                      │ signed API / Webhook V2
+                                      ▼
+                            ┌──────────────────────┐
+                            │ Fireblocks custody   │
+                            └──────────────────────┘
 ```
 
 ## 3. High-Level Architecture
@@ -116,19 +123,23 @@ auth-service         ─┐
 account-service      ─┤
 transaction-service  ─┼───────▶ MySQL
 wallet-service       ─┤
-payment-service      ─┘
+payment-service      ─┤
+crypto-service       ─┘
 
 Short-lived state
 API Gateway          ─┐
 transaction-service  ─┼───────▶ Redis
 wallet-service       ─┘
 
+Fireblocks custody   ◀───────▶ crypto-service :8088
+
 Events (transactional outbox, at-least-once)
 
 account-service      ─┐
 transaction-service  ─┤
 wallet-service       ─┼── outbox ──▶ Kafka ─┬──▶ fraud-detection-service :8084
-payment-service      ─┘                     └──▶ notification-service :8086
+payment-service      ─┤                     └──▶ notification-service :8086
+crypto-service       ─┘
 ```
 
 The services live in one monorepo. They call each other synchronously over authenticated HTTP and pass events asynchronously over Kafka. MySQL is the durable store. Redis only holds short-lived, bounded state. Nothing depends on a distributed database transaction: each change is atomic in its own database, and the transactional outbox plus idempotent recovery coordinate the rest.
@@ -143,6 +154,7 @@ The services live in one monorepo. They call each other synchronously over authe
 | transaction-service     | `transaction-service`     | Internal transfer lifecycle, holds, OTP decisions, recovery         | Spring Boot, MySQL        |
 | wallet-service          | `wallet-service`          | PIN, deposits, payouts, name enquiry, daily usage, idempotency      | Spring Boot, MySQL, Redis |
 | payment-service         | `payment-service`         | Provider adapters, signed webhooks, provider event records          | Spring Boot, MySQL        |
+| crypto-service          | `crypto-service`          | Fireblocks vaults and addresses, crypto deposits/withdrawals, provider reconciliation | Spring Boot, MySQL, Kafka |
 | fraud-detection-service | `fraud-detection-service` | Risk-rule evaluation and short-lived velocity signals               | Spring Boot, Redis        |
 | notification-service    | `notification-service`    | Email, OTP delivery, transaction alerts                             | Spring Boot               |
 | banking-common          | `libs/banking-common`     | Shared types, security helpers, event envelopes                     | Java library              |
@@ -158,6 +170,10 @@ Each service follows `controller → service → repository → entity`. Control
 ### 4.2 account-service: the ledger
 
 `account-service` owns the double-entry ledger. It is the only service allowed to write `ledger_account.balance`, `journal_entry`, or `journal_line`. Everything else asks for a posting through an internal API. A posting checks that amounts are positive and that debits and credits balance per currency, locks every touched ledger account in ascending ID order, checks the idempotency key under those locks, enforces the non-negative-wallet and one-time-reversal rules, then writes the entry and commits. Rows are append-only, so a correction is a reversing entry rather than an edit, and the journal always reconciles.
+
+Crypto balances also belong to account-service, in separate `crypto_ledger_account`, `crypto_journal_entry`, and `crypto_journal_line` tables. Each asset balances independently in integer smallest units; crypto identifiers never pass through Java `Currency` or the NGN decimal ledger. `crypto-service` can request only `DEPOSIT_CREDIT`, `WITHDRAWAL_RESERVE`, `WITHDRAWAL_SETTLE`, and `WITHDRAWAL_RELEASE` postings. Crypto-service owns provider workflow state, while account-service remains the sole writer of customer asset balances.
+
+`crypto-service` creates Fireblocks vault accounts per customer and provisions an address per asset using the configured account or derived-address mode. Withdrawals verify the wallet PIN, run crypto-specific fraud screening, enforce the asset's daily limit, reserve the amount in account-service, and submit with a stable external transaction ID. Signed Webhook V2 requests are durably recorded before asynchronous processing; the service fetches current provider status and polls uncertain submissions instead of blindly resending them. Confirmed deposits can require administrator review before credit.
 
 ### 4.3 Asynchronous services
 
@@ -195,7 +211,7 @@ Each service follows `controller → service → repository → entity`. Control
 
 - UUID primary keys, with `created_at` and `updated_at` on every table
 - Each service owns its own MySQL schema; no service reads another's tables
-- Money is stored as NGN decimals and sent over the wire as scaled strings (for example `"1250.00"`); extra precision is rejected rather than rounded
+- NGN money is stored as decimals and sent over the wire as scaled strings (for example `"1250.00"`); crypto amounts use integer base units and are rendered as decimal strings only at API boundaries
 - The journal is append-only, so corrections are compensating entries
 - Schema changes go through Flyway migrations only; Hibernate validates the schema and never changes it
 
@@ -314,6 +330,35 @@ The durable idempotency records and ledger keys stay in MySQL, so flushing Redis
         │                   │                   │                   │                   │                   │
 ```
 
+### 6.4 Custodial Crypto (Fireblocks)
+
+```text
+Customer       API Gateway       crypto-service       wallet / fraud       account-service       Fireblocks
+   │                 │                  │                    │                    │                   │
+   │ request address │                  │                    │                    │                   │
+   ├────────────────▶├─────────────────▶│ create vault + asset address                              │
+   │                 │                  ├───────────────────────────────────────────────────────────▶│
+   │                 │                  │◀──────────────────────── address ─────────────────────────┤
+   │◀────────────────┴──────────────────┤                    │                    │                   │
+   │                                     │                    │                    │                   │
+   │ send crypto to address              │                    │                    │                   │
+   │                                     │◀──────── signed Fireblocks Webhook V2 ────────────────────┤
+   │                                     │ persist inbox; fetch current provider state                │
+   │                                     ├───────────────────────────────────────────────────────────▶│
+   │                                     │ confirmed + optional manual review                         │
+   │                                     ├───────────────────────────────────▶│ DEPOSIT_CREDIT      │
+   │                                     │                    │                    │                   │
+   │ submit withdrawal + PIN             │                    │                    │                   │
+   ├────────────────▶├─────────────────▶├── verify PIN ─────▶│                    │                   │
+   │                 │                  ├── fraud check ─────▶│                    │                   │
+   │                 │                  ├───────────────────────────────────▶│ WITHDRAWAL_RESERVE │
+   │                 │                  ├── idempotent withdrawal request ───────────────────────────▶│
+   │                 │                  │◀────────────────── current status / webhook ────────────────┤
+   │                 │                  ├───────────────────────────────────▶│ SETTLE or RELEASE  │
+```
+
+Deposit credit and withdrawal settlement/release are idempotent account-service postings. Crypto-service stores provider events before acknowledging webhooks, processes them asynchronously, and polls by external transaction ID when submission status is uncertain. Admin review is available for confirmed deposits and risk-flagged withdrawals.
+
 ## 7. Events and Reliability
 
 ### Event naming
@@ -344,6 +389,7 @@ Recovery is built in rather than done by hand:
 - Transfer recovery finishes or releases a stale hold from the durable decision
 - Deposit expiry cancels the provider intent before it expires the wallet state
 - Payout recovery checks provider status before it retries an external send
+- Crypto recovery retries idempotent ledger reservations, polls uncertain Fireblocks submissions by external transaction ID, and processes durable Webhook V2 inbox events
 - Reconciliation spots any drift between a cached balance and the journal
 
 ## 8. Security
@@ -359,8 +405,9 @@ Recovery is built in rather than done by hand:
 | PIN / OTP        | Argon2id-hashed PIN with progressive lockout; OTPs hashed and never logged |
 | Abuse protection | Rate limiting per IP and per user                                          |
 | Auditing         | Append-only audit records for sensitive actions and money changes          |
+| Fireblocks       | Server-side RS256 API request JWTs; detached RS512 Webhook V2 signatures checked against the configured environment JWKS |
 
-Only `transaction-service` and `wallet-service` can post ledger entries, and no service trusts an unverified `X-User-*` header for identity.
+Only `transaction-service`, `wallet-service`, and `crypto-service` can call their explicitly scoped internal ledger operations, and no service trusts an unverified `X-User-*` header for identity. Fireblocks credentials stay on the server. The webhook route is public at the gateway but verifies the signature and configured workspace before persisting an event.
 
 ## 9. Infrastructure and Deployment
 
@@ -380,6 +427,7 @@ Only `transaction-service` and `wallet-service` can post ledger entries, and no 
 - **Runtime:** Docker containers run with Docker Compose (`compose.yaml` locally, `compose.prod.yaml` in production)
 - **Environments:** `development` (local Compose), `staging`, `production`
 - **Migrations:** Flyway runs additively on startup, Hibernate only validates
+- **Crypto provider:** crypto-service runs on `:8088`; production publishes only the gateway. Fireblocks and all crypto assets are disabled by default
 - **Production hardening:** only the gateway is public, Swagger is off, actuator is limited, resource limits are set, logs rotate, containers restart on failure
 - **Rollback:** redeploy the previous image tag
 
@@ -415,6 +463,13 @@ Short notes on the decisions that shaped the design. The full set is in [`banken
 - **Decision:** Lock ledger accounts in ascending ID order, and gate every posting on a durable MySQL idempotency key. See [`bankend/docs/adr/0001-locking.md`](bankend/docs/adr/0001-locking.md).
 - **Consequences:** The lock order rules out deadlocks, and the key rules out duplicate movements even if Redis is flushed.
 
+### ADR-004: Separate integer-base-unit crypto subledger
+
+- **Status:** Accepted
+- **Context:** NGN uses fixed-scale currency values, while crypto assets have per-asset precision and are not Java `Currency` identifiers. Provider callbacks and withdrawal retries also need durable replay protection.
+- **Decision:** Keep customer asset balances in account-service, but store crypto accounts and append-only journal lines in separate tables using integer base units. crypto-service owns the Fireblocks workflow and can invoke only four scoped crypto posting operations.
+- **Consequences:** Existing NGN ledger behavior remains unchanged, crypto precision is exact, and account-service remains the sole balance writer. Asset configuration must use the correct network precision, fee asset, confirmation threshold, and limits.
+
 ## 12. Known Limitations and Roadmap
 
 **Limitations**
@@ -422,6 +477,7 @@ Short notes on the decisions that shaped the design. The full set is in [`banken
 - Single-region deployment
 - NGN only, with no currency conversion in a transfer
 - Live inter-bank payouts depend on a third-party provider being up
+- Custodial crypto requires Fireblocks credentials, matching webhook workspace/JWKS configuration, and administrator-reviewed asset/network setup; live Fireblocks transactions have not been verified without provider credentials
 
 **Roadmap**
 

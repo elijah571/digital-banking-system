@@ -20,6 +20,7 @@ import java.util.Set;
 public final class CallerAllowList {
 
     public static final String TRANSACTION = "transaction-service";
+    public static final String CRYPTO = "crypto-service";
     public static final String WALLET = "wallet-service";
     public static final String FRAUD = "fraud-detection-service";
     public static final String PAYMENT = "payment-service";

@@ -33,7 +33,7 @@
 
 ## Overview
 
-This is the backend for a digital bank, built as eight Spring Boot services behind a single API gateway. It covers the parts of banking that move money: registration and login, NGN accounts, wallet-to-wallet transfers behind a PIN, card top-ups through Stripe, and withdrawals or transfers out to other banks.
+This is the backend for a digital bank, built as nine Spring Boot services behind a single API gateway. It covers the parts of banking that move money: registration and login, NGN accounts, wallet-to-wallet transfers behind a PIN, card top-ups through Stripe, withdrawals or transfers out to other banks, and Fireblocks-backed custodial crypto wallets.
 
 Balances are not a number that each service edits. Every amount comes from a double-entry ledger owned by one service, which keeps a full, append-only history of each movement. The system is built around the problems a real bank has to get right. A retried request must not move money twice. Two transfers hitting the same account at once must not corrupt a balance. And a payment that a provider confirms late must still land exactly once.
 
@@ -75,6 +75,7 @@ digital-banking-system/
     ├── account-service/          # Accounts + double-entry ledger, journal, reconcile    (:8081)
     ├── transaction-service/      # Internal transfer orchestration, OTP decisions        (:8082)
     ├── wallet-service/           # PIN, deposits, payouts, name enquiry, idempotency     (:8087)
+    ├── crypto-service/           # Fireblocks custody, crypto addresses, withdrawals       (:8088)
     ├── payment-service/          # Stripe + Flutterwave adapters, webhooks, provider events (:8085)
     ├── fraud-detection-service/  # Risk scoring from transfer/payout events              (:8084)
     ├── notification-service/     # Email, OTP delivery, transaction alerts               (:8086)
@@ -284,6 +285,14 @@ Check that the containers are up and healthy with `docker compose ps`. Also conf
 <summary><strong>Calls return 401 or 403</strong></summary>
 
 Public calls go through the gateway on `:8080`, not directly to a service port. Check that your access token is fresh (they expire quickly) and that `JWT_SECRET` and `INTERNAL_JWT_SECRET` are set the same way across services.
+
+### Custodial crypto
+
+The crypto service is disabled by default: `FIREBLOCKS_ENABLED=false`, and no crypto assets are enabled until an administrator configures them. This prevents an unconfigured or sandbox deployment from accepting deposits or withdrawals. Configure the Fireblocks API key, private key, webhook workspace ID and JWKS endpoint in the server environment; never place those credentials in the frontend. Use Fireblocks Sandbox first, then enable production credentials and network-specific assets deliberately.
+
+Customers use the Crypto page for deposit addresses, balances, withdrawal requests, and transaction history. Withdrawals verify the wallet PIN, run the fraud check, reserve integer base units in account-service, enforce an asset daily cap, then submit to Fireblocks with a stable external transaction ID. Account-service owns the crypto subledger and is the sole balance writer. Signed Fireblocks Webhooks V2 events are stored before acknowledgment and reconciled asynchronously; the service also polls uncertain submissions so it does not blindly resubmit a withdrawal. Deposit confirmation counts and manual deposit review are configured per asset. Administrators configure assets and networks and review flagged deposits or withdrawals from Crypto Operations.
+
+The public API is routed through the gateway under `/api/v1/crypto/**`. Admin configuration is `PUT /api/v1/crypto/admin/assets`; review actions are under `/api/v1/crypto/admin/transactions/{id}`. Configure an enabled asset only after its Fireblocks asset ID, network, precision, address format, confirmation threshold, daily limit (integer base units), address mode, and fee asset have been checked for that specific network. For Fireblocks address behavior, `ACCOUNT` uses the vault asset address and `DERIVED` requests a distinct address for each user. Start with manual deposit review enabled.
 
 </details>
 

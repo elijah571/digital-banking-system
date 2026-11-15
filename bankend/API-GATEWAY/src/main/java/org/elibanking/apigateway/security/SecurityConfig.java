@@ -57,6 +57,8 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.OPTIONS).permitAll()
                         .pathMatchers(PUBLIC_AUTH).permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/v1/payments/webhook").permitAll()
+                        .pathMatchers(HttpMethod.POST, "/api/v1/crypto/webhooks/fireblocks").permitAll()
+                        .pathMatchers("/api/v1/crypto/admin/**").hasRole("ADMIN")
                         .pathMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .pathMatchers(PUBLIC_DOCS).permitAll()
                         .pathMatchers("/api/v1/users/**").hasRole("ADMIN")

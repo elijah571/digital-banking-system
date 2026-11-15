@@ -27,6 +27,7 @@ jobs:
           - account-service
           - transaction-service
           - wallet-service
+          - crypto-service
           - fraud-detection-service
           - payment-service
           - notification-service
@@ -42,7 +43,12 @@ jobs:
       - name: Build and test the shared library
         run: libs/banking-common/mvnw -B -f libs/banking-common/pom.xml install
       - name: Unit, integration (Testcontainers) and ArchUnit tests
-        run: ${{ matrix.service }}/mvnw -B -f ${{ matrix.service }}/pom.xml verify
+        run: |
+          if [ "${{ matrix.service }}" = "crypto-service" ]; then
+            libs/banking-common/mvnw -B -f crypto-service/pom.xml verify
+          else
+            ${{ matrix.service }}/mvnw -B -f ${{ matrix.service }}/pom.xml verify
+          fi
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4

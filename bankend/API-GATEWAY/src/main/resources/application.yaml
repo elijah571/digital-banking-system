@@ -139,6 +139,18 @@ spring:
                     redis-rate-limiter.burstCapacity: 10
                     key-resolver: "#{@userKeyResolver}"
 
+            - id: crypto-service
+              uri: ${CRYPTO_SERVICE_URL:http://localhost:8088}
+              predicates:
+                - Path=/api/v1/crypto,/api/v1/crypto/**
+              filters:
+                - PreserveHostHeader
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 5
+                    redis-rate-limiter.burstCapacity: 10
+                    key-resolver: "#{@userKeyResolver}"
+
             # OpenAPI specs of each service, exposed through the gateway for the combined Swagger UI
             - id: auth-service-docs
               uri: ${AUTH_SERVICE_URL:http://localhost:8083}
@@ -170,6 +182,12 @@ spring:
                 - Path=/docs/wallet-service/v3/api-docs
               filters:
                 - RewritePath=/docs/wallet-service/(?<path>.*), /$\{path}
+            - id: crypto-service-docs
+              uri: ${CRYPTO_SERVICE_URL:http://localhost:8088}
+              predicates:
+                - Path=/docs/crypto-service/v3/api-docs
+              filters:
+                - RewritePath=/docs/crypto-service/(?<path>.*), /$\{path}
 
 # Shared with auth-service: the gateway validates the JWTs it issues
 auth:
@@ -195,6 +213,8 @@ springdoc:
         url: /docs/payment-service/v3/api-docs
       - name: Wallet
         url: /docs/wallet-service/v3/api-docs
+      - name: Crypto
+        url: /docs/crypto-service/v3/api-docs
 
 management:
   endpoints:

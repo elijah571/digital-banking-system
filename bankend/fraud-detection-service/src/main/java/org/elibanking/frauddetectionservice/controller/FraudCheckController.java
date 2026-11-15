@@ -3,6 +3,7 @@ package org.elibanking.frauddetectionservice.controller;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import org.elibanking.frauddetectionservice.model.FraudCheckResult;
 import org.elibanking.frauddetectionservice.service.FraudDetectionService;
 import org.springframework.http.HttpStatus;
@@ -27,6 +28,10 @@ public class FraudCheckController {
                                @NotBlank @Pattern(regexp = "^\\d{10}$", message = "accountNumber must be 10 digits") String accountNumber,
                                @NotBlank @Pattern(regexp = "^\\d+(\\.\\d+)?$", message = "amount must be a number") String amount) {
     }
+    public record CryptoCheckRequest(@NotBlank @Size(max=255) String userId,
+                                     @NotBlank @Pattern(regexp="[A-Z0-9][A-Z0-9_:-]{0,99}") String assetKey,
+                                     @NotBlank @Pattern(regexp="^\\d+(\\.\\d+)?$") String amount,
+                                     @NotBlank @Pattern(regexp="^\\d+(\\.\\d+)?$") String availableBalance) {}
 
     private final FraudDetectionService fraud;
 
@@ -40,5 +45,10 @@ public class FraudCheckController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "type must be WITHDRAWAL or EXTERNAL_TRANSFER");
         }
         return fraud.checkWithdrawal(body.accountNumber(), new BigDecimal(body.amount()));
+    }
+
+    @PostMapping("/crypto-check")
+    public FraudCheckResult checkCrypto(@Valid @RequestBody CryptoCheckRequest body) {
+        return fraud.checkCryptoWithdrawal(body.userId(), body.assetKey(), new BigDecimal(body.amount()), new BigDecimal(body.availableBalance()));
     }
 }

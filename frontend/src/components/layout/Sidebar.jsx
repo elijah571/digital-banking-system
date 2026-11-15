@@ -6,6 +6,7 @@ import {
   BadgeCheck,
   Bell,
   CircleHelp,
+  Coins,
   FileCheck2,
   FileClock,
   Fingerprint,
@@ -29,6 +30,7 @@ const customerLinks = [
   { label: 'Transfers', view: 'transfers', icon: Send },
   { label: 'Add money', view: 'add-money', icon: Plus },
   { label: 'Withdraw', view: 'withdraw', icon: ArrowUpRight },
+  { label: 'Crypto', view: 'crypto', icon: Coins },
   { label: 'Identity verification', view: 'kyc', icon: Fingerprint },
   { label: 'Upgrade account', view: 'account-upgrade', icon: BadgeCheck },
   { label: 'Transactions', view: 'transactions', icon: ReceiptText },
@@ -39,6 +41,7 @@ const customerLinks = [
 const adminLinks = [
   { label: 'Dashboard', view: 'ops-dashboard', icon: Grid2X2 },
   { label: 'KYC review', view: 'kyc-reviews', icon: FileCheck2 },
+  { label: 'Crypto operations', view: 'crypto-operations', icon: Coins },
   { label: 'Payout queue', view: 'payouts', icon: FileClock, badge: 'Queue' },
   { label: 'Risk alerts', view: 'risk-alerts', icon: ShieldAlert },
   { label: 'Audit log', view: 'audit-log', icon: FileCheck2 },

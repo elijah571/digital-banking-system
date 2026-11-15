@@ -51,6 +51,11 @@ export const baseApi = createApi({
     'Audit',
     'Reconciliation',
     'KycReview',
+    'CryptoAsset',
+    'CryptoBalance',
+    'CryptoAddress',
+    'CryptoTransaction',
+    'CryptoReview',
   ],
   endpoints: () => ({}),
 });

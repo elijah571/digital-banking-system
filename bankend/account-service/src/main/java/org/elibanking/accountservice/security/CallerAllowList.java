@@ -23,6 +23,7 @@ public final class CallerAllowList {
     public static final String WALLET = "wallet-service";
     public static final String FRAUD = "fraud-detection-service";
     public static final String PAYMENT = "payment-service";
+    public static final String CRYPTO = "crypto-service";
 
     private static final String SERVICE_ROLE = "SERVICE";
 

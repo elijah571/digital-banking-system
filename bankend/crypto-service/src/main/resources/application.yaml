@@ -1,0 +1,65 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: crypto-service
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/crypto_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  flyway:
+    baseline-on-migrate: false
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  jackson:
+    default-property-inclusion: non_null
+
+auth:
+  jwt-secret: ${JWT_SECRET:}
+  jwt-issuer: ${JWT_ISSUER:elibanking-auth}
+internal-auth:
+  jwt-secret: ${INTERNAL_JWT_SECRET:}
+  issuer: ${INTERNAL_JWT_ISSUER:elibanking-internal}
+  subject: crypto-service
+  account-audience: account-service
+  wallet-audience: wallet-service
+  fraud-audience: fraud-detection-service
+account-service:
+  url: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
+wallet-service:
+  url: ${WALLET_SERVICE_URL:http://localhost:8087}
+fraud-service:
+  url: ${FRAUD_SERVICE_URL:http://localhost:8084}
+fireblocks:
+  enabled: ${FIREBLOCKS_ENABLED:false}
+  base-url: ${FIREBLOCKS_BASE_URL:https://sandbox-api.fireblocks.io}
+  api-key: ${FIREBLOCKS_API_KEY:}
+  private-key: ${FIREBLOCKS_PRIVATE_KEY:}
+  webhook-jwks-url: ${FIREBLOCKS_WEBHOOK_JWKS_URL:https://sandbox-keys.fireblocks.io/.well-known/jwks.json}
+  webhook-workspace-id: ${FIREBLOCKS_WEBHOOK_WORKSPACE_ID:}
+  master-vault-account-id: ${FIREBLOCKS_MASTER_VAULT_ACCOUNT_ID:}
+crypto:
+  deposit-confirmations: ${CRYPTO_DEFAULT_CONFIRMATIONS:12}
+  reconcile-cron: ${CRYPTO_RECONCILE_CRON:0 */5 * * * *}
+  withdrawal-daily-limit-base-units: ${CRYPTO_WITHDRAWAL_DAILY_LIMIT_BASE_UNITS:}
+  api-max-body-size: 1MB
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    db:
+      enabled: true
+    kafka:
+      enabled: false
+logging:
+  level:
+    root: INFO

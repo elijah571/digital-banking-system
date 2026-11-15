@@ -15,3 +15,4 @@ export * from './NotificationsPage';
 export * from './SettingsPage';
 export * from './SecurityPage';
 export * from './SupportPage';
+export * from './CryptoPage';

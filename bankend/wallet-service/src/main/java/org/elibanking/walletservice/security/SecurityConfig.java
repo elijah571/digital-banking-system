@@ -39,7 +39,7 @@ public class SecurityConfig {
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         // The transfer PIN check: transaction-service only (wallet-plan 3.7, threat model T8).
                         .requestMatchers(HttpMethod.POST, "/internal/v1/pin/verify")
-                        .access(CallerAllowList.only(CallerAllowList.TRANSACTION))
+                        .access(CallerAllowList.only(CallerAllowList.TRANSACTION, CallerAllowList.CRYPTO))
                         .requestMatchers(HttpMethod.POST, "/internal/v1/name-enquiries/validate", "/internal/v1/outbound-transfers")
                         .access(CallerAllowList.only(CallerAllowList.TRANSACTION))
                         .requestMatchers(HttpMethod.GET, "/internal/v1/audit")

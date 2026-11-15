@@ -157,6 +157,37 @@ services:
     networks:
       - banking-network
 
+  crypto-service:
+    build:
+      context: .
+      dockerfile: crypto-service/Dockerfile
+    environment:
+      <<: *app-env
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
+      WALLET_SERVICE_URL: http://wallet-service:8087
+      FRAUD_SERVICE_URL: http://fraud-detection-service:8084
+      FIREBLOCKS_ENABLED: ${FIREBLOCKS_ENABLED:-false}
+      FIREBLOCKS_BASE_URL: ${FIREBLOCKS_BASE_URL:-https://sandbox-api.fireblocks.io}
+      FIREBLOCKS_API_KEY: ${FIREBLOCKS_API_KEY:-}
+      FIREBLOCKS_PRIVATE_KEY: ${FIREBLOCKS_PRIVATE_KEY:-}
+      FIREBLOCKS_WEBHOOK_WORKSPACE_ID: ${FIREBLOCKS_WEBHOOK_WORKSPACE_ID:-}
+      FIREBLOCKS_WEBHOOK_JWKS_URL: ${FIREBLOCKS_WEBHOOK_JWKS_URL:-https://sandbox-keys.fireblocks.io/.well-known/jwks.json}
+    depends_on:
+      <<: *app-depends
+      account-service:
+        condition: service_healthy
+      wallet-service:
+        condition: service_healthy
+      fraud-detection-service:
+        condition: service_healthy
+    ports:
+      - "8088:8088"
+    restart: on-failure
+    mem_limit: 768m
+    networks:
+      - banking-network
+
   transaction-service:
     build:
       context: .
@@ -308,6 +339,7 @@ services:
       ACCOUNT_SERVICE_URL: http://account-service:8081
       TRANSACTION_SERVICE_URL: http://transaction-service:8082
       WALLET_SERVICE_URL: http://wallet-service:8087
+      CRYPTO_SERVICE_URL: http://crypto-service:8088
       PAYMENT_SERVICE_URL: http://payment-service:8085
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
     depends_on:
@@ -320,6 +352,8 @@ services:
       transaction-service:
         condition: service_healthy
       payment-service:
+        condition: service_healthy
+      crypto-service:
         condition: service_healthy
     ports:
       - "8080:8080"

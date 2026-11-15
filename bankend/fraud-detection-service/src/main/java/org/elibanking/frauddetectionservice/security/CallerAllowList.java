@@ -17,6 +17,7 @@ import java.util.Set;
 public final class CallerAllowList {
 
     public static final String WALLET = "wallet-service";
+    public static final String CRYPTO = "crypto-service";
 
     private static final String SERVICE_ROLE = "SERVICE";
 

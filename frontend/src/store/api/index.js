@@ -7,3 +7,4 @@ export * from './walletApi';
 export * from './banksApi';
 export * from './paymentsApi';
 export * from './adminApi';
+export * from './cryptoApi';

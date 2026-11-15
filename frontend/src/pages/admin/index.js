@@ -5,3 +5,4 @@ export * from './AuditLogPage';
 export * from './CustomersPage';
 export * from './ReconciliationPage';
 export * from './KycReviewsPage';
+export * from './CryptoOperationsPage';

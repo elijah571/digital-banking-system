@@ -74,6 +74,14 @@ public class FraudDetectionService {
         return result;
     }
 
+    /** Applies the existing velocity/amount/balance rules to an asset-specific crypto withdrawal. */
+    public FraudCheckResult checkCryptoWithdrawal(String userId, String assetKey, BigDecimal amount, BigDecimal availableBalance) {
+        String key = "crypto:" + userId + ":" + assetKey;
+        FraudCheckResult result = performFraudChecks(key, amount, availableBalance);
+        log.info("Crypto withdrawal risk check asset={} fraud={}", assetKey, result.isFraud());
+        return result;
+    }
+
     private FraudCheckResult performFraudChecks(
             String accountNumber,
             BigDecimal amount,
