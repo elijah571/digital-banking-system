@@ -13,7 +13,7 @@ public record AccountUpgradeRequest(
         String addressDocumentType,
         @NotBlank @Size(min = 8, max = 500) String residentialAddress,
         @NotBlank @Size(max = 7_000_000) String addressDocumentImage,
-        @NotBlank @Size(max = 7_000_000) String selfieImage,
+        @NotBlank @Size(max = 30_000_000) String faceVideo,
         @AssertTrue(message = "Consent is required before BVN verification") boolean consentGranted
 ) {
 }

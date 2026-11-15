@@ -26,19 +26,13 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class IdentityVerificationService {
 
-    private static final String PROVIDER = "DOJAH";
-    private static final String IDENTITY_PURPOSE = "IDENTITY";
-    private static final String UPGRADE_PURPOSE = "UPGRADE";
+    private static final String PROVIDER = "MANUAL";
     private static final int MAX_IMAGE_BYTES = 5 * 1024 * 1024;
     private static final Pattern NAME_SEPARATORS = Pattern.compile("[^\\p{L}\\p{N}]+");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     private final AccountRepository accounts;
     private final JdbcTemplate jdbc;
-    private final DojahIdentityProvider dojah;
-    private final VerificationAttemptLimiter attempts;
-    private final VerificationStateWriter stateWriter;
-
     @Value("${account.verification.verified-daily-limit:5000000.00}")
     private BigDecimal verifiedDailyLimit;
 
@@ -98,19 +92,16 @@ public class IdentityVerificationService {
             return statusFor(caller.userId());
         }
         String documentImage = normalizeImage(request.documentImage());
-        String selfie = normalizeImage(request.selfieImage());
-        attempts.claim(caller.userId(), IDENTITY_PURPOSE);
-        DojahIdentityProvider.DocumentResult documentResult = dojah.verifyDocument(documentImage, selfie);
-        DojahIdentityProvider.LivenessResult liveness = documentResult.matched()
-                && documentTypeMatches(request.documentType(), documentResult.detectedDocumentType())
-                ? dojah.checkLiveness(selfie)
-                : null;
-        boolean verified = documentResult.matched()
-                && documentTypeMatches(request.documentType(), documentResult.detectedDocumentType())
-                && liveness != null && liveness.live();
-        stateWriter.identityResult(caller.userId(), verified ? "VERIFIED" : "REJECTED",
-                request.documentType(), documentResult.confidenceScore(),
-                liveness == null ? null : liveness.score(), request.consentGranted());
+        String video = normalizeVideo(request.faceVideo());
+        jdbc.update("""
+                INSERT INTO account_verification (owner_id, provider, identity_status, document_type,
+                    identity_document_image, identity_face_video, identity_consent_at, identity_verified_at)
+                VALUES (?, 'MANUAL', 'PENDING_REVIEW', ?, ?, ?, CURRENT_TIMESTAMP(6), NULL)
+                ON DUPLICATE KEY UPDATE provider='MANUAL', identity_status='PENDING_REVIEW', document_type=VALUES(document_type),
+                    identity_document_image=VALUES(identity_document_image), identity_face_video=VALUES(identity_face_video),
+                    identity_consent_at=CURRENT_TIMESTAMP(6), identity_verified_at=NULL, review_reason=NULL,
+                    reviewed_by=NULL, reviewed_at=NULL
+                """, caller.userId(), request.documentType(), documentImage, video);
         return statusFor(caller.userId());
     }
 
@@ -121,32 +112,75 @@ public class IdentityVerificationService {
         }
         Account account = ownedAccounts.getFirst();
         ensureNamesMatchAccount(account.getAccountHolderName(), request.firstName(), request.lastName());
-        attempts.claim(caller.userId(), UPGRADE_PURPOSE);
-
         String addressDocument = normalizeImage(request.addressDocumentImage());
-        String selfie = normalizeImage(request.selfieImage());
-        DojahIdentityProvider.BvnResult result = dojah.validateBvn(request.bvn(), request.firstName().trim(),
-                request.lastName().trim());
-        DojahIdentityProvider.SelfieResult faceMatch = result.matched()
-                ? dojah.verifyBvnSelfie(request.bvn(), selfie)
-                : null;
-        DojahIdentityProvider.LivenessResult liveness = faceMatch != null && faceMatch.matched()
-                ? dojah.checkLiveness(selfie)
-                : null;
-        List<String> addressText = liveness != null && liveness.live()
-                ? dojah.readAddressDocument(addressDocument)
-                : List.of();
-        boolean addressMatched = !addressText.isEmpty()
-                && addressDocumentMatches(request.firstName(), request.lastName(),
-                request.residentialAddress(), addressText);
-        boolean verified = result.matched() && faceMatch != null && faceMatch.matched()
-                && liveness != null && liveness.live() && addressMatched;
-        String addressStatus = addressMatched ? "VERIFIED"
-                : addressText.isEmpty() ? "NOT_STARTED" : "REJECTED";
-        stateWriter.upgradeResult(caller.userId(), verified ? "VERIFIED" : "REJECTED", lastFour(request.bvn()),
-                request.addressDocumentType(), addressStatus, faceMatch == null ? null : faceMatch.confidenceScore(),
-                liveness == null ? null : liveness.score(), request.consentGranted(), verifiedDailyLimit);
+        String video = normalizeVideo(request.faceVideo());
+        jdbc.update("""
+                INSERT INTO account_verification (owner_id, provider, upgrade_status, bvn_last_four,
+                    address_document_type, address_status, upgrade_document_image, upgrade_face_video,
+                    first_name, last_name, residential_address, upgrade_consent_at)
+                VALUES (?, 'MANUAL', 'PENDING_REVIEW', ?, ?, 'PENDING_REVIEW', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6))
+                ON DUPLICATE KEY UPDATE provider='MANUAL', upgrade_status='PENDING_REVIEW', bvn_last_four=VALUES(bvn_last_four),
+                    address_document_type=VALUES(address_document_type), address_status='PENDING_REVIEW',
+                    upgrade_document_image=VALUES(upgrade_document_image), upgrade_face_video=VALUES(upgrade_face_video),
+                    first_name=VALUES(first_name), last_name=VALUES(last_name), residential_address=VALUES(residential_address),
+                    upgrade_consent_at=CURRENT_TIMESTAMP(6), account_upgraded_at=NULL, review_reason=NULL,
+                    reviewed_by=NULL, reviewed_at=NULL
+                """, caller.userId(), lastFour(request.bvn()), request.addressDocumentType(), addressDocument, video,
+                request.firstName().trim(), request.lastName().trim(), request.residentialAddress().trim());
         return statusFor(caller.userId());
+    }
+
+    @Transactional(readOnly = true)
+    public List<java.util.Map<String, Object>> pendingReviews(Caller caller) {
+        requireAdmin(caller);
+        return jdbc.queryForList("""
+                SELECT v.owner_id AS ownerId, v.identity_status AS identityStatus, v.upgrade_status AS upgradeStatus,
+                       v.document_type AS documentType, v.address_document_type AS addressDocumentType,
+                       v.identity_document_image AS identityDocumentImage, v.identity_face_video AS identityFaceVideo,
+                       v.upgrade_document_image AS upgradeDocumentImage, v.upgrade_face_video AS upgradeFaceVideo,
+                       v.first_name AS firstName, v.last_name AS lastName, v.residential_address AS residentialAddress,
+                       CONCAT('*******', v.bvn_last_four) AS maskedBvn, v.created_at AS submittedAt
+                FROM account_verification v
+                WHERE v.identity_status='PENDING_REVIEW' OR v.upgrade_status='PENDING_REVIEW'
+                ORDER BY v.updated_at ASC
+                """);
+    }
+
+    @Transactional
+    public VerificationStatusResponse review(Caller caller, String ownerId, String type, boolean approve, String reason) {
+        requireAdmin(caller);
+        String column = "IDENTITY".equals(type) ? "identity_status" : "UPGRADE".equals(type) ? "upgrade_status" : null;
+        if (column == null) throw new AccountOperationException("Review type must be IDENTITY or UPGRADE");
+        String current = jdbc.queryForObject("SELECT " + column + " FROM account_verification WHERE owner_id=?", String.class, ownerId);
+        if (!"PENDING_REVIEW".equals(current)) throw new AccountOperationException("This request is no longer pending review");
+        String status = approve ? "VERIFIED" : "REJECTED";
+        if ("UPGRADE".equals(type) && approve) {
+            int updated = accounts.upgradeOwnedAccounts(ownerId, verifiedDailyLimit);
+            if (updated == 0) throw new AccountNotFoundException("No account found for this customer");
+        }
+        String approvalTime = approve ? "CURRENT_TIMESTAMP(6)" : "NULL";
+        jdbc.update("UPDATE account_verification SET " + column + "=?, review_reason=?, reviewed_by=?, reviewed_at=CURRENT_TIMESTAMP(6)"
+                + ("UPGRADE".equals(type) ? ", address_status=?, address_verified_at=" + approvalTime + ", account_upgraded_at=" + approvalTime
+                : ", identity_verified_at=" + approvalTime)
+                + " WHERE owner_id=?", "UPGRADE".equals(type) ? new Object[]{status, reason, caller.userId(), status, ownerId}
+                : new Object[]{status, reason, caller.userId(), ownerId});
+        return statusFor(ownerId);
+    }
+
+    private static void requireAdmin(Caller caller) {
+        if (caller == null || !caller.isAdmin()) throw new AccountOperationException("Administrator access is required");
+    }
+
+    private static String normalizeVideo(String raw) {
+        String value = raw.trim();
+        if (value.startsWith("data:video/webm;base64,")) value = value.substring("data:video/webm;base64,".length());
+        try {
+            byte[] bytes = Base64.getDecoder().decode(value);
+            if (bytes.length < 1024 || bytes.length > 20 * 1024 * 1024) throw new IllegalArgumentException();
+            return Base64.getEncoder().encodeToString(bytes);
+        } catch (IllegalArgumentException ex) {
+            throw new AccountOperationException("Face verification video must be valid WebM under 20 MB");
+        }
     }
 
     private List<Account> requireAccounts(Caller caller) {
@@ -202,7 +236,7 @@ public class IdentityVerificationService {
         if (!jpeg && !png) {
             throw new AccountOperationException("Images must be JPEG or PNG");
         }
-        return Base64.getEncoder().encodeToString(bytes);
+        return (jpeg ? "data:image/jpeg;base64," : "data:image/png;base64,") + Base64.getEncoder().encodeToString(bytes);
     }
 
     private static boolean documentTypeMatches(String requested, String detected) {

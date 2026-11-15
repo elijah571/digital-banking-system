@@ -14,11 +14,15 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/accounts/verification")
 @RequiredArgsConstructor
-@Tag(name = "Identity verification", description = "Dojah document checks and BVN/address-based account upgrades")
+@Tag(name = "Identity verification", description = "Customer-submitted evidence and manual administrator review")
 public class IdentityVerificationController {
 
     private final IdentityVerificationService verificationService;
@@ -41,5 +45,16 @@ public class IdentityVerificationController {
     public VerificationStatusResponse upgradeAccount(
             @Valid @RequestBody AccountUpgradeRequest request, Caller caller) {
         return verificationService.upgradeAccount(caller, request);
+    }
+
+    @GetMapping("/admin/reviews")
+    public List<Map<String, Object>> pendingReviews(Caller caller) {
+        return verificationService.pendingReviews(caller);
+    }
+
+    @PostMapping("/admin/reviews/{ownerId}")
+    public VerificationStatusResponse review(@PathVariable String ownerId, @RequestParam String type,
+            @RequestParam boolean approve, @RequestParam(required = false) String reason, Caller caller) {
+        return verificationService.review(caller, ownerId, type, approve, reason);
     }
 }

@@ -4,6 +4,7 @@ import org.elibanking.accountservice.exception.AccountOperationException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -19,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Component
+@ConditionalOnProperty(name = "account.verification.dojah.enabled", havingValue = "true")
 public class DojahIdentityProvider {
 
     public record DocumentResult(boolean matched, BigDecimal confidenceScore, String detectedDocumentType) {

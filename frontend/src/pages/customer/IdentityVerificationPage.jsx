@@ -47,11 +47,11 @@ export function IdentityVerificationPage({ status, setStatus, showToast }) {
       return;
     }
     if (!faceVerified) {
-      showToast?.('Capture a selfie with the camera before continuing.', 'error');
+      showToast?.('Record the prompted face video before continuing.', 'error');
       return;
     }
     if (!selfieImage) {
-      showToast?.('Run the live face check again so a selfie can be captured.', 'error');
+      showToast?.('Complete the smile, left, and right prompts so the video can be attached.', 'error');
       return;
     }
 
@@ -59,7 +59,7 @@ export function IdentityVerificationPage({ status, setStatus, showToast }) {
       const result = await submitIdentity({
         documentType,
         documentImage: await readImageBase64(documentImage),
-        selfieImage,
+        faceVideo: selfieImage,
         consentGranted: true,
       }).unwrap();
 
@@ -79,7 +79,7 @@ export function IdentityVerificationPage({ status, setStatus, showToast }) {
     <div className="fade-in">
       <PageHeader
         title="Identity verification"
-        description="Verify your identity using an approved document and a live facial selfie."
+        description="Submit an identity document and a short prompted face recording for manual administrator review."
       />
 
       {['Pending review', 'PENDING_REVIEW', 'VERIFIED'].includes(status) ? (
@@ -95,11 +95,11 @@ export function IdentityVerificationPage({ status, setStatus, showToast }) {
               Identity check {status === 'VERIFIED' ? 'complete' : 'submitted'}
             </h2>
             <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
-              Your identity verification request has been received by the verification service and is securely processing.
+              Your application is waiting for an administrator to review your document and face recording.
             </p>
           </div>
           <div className="mt-6 rounded-xl border border-gold-100 bg-gold-50/70 p-4 text-xs leading-5 text-slate-600">
-            <b className="text-ink">Privacy note:</b> The selected identity document image and captured selfie are securely sent to the account verification engine with TLS encryption.
+            <b className="text-ink">Privacy note:</b> Your identity document and face recording are stored for authorized administrator review.
           </div>
         </Panel>
       ) : (
@@ -111,16 +111,16 @@ export function IdentityVerificationPage({ status, setStatus, showToast }) {
                   <Fingerprint size={19} />
                 </span>
                 <div>
-                  <h2 className="text-sm font-bold">Document & live face verification</h2>
+                  <h2 className="text-sm font-bold">Document & recorded face verification</h2>
                   <p className="mt-1 max-w-xl text-xs leading-5 text-slate-300">
-                    Submit a government-issued ID card and complete a fast selfie verification.
+                    Submit a government-issued ID and follow the smile, left, and right prompts on video.
                   </p>
                 </div>
               </div>
               <StatusBadge tone="gold">Action needed</StatusBadge>
             </div>
             <div className="mt-5 grid gap-2 text-[11px] text-slate-300 sm:grid-cols-3">
-              {['1. Identity document', '2. Live face check', '3. Service review'].map(
+              {['1. Identity document', '2. Prompted face video', '3. Admin review'].map(
                 (step, index) => (
                   <div
                     key={step}
@@ -242,7 +242,7 @@ export function IdentityVerificationPage({ status, setStatus, showToast }) {
                   {[
                     'Use an unexpired government-issued document',
                     'Ensure all corners and text are clear and legible',
-                    'Grant camera access for the live selfie scan',
+                    'Grant camera access and follow each video prompt',
                   ].map((item) => (
                     <li key={item} className="flex gap-2 text-xs text-slate-600">
                       <Check size={14} className="mt-0.5 shrink-0 text-green-700" />

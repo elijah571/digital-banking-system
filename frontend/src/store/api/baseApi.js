@@ -50,6 +50,7 @@ export const baseApi = createApi({
     'Banks',
     'Audit',
     'Reconciliation',
+    'KycReview',
   ],
   endpoints: () => ({}),
 });

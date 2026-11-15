@@ -47,11 +47,11 @@ export function AccountUpgradePage({ status, setStatus, showToast }) {
       return;
     }
     if (!faceVerified) {
-      showToast?.('Capture a selfie with the camera before continuing.', 'error');
+      showToast?.('Record the prompted face video before continuing.', 'error');
       return;
     }
     if (!selfieImage) {
-      showToast?.('Run the live face check again so a selfie can be captured.', 'error');
+      showToast?.('Complete the smile, left, and right prompts so the video can be attached.', 'error');
       return;
     }
 
@@ -64,7 +64,7 @@ export function AccountUpgradePage({ status, setStatus, showToast }) {
         residentialAddress: fields.get('residentialAddress'),
         addressDocumentType,
         addressDocumentImage: await readImageBase64(addressDocument),
-        selfieImage,
+        faceVideo: selfieImage,
         consentGranted: true,
       }).unwrap();
 
@@ -84,7 +84,7 @@ export function AccountUpgradePage({ status, setStatus, showToast }) {
     <div className="fade-in">
       <PageHeader
         title="Upgrade your account"
-        description="Verify your BVN, residential address, and live face to unlock Tier 3 daily limits."
+        description="Submit your details, proof of address, and a prompted face recording for administrator review to request a higher account tier."
       />
 
       {['Pending review', 'PENDING_REVIEW', 'VERIFIED'].includes(status) ? (
@@ -100,7 +100,7 @@ export function AccountUpgradePage({ status, setStatus, showToast }) {
               Account upgrade {status === 'VERIFIED' ? 'active' : 'submitted'}
             </h2>
             <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
-              Your tier upgrade verification request was received by the account service and is being validated.
+              Your documents are waiting for an administrator to review them. Your account tier changes only after approval.
             </p>
           </div>
         </Panel>
@@ -112,9 +112,9 @@ export function AccountUpgradePage({ status, setStatus, showToast }) {
                 <BadgeCheck size={17} />
               </span>
               <div>
-                <h2 className="text-sm font-bold text-ink">BVN and address verification</h2>
+                  <h2 className="text-sm font-bold text-ink">Account details and proof of address</h2>
                 <p className="mt-0.5 text-xs leading-5 text-slate-500">
-                  Dojah verifies your BVN identity against NIBSS and validates your address proof and liveness.
+                  An administrator will inspect the submitted information, address document, and face recording.
                 </p>
               </div>
             </div>
@@ -250,7 +250,7 @@ export function AccountUpgradePage({ status, setStatus, showToast }) {
               <ul className="mt-4 space-y-3">
                 {[
                   'Daily transfer limit increased to ₦5,000,000.00',
-                  'Instant verification with NIBSS database',
+                  'Administrator review before any account tier change',
                   'Priority clearing on outward bank payouts',
                   'All linked savings & current accounts upgraded automatically',
                 ].map((item) => (

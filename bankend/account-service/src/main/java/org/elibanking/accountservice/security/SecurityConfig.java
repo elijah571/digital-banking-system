@@ -57,6 +57,7 @@ public class SecurityConfig {
                         .access(CallerAllowList.only(CallerAllowList.TRANSACTION, CallerAllowList.WALLET,
                                 CallerAllowList.FRAUD, CallerAllowList.PAYMENT))
                         .requestMatchers("/internal/v1/**").denyAll()
+                        .requestMatchers("/api/v1/accounts/verification/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/accounts/verification", "/api/v1/accounts/verification/**")
                         .access(CallerAllowList.users())
                         .requestMatchers(HttpMethod.GET, "/api/v1/accounts").hasRole("ADMIN")

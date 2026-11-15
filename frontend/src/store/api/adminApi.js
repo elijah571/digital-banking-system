@@ -30,6 +30,13 @@ export const adminApi = baseApi.injectEndpoints({
       query: () => '/api/v1/admin/ledger/reconciliation',
       providesTags: ['Reconciliation'],
     }),
+    kycReviews: build.query({ query: () => '/api/v1/accounts/verification/admin/reviews', providesTags: ['KycReview'] }),
+    reviewKyc: build.mutation({
+      query: ({ ownerId, type, approve, reason = '' }) => ({
+        url: `/api/v1/accounts/verification/admin/reviews/${encodeURIComponent(ownerId)}`,
+        method: 'POST', params: { type, approve, reason },
+      }), invalidatesTags: ['KycReview', 'Account', 'Audit'],
+    }),
     adjustAccount: build.mutation({
       query: ({ accountNumber, action, amount, reason, idempotencyKey = crypto.randomUUID() }) => ({
         url: `/api/v1/admin/accounts/${encodeURIComponent(accountNumber)}/${action}`,
@@ -73,4 +80,6 @@ export const {
   useAdjustAccountMutation,
   useApprovePayoutMutation,
   useRejectPayoutMutation,
+  useKycReviewsQuery,
+  useReviewKycMutation,
 } = adminApi;

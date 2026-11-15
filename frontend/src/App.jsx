@@ -33,6 +33,7 @@ import {
   AuditLogPage,
   CustomersPage,
   ReconciliationPage,
+  KycReviewsPage,
   AuthPage,
 } from './pages';
 import {
@@ -87,6 +88,7 @@ const viewTitles = {
   'audit-log': 'Audit log',
   customers: 'Customers',
   reconciliation: 'Reconciliation',
+  'kyc-reviews': 'KYC review',
 };
 
 function App() {
@@ -854,6 +856,8 @@ function App() {
         );
       case 'reconciliation':
         return <ReconciliationPage data={reconciliationData} />;
+      case 'kyc-reviews':
+        return <KycReviewsPage showToast={notify} />;
       default:
         return (
           <OverviewPage

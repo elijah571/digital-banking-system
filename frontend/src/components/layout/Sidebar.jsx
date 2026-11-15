@@ -38,6 +38,7 @@ const customerLinks = [
 
 const adminLinks = [
   { label: 'Dashboard', view: 'ops-dashboard', icon: Grid2X2 },
+  { label: 'KYC review', view: 'kyc-reviews', icon: FileCheck2 },
   { label: 'Payout queue', view: 'payouts', icon: FileClock, badge: 'Queue' },
   { label: 'Risk alerts', view: 'risk-alerts', icon: ShieldAlert },
   { label: 'Audit log', view: 'audit-log', icon: FileCheck2 },

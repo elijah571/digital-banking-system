@@ -10,7 +10,7 @@ public record DocumentIdentityRequest(
         @Pattern(regexp = "PASSPORT|DRIVING_LICENSE|NIN_SLIP|VOTER_CARD")
         String documentType,
         @NotBlank @Size(max = 7_000_000) String documentImage,
-        @NotBlank @Size(max = 7_000_000) String selfieImage,
+        @NotBlank @Size(max = 30_000_000) String faceVideo,
         @AssertTrue(message = "Consent is required before identity verification") boolean consentGranted
 ) {
 }

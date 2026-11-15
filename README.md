@@ -137,8 +137,6 @@ Configuration comes from environment variables. Copy `.env.example` to `.env` an
 | `FLUTTERWAVE_WEBHOOK_SECRET`                            | Flutterwave dashboard secret hash; checked against the `verif-hash` header |    No    |
 | `FLUTTERWAVE_ENCRYPTION_KEY`                            | Flutterwave encryption key; not used for NGN bank transfers |    No    |
 | `FLUTTERWAVE_BASE_URL`                                  | Flutterwave V3 API base URL; defaults to `https://api.flutterwave.com/v3` |    No    |
-| `DOJAH_BASE_URL`, `DOJAH_APP_ID`, `DOJAH_SECRET_KEY`   | Dojah verification endpoint and credentials; sandbox URL by default | No |
-| `DOJAH_MINIMUM_CONFIDENCE`                              | Minimum Dojah identity/face/liveness confidence; defaults to `90` | No |
 | `ACCOUNT_VERIFIED_DAILY_LIMIT`                          | Daily limit after successful BVN upgrade; defaults to `5000000.00` NGN | No |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_MAIL`, `SMTP_PASSWORD` | Outbound email (Gmail needs an App Password)        |    No    |
 | `WITHDRAWAL_MIN`, `WITHDRAWAL_MAX`                     | Per-withdrawal NGN bounds                            |   Yes    |
@@ -234,8 +232,10 @@ Interactive docs are served at [`/swagger-ui.html`](http://localhost:8080/swagge
 | POST   | `/api/v1/accounts/create`                     | Open an account                   | Yes  |
 | GET    | `/api/v1/accounts/me`                         | List the caller's accounts        | Yes  |
 | GET    | `/api/v1/accounts/verification`               | Read the caller's verification and account-tier status | User |
-| POST   | `/api/v1/accounts/verification/identity`      | Verify an identity document, face match, and liveness with Dojah | User |
-| POST   | `/api/v1/accounts/verification/upgrade`       | Upgrade owned accounts after BVN, address, and face checks | User |
+| POST   | `/api/v1/accounts/verification/identity`      | Submit an identity document and prompted face video for manual review | User |
+| POST   | `/api/v1/accounts/verification/upgrade`       | Submit account-upgrade details and evidence for manual review | User |
+| GET    | `/api/v1/accounts/verification/admin/reviews` | List pending KYC reviews with submitted evidence | Admin |
+| POST   | `/api/v1/accounts/verification/admin/reviews/{ownerId}` | Approve or reject an identity or upgrade review | Admin |
 | GET    | `/api/v1/accounts/{accountNumber}/balance`    | Account balance                   | Yes  |
 | POST   | `/api/v1/transactions`                        | Start an internal or external bank transfer | Yes |
 | POST   | `/api/v1/transactions/{transactionId}/verify` | Verify OTP for a flagged transfer | Yes  |
@@ -251,7 +251,7 @@ Interactive docs are served at [`/swagger-ui.html`](http://localhost:8080/swagge
 | POST   | `/api/v1/payments/create-order`                | Deprecated legacy payment order | Yes  |
 | POST   | `/api/v1/payments/webhook`                     | Provider webhook (signed)        | Sig  |
 
-Identity requests require a user token and a `documentType` (`PASSPORT`, `DRIVING_LICENSE`, `NIN_SLIP`, or `VOTER_CARD`), base64-encoded JPEG/PNG `documentImage` and `selfieImage`, and `consentGranted: true`; no BVN is collected for this check. Account upgrades require `bvn`, `firstName`, `lastName`, `residentialAddress`, an `addressDocumentType` (`UTILITY_BILL`, `BANK_STATEMENT`, `LEASE_AGREEMENT`, or `GOVERNMENT_LETTER`), base64-encoded `addressDocumentImage` and `selfieImage`, and consent. Dojah validates the BVN, matches the selfie to the BVN record, checks liveness, and OCR-matches the address document against the submitted name and address. A successful upgrade promotes all accounts owned by the user. The React UI remains a standalone demo with a simulated live camera check and does not call these endpoints.
+Identity submissions require a user token, `documentType`, a base64 JPEG/PNG `documentImage`, a base64 WebM `faceVideo` (up to 20 MB), and consent. Account-upgrade submissions include BVN, name, residential address, address document type and image, the prompted face video, and consent. Both requests stay pending until an administrator views the evidence and approves or rejects them. Approving an account upgrade promotes the customer's owned accounts. Evidence is stored in the account service database and is available to administrators through the KYC review screen; configure database access, backups, and retention to protect this sensitive data.
 
 ## Contributing
 

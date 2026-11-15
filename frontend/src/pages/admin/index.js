@@ -4,3 +4,4 @@ export * from './RiskAlertsPage';
 export * from './AuditLogPage';
 export * from './CustomersPage';
 export * from './ReconciliationPage';
+export * from './KycReviewsPage';
