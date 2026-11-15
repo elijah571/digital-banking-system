@@ -13,6 +13,8 @@ import org.elibanking.authservice.exception.AuthException;
 import org.elibanking.authservice.service.UserAdminService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -30,8 +32,8 @@ public class UserAdminController {
     @Operation(summary = "List all users (newest first)")
     @ApiResponse(responseCode = "200", description = "Users")
     @ApiResponse(responseCode = "403", description = "Not an admin")
-    public List<UserResponse> list(@Parameter(hidden = true) @RequestHeader(value = "X-User-Role", required = false) String role) {
-        requireAdmin(role);
+    public List<UserResponse> list(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt) {
+        requireAdmin(jwt.getClaimAsString("role"));
         return userAdminService.listUsers();
     }
 
@@ -39,9 +41,9 @@ public class UserAdminController {
     @Operation(summary = "Get a user")
     @ApiResponse(responseCode = "200", description = "User")
     @ApiResponse(responseCode = "404", description = "Not found", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    public UserResponse get(@Parameter(hidden = true) @RequestHeader(value = "X-User-Role", required = false) String role,
+    public UserResponse get(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
                             @PathVariable String id) {
-        requireAdmin(role);
+        requireAdmin(jwt.getClaimAsString("role"));
         return userAdminService.getUser(id);
     }
 
@@ -53,12 +55,11 @@ public class UserAdminController {
     @ApiResponse(responseCode = "404", description = "Not found", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "409", description = "Admin tried to demote/disable themselves",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    public UserResponse update(@Parameter(hidden = true) @RequestHeader(value = "X-User-Role", required = false) String role,
-                               @Parameter(hidden = true) @RequestHeader(value = "X-User-Id", required = false) String adminId,
+    public UserResponse update(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
                                @PathVariable String id,
                                @RequestBody UpdateUserRequest request) {
-        requireAdmin(role);
-        return userAdminService.updateUser(adminId, id, request);
+        requireAdmin(jwt.getClaimAsString("role"));
+        return userAdminService.updateUser(jwt.getSubject(), id, request);
     }
 
     private static void requireAdmin(String role) {

@@ -16,6 +16,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.HtmlUtils;
 
@@ -122,8 +124,8 @@ public class AuthController {
     @Operation(summary = "Current user profile")
     @ApiResponse(responseCode = "200", description = "The logged-in user")
     @ApiResponse(responseCode = "401", description = "Missing or invalid access token")
-    public UserResponse me(@Parameter(hidden = true) @RequestHeader(value = "X-User-Id", required = false) String userId) {
-        return authService.me(userId);
+    public UserResponse me(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt) {
+        return authService.me(jwt.getSubject());
     }
 
     @PostMapping("/change-password")
@@ -131,9 +133,9 @@ public class AuthController {
     @ApiResponse(responseCode = "200", description = "Password changed")
     @ApiResponse(responseCode = "400", description = "Current password wrong, or new password too weak",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    public MessageResponse changePassword(@Parameter(hidden = true) @RequestHeader(value = "X-User-Id", required = false) String userId,
+    public MessageResponse changePassword(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
                                           @Valid @RequestBody ChangePasswordRequest request) {
-        authService.changePassword(userId, request);
+        authService.changePassword(jwt.getSubject(), request);
         return new MessageResponse("Password changed");
     }
 

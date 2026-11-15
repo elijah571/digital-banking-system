@@ -39,6 +39,8 @@ Balances are not a number that each service edits. Every amount comes from a dou
 
 > For the design in detail, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+Engineering security and operations guides are collected in [`docs/engineering/`](docs/engineering/), including ledger integrity, idempotency, webhook security, Kafka reliability, incident response, and disaster recovery.
+
 ## Features
 
 - **Double-entry ledger.** One service owns the journal and is the only writer. Entries are append-only, so a mistake is fixed with a reversing entry rather than an edit and the history always reconciles.

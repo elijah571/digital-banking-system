@@ -145,6 +145,7 @@ spring:
                 - Path=/api/v1/crypto,/api/v1/crypto/**
               filters:
                 - PreserveHostHeader
+                - RequestSize=1048576
                 - name: RequestRateLimiter
                   args:
                     redis-rate-limiter.replenishRate: 5

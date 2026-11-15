@@ -28,6 +28,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -75,6 +76,30 @@ class InternalAuthTest {
     @Test
     void noTokenIsRefused() throws Exception {
         mvc.perform(check(null, "someone", PASSWORD)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void aForgedGatewayIdentityHeaderCannotAuthenticateTheProfileRoute() throws Exception {
+        mvc.perform(get("/api/v1/auth/me").header("X-User-Id", "victim-user"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void aUserJwtIsRequiredForTheProfileRoute() throws Exception {
+        mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + TestTokens.userToken("missing-user", "USER")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void forgedAdminHeadersCannotReachUserAdministration() throws Exception {
+        mvc.perform(get("/api/v1/users").header("X-User-Role", "ADMIN").header("X-User-Id", "attacker"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void userJwtCannotReachUserAdministration() throws Exception {
+        mvc.perform(get("/api/v1/users").header("Authorization", "Bearer " + TestTokens.userToken("user", "USER")))
+                .andExpect(status().isForbidden());
     }
 
     @Test

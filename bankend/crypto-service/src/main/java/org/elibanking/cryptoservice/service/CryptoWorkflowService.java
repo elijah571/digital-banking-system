@@ -16,6 +16,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -38,6 +40,7 @@ import java.util.regex.Pattern;
 
 @Service
 public class CryptoWorkflowService {
+    private static final Logger LOG=LoggerFactory.getLogger(CryptoWorkflowService.class);
     public record DepositAddress(String assetKey,String networkCode,String symbol,String address,String tag) {}
     public record TransactionView(String id,String userId,String direction,String assetKey,String symbol,String networkCode,String amount,
                                   String status,String providerStatus,String txHash,String destinationAddress,String destinationTag,
@@ -53,8 +56,10 @@ public class CryptoWorkflowService {
     public CryptoWorkflowService(JdbcTemplate jdbc,org.springframework.transaction.PlatformTransactionManager transactionManager,
             CryptoAssetService assets,FireblocksClient fireblocks,FireblocksWebhookVerifier webhookVerifier,
             AccountServiceClient accounts,WalletPinClient pins,CryptoFraudClient fraud,CryptoOutbox outbox,ObjectMapper mapper,
-            @Value("${fireblocks.webhook-workspace-id:}") String workspaceId){
+            @Value("${fireblocks.webhook-workspace-id:}") String workspaceId,
+            @Value("${fireblocks.enabled:false}") boolean fireblocksEnabled){
         this.jdbc=jdbc;this.tx=new TransactionTemplate(transactionManager);this.assets=assets;this.fireblocks=fireblocks;
+        if(fireblocksEnabled&&(workspaceId==null||workspaceId.isBlank()))throw new IllegalStateException("FIREBLOCKS_WEBHOOK_WORKSPACE_ID is required when Fireblocks is enabled");
         this.webhookVerifier=webhookVerifier;this.accounts=accounts;this.pins=pins;this.fraud=fraud;this.outbox=outbox;this.mapper=mapper;this.workspaceId=workspaceId;
     }
 
@@ -139,7 +144,7 @@ public class CryptoWorkflowService {
             String txId=provider==null?null:provider.path("id").asText(null);String providerStatus=provider==null?null:provider.path("status").asText(null);
             Integer changed=tx.execute(s->jdbc.update("UPDATE crypto_transaction SET provider_tx_id=?,provider_status=?,status=? WHERE id=? AND status IN ('RESERVED','SUBMISSION_UNKNOWN')",txId,providerStatus,txId==null?"SUBMISSION_UNKNOWN":"SUBMITTED",id));
             if(changed!=null&&changed>0)emitTransactionEvent(id,"crypto.withdrawal.submitted");
-        }catch(RuntimeException unknown){tx.executeWithoutResult(s->jdbc.update("UPDATE crypto_transaction SET status='SUBMISSION_UNKNOWN' WHERE id=? AND status IN ('RESERVED','SUBMISSION_UNKNOWN')",id));}
+        }catch(RuntimeException unknown){LOG.warn("Fireblocks withdrawal submission outcome is uncertain transactionId={} errorType={}",id,unknown.getClass().getSimpleName());tx.executeWithoutResult(s->jdbc.update("UPDATE crypto_transaction SET status='SUBMISSION_UNKNOWN' WHERE id=? AND status IN ('RESERVED','SUBMISSION_UNKNOWN')",id));}
     }
 
     private String ensureVault(String userId){
@@ -182,7 +187,10 @@ public class CryptoWorkflowService {
     }
 
     public boolean acceptWebhook(byte[] rawBody,String signature){
-        if(!webhookVerifier.verify(rawBody,signature))throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Invalid Fireblocks webhook signature");
+        if(workspaceId==null||workspaceId.isBlank())throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Fireblocks webhook workspace is not configured");
+        final boolean verified;
+        try{verified=webhookVerifier.verify(rawBody,signature);}catch(FireblocksWebhookVerifier.WebhookVerificationUnavailable unavailable){throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Fireblocks webhook verification is temporarily unavailable");}
+        if(!verified)throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Invalid Fireblocks webhook signature");
         final JsonNode event;try{event=mapper.readTree(rawBody);}catch(Exception e){throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid Fireblocks webhook JSON");}
         String suppliedWorkspace=event.path("workspaceId").asText("");if(!workspaceId.isBlank()&&!workspaceId.equals(suppliedWorkspace))throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Fireblocks webhook workspace did not match");
         String eventId=event.path("id").asText("");String eventType=event.path("eventType").asText("");String resource=event.path("resourceId").asText(null);
@@ -199,7 +207,7 @@ public class CryptoWorkflowService {
             accounts.apply(new AccountServiceClient.Operation("WITHDRAWAL_RESERVE",(String)row.get("user_id"),(String)row.get("asset_key"),((BigDecimal)row.get("amount_base_units")).toBigIntegerExact(),null,null,"crypto-"+id+"-reserve",id));
             boolean review=asBoolean(row.get("requires_review"));setStatus(id,review?"REVIEW_REQUIRED":"RESERVED",null,null,0);
             if(review)emitTransactionEvent(id,"crypto.withdrawal.review_required");else submitWithdrawal(id);
-        }catch(AccountServiceClient.InsufficientCryptoBalance refused){failBeforeSubmit(id,"Insufficient crypto balance");}catch(RuntimeException unavailable){/* Retry with the same account-service idempotency key on the next pass. */}}
+        }catch(AccountServiceClient.InsufficientCryptoBalance refused){failBeforeSubmit(id,"Insufficient crypto balance");}catch(RuntimeException unavailable){LOG.warn("Crypto reservation recovery will retry transactionId={} errorType={}",id,unavailable.getClass().getSimpleName());}}
         List<Map<String,Object>> events=jdbc.queryForList("SELECT event_id,resource_id FROM crypto_provider_event WHERE processed_at IS NULL ORDER BY received_at LIMIT 50");
         for(Map<String,Object> event:events){String eventId=(String)event.get("event_id"),resource=(String)event.get("resource_id");
             try{if(resource!=null&&!resource.isBlank()){JsonNode provider=fireblocks.transaction(resource);handleProviderTransaction(provider);}
@@ -212,7 +220,7 @@ public class CryptoWorkflowService {
         for(String id:pending){try{Map<String,Object> row=jdbc.queryForMap("SELECT id,provider_tx_id,status FROM crypto_transaction WHERE id=?",id);String providerId=(String)row.get("provider_tx_id");
                 JsonNode provider=providerId==null?fireblocks.transactionByExternalId(id):fireblocks.transaction(providerId);
                 if(provider!=null&&!provider.isNull()&&provider.hasNonNull("id")){if(providerId==null)jdbc.update("UPDATE crypto_transaction SET provider_tx_id=? WHERE id=?",provider.path("id").asText(),id);handleProviderTransaction(provider);}
-            }catch(FireblocksClient.ProviderNotFound ignored){}catch(RuntimeException ignored){}}
+            }catch(FireblocksClient.ProviderNotFound missing){LOG.debug("Fireblocks has no transaction yet for local transactionId={}",id);}catch(RuntimeException retryable){LOG.warn("Fireblocks status reconciliation will retry transactionId={} errorType={}",id,retryable.getClass().getSimpleName());}}
     }
 
     private void handleProviderTransaction(JsonNode provider){
