@@ -14,6 +14,7 @@ FROM eclipse-temurin:25-jre
 WORKDIR /app
 RUN useradd --system --no-create-home app
 COPY --from=build /src/app.jar app.jar
+COPY application.yaml /app/application.yaml
 USER app
 EXPOSE 8080
 # The JRE image has no curl/wget: talk HTTP to the actuator with bash's /dev/tcp.
