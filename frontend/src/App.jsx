@@ -177,7 +177,9 @@ function App() {
 
   const { data: bankRows = [] } = useBanksQuery(undefined, { skip: !hasSession });
   const { data: verificationStatus } = useVerificationStatusQuery(undefined, {
-    skip: !hasSession,
+    // KYC status belongs to customer accounts; admins review the queue instead.
+    // Wait for the profile query so an admin session never triggers this customer-only request.
+    skip: !hasSession || !currentUser || isAdmin,
   });
 
   // Admin RTK Query connections
