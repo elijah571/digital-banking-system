@@ -1,307 +1,274 @@
-# Digital Banking System
+# ELI-PAY Digital Banking System
 
-**Backend for a digital bank: accounts, wallets, transfers, card deposits, and bank payouts, all settled through a double-entry ledger.**
+ELI-PAY is a digital banking application with a React web client and a Java/Spring backend. Customers can manage NGN accounts, make internal and external transfers, add money, withdraw funds, submit identity verification for manual review, and use supported custodial crypto flows. Administrators have a separate operations workspace for customer support, payout and KYC reviews, risk alerts, reconciliation, and audit history.
 
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Java](https://img.shields.io/badge/Java-25-orange)](#)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4-6DB33F)](#)
-[![Services](https://img.shields.io/badge/services-8-informational)](#)
+The backend is split into independently deployable services. Account balances are maintained through an append-only double-entry ledger; idempotency, database transactions, provider verification, and asynchronous events are used to protect money flows from retries and partial failures.
 
-[Documentation](bankend/docs/) · [Architecture](ARCHITECTURE.md) · [Report a Bug](https://github.com/elijah571/digital-banking-system/issues) · [Request a Feature](https://github.com/elijah571/digital-banking-system/issues)
+> This repository provides application software and local development infrastructure. It does not by itself provide a licensed banking service, production-ready high availability, a regulated compliance program, or live provider accounts. Review the deployment and security documentation before handling real customer data or funds.
 
-</div>
+## Contents
 
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Getting Started](#getting-started)
+- [Application capabilities](#application-capabilities)
+- [Architecture](#architecture)
+- [Technology stack](#technology-stack)
+- [Repository layout](#repository-layout)
+- [Requirements](#requirements)
+- [Run locally](#run-locally)
 - [Configuration](#configuration)
-- [Usage](#usage)
-- [Testing](#testing)
-- [Deployment](#deployment)
-- [API Reference](#api-reference)
+- [Build and verification](#build-and-verification)
+- [API and operations](#api-and-operations)
+- [Documentation](#documentation)
+- [Security and data handling](#security-and-data-handling)
 - [Contributing](#contributing)
-- [Troubleshooting](#troubleshooting)
 - [License](#license)
 
----
+## Application capabilities
 
-## Overview
+### Customer web app
 
-This is the backend for a digital bank, built as nine Spring Boot services behind a single API gateway. It covers the parts of banking that move money: registration and login, NGN accounts, wallet-to-wallet transfers behind a PIN, card top-ups through Stripe, withdrawals or transfers out to other banks, and Fireblocks-backed custodial crypto wallets.
+- Sign in, register, manage account settings, and view account balances and activity.
+- Open accounts and view transaction history and statements.
+- Make internal transfers and transfers to supported external banks, including name enquiry, transfer confirmation, and status tracking.
+- Add money through the configured card-payment provider and request withdrawals subject to configured limits and approval rules.
+- Set and use a transfer PIN; complete additional verification when a transfer is flagged for review.
+- Submit identity documents and a prompted face video for manual KYC review, and submit account-upgrade evidence.
+- View notifications and use supported crypto wallet and transaction workflows.
 
-Balances are not a number that each service edits. Every amount comes from a double-entry ledger owned by one service, which keeps a full, append-only history of each movement. The system is built around the problems a real bank has to get right. A retried request must not move money twice. Two transfers hitting the same account at once must not corrupt a balance. And a payment that a provider confirms late must still land exactly once.
+### Administration console
 
-> For the design in detail, see [ARCHITECTURE.md](ARCHITECTURE.md).
+- Review customers, accounts, transactions, and audit events.
+- Review submitted KYC evidence and approve or reject verification requests.
+- Review and decide eligible payout and crypto operations.
+- Monitor risk alerts and ledger reconciliation results.
 
-Engineering security and operations guides are collected in [`docs/engineering/`](docs/engineering/), including ledger integrity, idempotency, webhook security, Kafka reliability, incident response, and disaster recovery.
+Administrative access is controlled by backend authorization. Hiding an admin view in the browser is not a security boundary; the API enforces roles independently.
 
-## Features
+## Architecture
 
-- **Double-entry ledger.** One service owns the journal and is the only writer. Entries are append-only, so a mistake is fixed with a reversing entry rather than an edit and the history always reconciles.
-- **Auth and roles.** Email verification, short-lived JWT access tokens, single-use refresh tokens that rotate on use, password reset, and admin user management.
-- **PIN-gated transfers.** Internal transfers need a PIN hashed with Argon2id, and the lockout gets stricter after repeated failures. Transfers the fraud checks flag require a one-time code before they settle.
-- **Card deposits.** Card payments go through Stripe and are confirmed over signed webhooks. The same webhook is only ever applied once, even when Stripe retries it.
-- **Withdrawals and bank transfers.** Withdrawals and transfers to other banks share one outbound pipeline. The deterministic simulator is the default; Flutterwave handles NGN bank payouts when selected.
-- **Fraud checks and notifications.** A separate service scores transfers on velocity and amount signals. Email and OTP delivery run off events so they never block a payment.
-- **Recovery and audit.** Idempotency keys, a transactional outbox, scheduled reconciliation, and an audit record for every money change.
+```mermaid
+flowchart LR
+    Customer[Customer or administrator] --> Web[React web client\nVite]
+    Web --> Gateway[Spring Cloud API Gateway\nJWT validation and routing]
+    Gateway --> Auth[Auth service]
+    Gateway --> Account[Account service\nNGN ledger and KYC]
+    Gateway --> Tx[Transaction service]
+    Gateway --> Wallet[Wallet service\nPIN, deposits, payouts]
+    Gateway --> Payment[Payment service\nStripe and Flutterwave]
+    Gateway --> Crypto[Crypto service\nFireblocks adapter]
+    Tx --> Account
+    Wallet --> Account
+    Crypto --> Account
+    Payment --> Kafka[(Kafka)]
+    Auth --> Kafka
+    Account --> Kafka
+    Tx --> Kafka
+    Wallet --> Kafka
+    Kafka --> Fraud[Fraud detection service]
+    Kafka --> Notify[Notification service]
+    Auth --> MySQL[(MySQL per-service schemas)]
+    Account --> MySQL
+    Tx --> MySQL
+    Wallet --> MySQL
+    Payment --> MySQL
+    Crypto --> MySQL
+    Gateway --> Redis[(Redis)]
+    Auth --> Redis
+    Tx --> Redis
+    Wallet --> Redis
+```
 
-## Tech Stack
+The diagram is a logical view. Each service owns its persistence schema and migrations; services communicate through HTTP for synchronous decisions and Kafka events for asynchronous work. The checked-in local Kafka configuration is a single broker and should not be treated as a highly available production cluster.
 
-| Layer          | Technology                                           |
-| -------------- | ---------------------------------------------------- |
-| Language       | Java 25                                              |
-| Framework      | Spring Boot 4, Spring Cloud Gateway                  |
-| Build          | Maven (per-service Maven Wrapper)                    |
-| Database       | MySQL (per-service schema), Flyway migrations        |
-| Messaging      | Apache Kafka (domain events, transactional outbox)   |
-| Cache          | Redis (rate limits, OTP, fraud signals, idempotency) |
-| Payments       | Stripe (cards), simulated or Flutterwave bank payouts |
-| Infrastructure | Docker Compose                                       |
-| API Docs       | OpenAPI / Swagger UI                                 |
+| Component | Responsibility |
+|---|---|
+| `frontend/` | React customer and admin web application; Vite development server and production build. |
+| `API-GATEWAY` | Public API entry point, JWT validation, routing, rate limiting, and browser CORS policy. |
+| `auth-service` | Registration, login, access and refresh tokens, password flows, roles, and user administration. |
+| `account-service` | Account ownership, NGN double-entry ledger, statements, reconciliation, and identity/account-upgrade reviews. |
+| `transaction-service` | Internal transfer orchestration and transfer verification. |
+| `wallet-service` | PIN workflows, deposits, bank enquiry, withdrawals, payout state, and related idempotency. |
+| `payment-service` | Card payment and bank payout provider adapters, payment status, and signed provider webhooks. |
+| `fraud-detection-service` | Risk checks used by transaction and payout flows. |
+| `notification-service` | Email, OTP, and event-driven customer notifications. |
+| `crypto-service` | Crypto wallet and transaction workflows, Fireblocks integration, webhook validation, and admin reviews. |
+| `banking-common` | Shared backend types, security helpers, and event contracts. |
 
-## Project Structure
+Money movement is designed around a single ledger writer, balanced journal entries, transaction locking, unique idempotency keys, and outbox/event processing. Provider callbacks are treated as signals that trigger verification; business state is reconciled against trusted provider data before settlement. See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed flows and limitations.
+
+## Technology stack
+
+| Area | Technology |
+|---|---|
+| Web | React 18, Redux Toolkit Query, Vite |
+| Backend | Java 25, Spring Boot 4, Spring Cloud Gateway |
+| Build | Maven wrappers per backend module; npm for the frontend |
+| Persistence | MySQL/InnoDB, Flyway migrations, schema ownership per service |
+| Events and cache | Apache Kafka and Redis |
+| Payments/custody | Stripe, optional Flutterwave payouts, optional Fireblocks custody |
+| Local infrastructure | Docker Compose |
+
+## Repository layout
 
 ```text
 digital-banking-system/
 ├── README.md
 ├── ARCHITECTURE.md
-└── bankend/
-    ├── API-GATEWAY/              # Public edge: JWT validation, routing, rate limiting   (:8080)
-    ├── auth-service/             # Identity, JWT/refresh tokens, password recovery       (:8083)
-    ├── account-service/          # Accounts + double-entry ledger, journal, reconcile    (:8081)
-    ├── transaction-service/      # Internal transfer orchestration, OTP decisions        (:8082)
-    ├── wallet-service/           # PIN, deposits, payouts, name enquiry, idempotency     (:8087)
-    ├── crypto-service/           # Fireblocks custody, crypto addresses, withdrawals       (:8088)
-    ├── payment-service/          # Stripe + Flutterwave adapters, webhooks, provider events (:8085)
-    ├── fraud-detection-service/  # Risk scoring from transfer/payout events              (:8084)
-    ├── notification-service/     # Email, OTP delivery, transaction alerts               (:8086)
-    ├── libs/banking-common/      # Shared types, security, and event envelopes
-    ├── docs/                     # Ledger model, ADRs, threat model, OpenAPI snapshots
-    ├── scripts/                  # build.sh, smoke-test.sh
-    ├── compose.yaml              # Local stack (services + MySQL, Kafka, Redis)
-    └── compose.prod.yaml         # Production stack (gateway-only exposure)
+├── docs/engineering/          # Security, reliability, operations, and testing guides
+├── frontend/                  # React/Vite customer and admin web application
+└── bankend/                   # Backend services and local infrastructure (directory name retained)
+    ├── API-GATEWAY/
+    ├── account-service/
+    ├── auth-service/
+    ├── crypto-service/
+    ├── fraud-detection-service/
+    ├── notification-service/
+    ├── payment-service/
+    ├── transaction-service/
+    ├── wallet-service/
+    ├── libs/banking-common/
+    ├── docs/
+    ├── scripts/
+    ├── compose.yaml
+    └── compose.prod.yaml
 ```
 
-## Getting Started
+## Requirements
 
-### Prerequisites
+- Docker Engine and Docker Compose v2 for the backend stack and Testcontainers integration tests.
+- Node.js 20 or newer and npm for the web client.
+- JDK 25 if building or running backend services outside Docker. Docker builds use multi-stage Dockerfiles.
+- `curl` and `jq` for the backend smoke test.
 
-- JDK 25
-- Docker and Docker Compose
-- `curl` and `jq` for the HTTP smoke test
-- Provider credentials, only for the flows that call Stripe, Flutterwave, or SMTP
+## Run locally
 
-### Installation
+### 1. Configure the backend
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/elijah571/digital-banking-system.git
-cd digital-banking-system/bankend
-
-# 2. Create your environment file
+cd bankend
 cp .env.example .env
-# edit .env and set your own values (see Configuration)
+```
 
-# 3. Build all service jars and Docker images
-./scripts/build.sh
+Set local secrets and the required bank and payout settings listed in [Configuration](#configuration). Do not use production credentials for local development. The Compose stack uses the payout simulator by default; external provider credentials are only needed for flows that explicitly use those providers.
 
-# 4. Start the full stack (services + MySQL, Kafka, Redis)
-docker compose up -d
+### 2. Start the backend
+
+From `bankend/`:
+
+```bash
+docker compose up -d --build
 docker compose ps
 ```
 
-Once the containers report healthy, everything is reachable through the gateway:
+The gateway is available at `http://localhost:8080`. The development Compose file also publishes service and infrastructure ports for local development. For an infrastructure-only setup, start `mysql`, `redis`, and `kafka`, then run backend modules with their Maven wrappers.
 
-| Service     | URL                                   |
-| ----------- | ------------------------------------- |
-| API Gateway | http://localhost:8080                 |
-| Health      | http://localhost:8080/actuator/health |
-| API Docs    | http://localhost:8080/swagger-ui.html |
+### 3. Start the web client
+
+In another terminal:
+
+```bash
+cd frontend
+npm ci
+```
+
+Create `frontend/.env.local` if you need to override the local API URL or enable Stripe checkout:
+
+```dotenv
+VITE_API_URL=http://localhost:8080
+VITE_STRIPE_PUBLISHABLE_KEY=pk_test_replace_me
+```
+
+Run the development server:
+
+```bash
+npm run dev
+```
+
+Open the URL printed by Vite (normally `http://localhost:5173`). The gateway's default local CORS origins include this address. Frontend environment variables are bundled into the browser app; never put secret keys in `VITE_*` variables.
+
+To stop the backend stack, run `docker compose down` from `bankend/`. Named database volumes remain in place. Use `docker compose down -v` only when you intentionally want to delete local database data.
 
 ## Configuration
 
-Configuration comes from environment variables. Copy `.env.example` to `.env` and set your own values.
+Backend configuration is read from `bankend/.env`; the template is [bankend/.env.example](bankend/.env.example). The template documents the main secrets and provider settings but does not currently include every variable required by Compose. Add the following for the full local stack:
 
-| Variable                                               | Description                                         | Required |
-| ------------------------------------------------------ | --------------------------------------------------- | :------: |
-| `MYSQL_ROOT_PASSWORD`                                  | Local MySQL root password (set before first volume) |   Yes    |
-| `JWT_SECRET`                                           | Signing secret for user JWTs (32+ random bytes)     |   Yes    |
-| `INTERNAL_JWT_SECRET`                                  | Signing secret for service-to-service tokens        |   Yes    |
-| `ADMIN_EMAIL`, `ADMIN_PASSWORD`                        | Initial administrator account                       |   Yes    |
-| `PIN_PEPPER`, `OTP_HMAC_KEY`                           | Secret material for wallet PIN and OTP protection   |   Yes    |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`           | Stripe credentials for card deposits                |    No    |
-| `FLUTTERWAVE_SECRET_KEY`                                | Flutterwave credential when `PAYOUT_PROVIDER=flutterwave` (test key outside `prod`) |    No    |
-| `FLUTTERWAVE_WEBHOOK_SECRET`                            | Flutterwave dashboard secret hash; checked against the `verif-hash` header |    No    |
-| `FLUTTERWAVE_ENCRYPTION_KEY`                            | Flutterwave encryption key; not used for NGN bank transfers |    No    |
-| `FLUTTERWAVE_BASE_URL`                                  | Flutterwave V3 API base URL; defaults to `https://api.flutterwave.com/v3` |    No    |
-| `ACCOUNT_VERIFIED_DAILY_LIMIT`                          | Daily limit after successful BVN upgrade; defaults to `5000000.00` NGN | No |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_MAIL`, `SMTP_PASSWORD` | Outbound email (Gmail needs an App Password)        |    No    |
-| `WITHDRAWAL_MIN`, `WITHDRAWAL_MAX`                     | Per-withdrawal NGN bounds                            |   Yes    |
-| `WITHDRAWAL_DAILY_MAX`                                  | Maximum outbound NGN amount per account per day      |   Yes    |
-| `WITHDRAWAL_APPROVAL_THRESHOLD`                         | Amount at or above which an admin must approve      |   Yes    |
-| `OUTBOUND_FEE`                                           | Flat NGN payout fee; defaults to `0.00`              |    No    |
-| `PAYOUT_PROVIDER`                                        | `simulator` (default) or `flutterwave`               |    No    |
-| `PAYOUT_SIM_DEFAULT_OUTCOME`                             | Simulator outcome for ordinary account numbers: `success`, `failure` or `pending`; defaults to `success` | No |
-| `PAYOUT_SIM_DELAY_MS`                                    | Simulator delay for send/status calls; defaults to `0` ms | No |
+| Variable | Purpose |
+|---|---|
+| `OWN_BANK_CODE`, `OWN_BANK_NAME` | Identifies this bank in bank-list and transfer flows. |
+| `WITHDRAWAL_MIN`, `WITHDRAWAL_MAX`, `WITHDRAWAL_DAILY_MAX` | Per-request and daily outbound NGN limits. |
+| `WITHDRAWAL_APPROVAL_THRESHOLD` | Amount at which payout approval is required. |
+| `PIN_PEPPER`, `PIN_OTP_HMAC_KEY` | Wallet PIN and PIN challenge protection keys; use distinct random values of at least 32 bytes. |
 
-> **Never commit `.env` files.** See [.env.example](bankend/.env.example) for the full list; in production these come from a secrets manager, never from git.
+The template also contains database, JWT, internal-service, OTP, admin, SMTP, Stripe, and Fireblocks settings. Optional provider settings include Flutterwave payout credentials. Fireblocks is disabled by default. Use a test/sandbox provider configuration for development and configure matching webhook secrets and public callback URLs when testing provider callbacks.
 
-### Withdrawal and external transfer release notes
+Generate distinct local signing keys with a password manager or a cryptographically secure generator. Never reuse example values or commit `.env`, private keys, access tokens, or provider credentials. Production secrets must come from a secrets manager.
 
-The withdrawal endpoints are additive; no existing route contract changes. `POST /api/v1/wallet/withdrawals` requires a user token, a verified PIN, a valid bank name-enquiry reference, and an `Idempotency-Key`. It returns `202` with the payout id and current state. A payout at or above the configured approval threshold, or one the fraud check cannot clear, waits for an administrator. The provider result is read asynchronously; the wallet settles only after a provider status of `SUCCESS`.
+## Build and verification
 
-`POST /api/v1/transactions` keeps internal transfers on the existing ledger saga. Set `bankCode` to another bank and include the `nameEnquiryRef` returned by `POST /api/v1/transfers/name-enquiry` to route the request through the wallet payout pipeline. External transfers share the withdrawal limits, PIN check, fraud gate, maker-checker flow, recovery, and idempotency rules. See [deployment configuration](bankend/docs/deploy.md) before enabling Flutterwave.
-
-## Usage
-
-### Common commands
-
-| Command                                  | Description                                     |
-| ---------------------------------------- | ----------------------------------------------- |
-| `./scripts/build.sh`                     | Build all service jars and Docker images        |
-| `./scripts/build.sh --jars`              | Build jars only, skip the Docker images         |
-| `docker compose up -d`                   | Start the full local stack                      |
-| `docker compose up -d mysql redis kafka` | Start infrastructure only (run services in IDE) |
-| `docker compose ps`                      | Show container status and health                |
-| `docker compose down`                    | Stop the stack (named volumes are kept)         |
-| `./scripts/smoke-test.sh`                | Run the end-to-end gateway smoke test           |
-
-To iterate on one service against local infrastructure:
+Run the frontend production build:
 
 ```bash
-docker compose up -d mysql redis kafka
-./account-service/mvnw -f account-service/pom.xml spring-boot:run
+cd frontend
+npm run build
 ```
 
-### Example request
-
-Log in with the administrator account you set as `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env`:
+Build backend service artifacts locally (tests skipped):
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email": "<ADMIN_EMAIL>", "password": "<ADMIN_PASSWORD>"}'
-```
-
-## Testing
-
-Each service has its own tests, run with its Maven wrapper. Integration tests spin up throwaway MySQL, Kafka, and Redis with Testcontainers, so they never touch your local database.
-
-```bash
-# Unit + integration tests for one service
-./account-service/mvnw -f account-service/pom.xml test
-
-# End-to-end money path through the gateway
-./scripts/smoke-test.sh
-
-# Full throwaway stack, including 50 parallel withdrawals and reconciliation
-./scripts/smoke-throwaway.sh
-```
-
-The money paths get the most coverage: concurrent transfers and withdrawals, withdrawal PIN lockout, duplicate requests and provider webhooks, payout recovery, and checks that the cached balances and journal reconcile.
-
-## Deployment
-
-Production runs the same services under Docker Compose, with only the gateway exposed.
-
-```bash
+cd bankend
 ./scripts/build.sh
-docker compose -f compose.yaml -f compose.prod.yaml up -d
 ```
 
-| Branch      | Environment | Trigger        |
-| ----------- | ----------- | -------------- |
-| `feature/*` | Review / PR | Pull request   |
-| `main`      | Production  | Tagged release |
+Run the backend service tests, including Testcontainers integration tests (Docker required):
 
-The production profile keeps service and infrastructure ports private, turns off Swagger, limits actuator exposure, sets resource limits, and restarts containers on failure. It also expects HTTPS at the edge, strong database and signing secrets, configured provider webhooks, and a tested database backup.
+```bash
+cd bankend
+./scripts/build.sh --test
+```
 
-## API Reference
+Run the gateway smoke test against a running local stack:
 
-Interactive docs are served at [`/swagger-ui.html`](http://localhost:8080/swagger-ui.html) when the gateway is up. Per-service OpenAPI snapshots are in [`bankend/docs/openapi/`](bankend/docs/openapi/). The table below lists the key endpoints; Swagger and the snapshots have the complete set.
+```bash
+cd bankend
+./scripts/smoke-test.sh
+```
 
-| Method | Endpoint                                      | Description                       | Auth |
-| ------ | --------------------------------------------- | --------------------------------- | :--: |
-| POST   | `/api/v1/auth/register`                       | Register a user                   |  No  |
-| POST   | `/api/v1/auth/login`                          | Authenticate, issue tokens        |  No  |
-| POST   | `/api/v1/auth/refresh`                        | Rotate the refresh token          |  No  |
-| GET    | `/api/v1/auth/me`                             | Current user                      | Yes  |
-| POST   | `/api/v1/accounts/create`                     | Open an account                   | Yes  |
-| GET    | `/api/v1/accounts/me`                         | List the caller's accounts        | Yes  |
-| GET    | `/api/v1/accounts/verification`               | Read the caller's verification and account-tier status | User |
-| POST   | `/api/v1/accounts/verification/identity`      | Submit an identity document and prompted face video for manual review | User |
-| POST   | `/api/v1/accounts/verification/upgrade`       | Submit account-upgrade details and evidence for manual review | User |
-| GET    | `/api/v1/accounts/verification/admin/reviews` | List pending KYC reviews with submitted evidence | Admin |
-| POST   | `/api/v1/accounts/verification/admin/reviews/{ownerId}` | Approve or reject an identity or upgrade review | Admin |
-| GET    | `/api/v1/accounts/{accountNumber}/balance`    | Account balance                   | Yes  |
-| POST   | `/api/v1/transactions`                        | Start an internal or external bank transfer | Yes |
-| POST   | `/api/v1/transactions/{transactionId}/verify` | Verify OTP for a flagged transfer | Yes  |
-| POST   | `/api/v1/transfers/name-enquiry`               | Resolve a destination bank account | Yes |
-| GET    | `/api/v1/banks`                                | List supported banks              | Yes  |
-| POST   | `/api/v1/wallet/withdrawals`                   | Request an idempotent withdrawal  | Yes  |
-| GET    | `/api/v1/wallet/payouts/{id}`                  | Read payout status (owner or ADMIN) | Yes |
-| POST   | `/api/v1/wallet/withdrawals/{id}/cancel`        | Cancel a withdrawal awaiting approval | Yes |
-| POST   | `/api/v1/wallet/withdrawals/{id}/approve`       | Approve a pending withdrawal      | Admin |
-| POST   | `/api/v1/wallet/withdrawals/{id}/reject`        | Reject a pending withdrawal       | Admin |
-| POST   | `/api/v1/wallet/deposits`                      | Start an idempotent card deposit | Yes  |
-| GET    | `/api/v1/wallet/deposits/{depositId}`          | Read a card deposit's status     | Yes  |
-| POST   | `/api/v1/payments/create-order`                | Deprecated legacy payment order | Yes  |
-| POST   | `/api/v1/payments/webhook`                     | Provider webhook (signed)        | Sig  |
+`./scripts/smoke-throwaway.sh` runs the disposable end-to-end money-path checks. Review the script before running it and ensure Docker has enough resources. Do not point tests or smoke scripts at production systems or production credentials.
 
-Identity submissions require a user token, `documentType`, a base64 JPEG/PNG `documentImage`, a base64 WebM `faceVideo` (up to 20 MB), and consent. Account-upgrade submissions include BVN, name, residential address, address document type and image, the prompted face video, and consent. Both requests stay pending until an administrator views the evidence and approves or rejects them. Approving an account upgrade promotes the customer's owned accounts. Evidence is stored in the account service database and is available to administrators through the KYC review screen; configure database access, backups, and retention to protect this sensitive data.
+## API and operations
+
+- Local gateway base URL: `http://localhost:8080`
+- Gateway health: `http://localhost:8080/actuator/health`
+- OpenAPI/Swagger UI is available in development when enabled by the service configuration; production Compose disables it.
+- Backend OpenAPI snapshots: [`bankend/docs/openapi/`](bankend/docs/openapi/)
+- API route configuration: [`bankend/API-GATEWAY/src/main/resources/application.yaml`](bankend/API-GATEWAY/src/main/resources/application.yaml)
+
+The primary user API groups include `/api/v1/auth`, `/api/v1/accounts`, `/api/v1/transactions`, `/api/v1/wallet`, `/api/v1/payments`, and the crypto API. Provider callbacks use dedicated webhook routes. Consult the OpenAPI snapshots and service controllers for the exact request and response contracts.
+
+## Documentation
+
+- [Architecture and design decisions](ARCHITECTURE.md)
+- [Backend service docs](bankend/docs/)
+- [Engineering and operations guides](docs/engineering/)
+- [Local/production deployment notes](bankend/docs/deploy.md)
+- [Ledger model](bankend/docs/ledger.md)
+- [Threat model for PIN flows](bankend/docs/threat-model-pin.md)
+
+The engineering guides describe the current implementation and distinguish it from deployment work that still requires external infrastructure or validation. In particular, the checked-in Compose Kafka setup is a single local broker; production high availability, backup restoration, load targets, and external security controls must be designed and verified for the target environment.
+
+## Security and data handling
+
+The app handles financial and identity data, including submitted identity documents and face-verification videos for manual KYC review. Restrict administrator access, secure the database and backups, define retention and deletion rules, and avoid placing customer documents or secrets in logs. Local Compose is for development and is not a production security boundary.
+
+Before deploying to a real environment, configure TLS and an edge/WAF policy, private service networking, managed secrets, database backup and restore procedures, Kafka authentication and availability, monitoring and alerting, provider webhook delivery, access reviews, and incident response. Validate applicable licensing, privacy, KYC/AML, and data-protection requirements with qualified professionals for each operating jurisdiction.
 
 ## Contributing
 
-1. Fork the repo and branch off `main`: `git checkout -b feat/your-feature`
-2. Use [Conventional Commits](https://www.conventionalcommits.org): `feat: add payout recovery job`
-3. Keep each change to one logical slice, and make sure the build and tests pass
-4. Open a pull request against `main`
-
-## Troubleshooting
-
-<details>
-<summary><strong>Port already in use</strong></summary>
-
-A service port (`8080`–`8087`) or an infrastructure port (MySQL `3306`, Redis `6379`, Kafka `9092`) is taken. Stop the process using it, or remap the port in `compose.yaml`.
-
-```bash
-lsof -i :8080
-```
-
-</details>
-
-<details>
-<summary><strong>Database connection refused</strong></summary>
-
-Check that the containers are up and healthy with `docker compose ps`. Also confirm `MYSQL_ROOT_PASSWORD` in `.env` matches the value used when the MySQL volume was first created; changing it later does not rotate the stored credential.
-
-</details>
-
-<details>
-<summary><strong>Calls return 401 or 403</strong></summary>
-
-Public calls go through the gateway on `:8080`, not directly to a service port. Check that your access token is fresh (they expire quickly) and that `JWT_SECRET` and `INTERNAL_JWT_SECRET` are set the same way across services.
-
-### Custodial crypto
-
-The crypto service is disabled by default: `FIREBLOCKS_ENABLED=false`, and no crypto assets are enabled until an administrator configures them. This prevents an unconfigured or sandbox deployment from accepting deposits or withdrawals. Configure the Fireblocks API key, private key, webhook workspace ID and JWKS endpoint in the server environment; never place those credentials in the frontend. Use Fireblocks Sandbox first, then enable production credentials and network-specific assets deliberately.
-
-Customers use the Crypto page for deposit addresses, balances, withdrawal requests, and transaction history. Withdrawals verify the wallet PIN, run the fraud check, reserve integer base units in account-service, enforce an asset daily cap, then submit to Fireblocks with a stable external transaction ID. Account-service owns the crypto subledger and is the sole balance writer. Signed Fireblocks Webhooks V2 events are stored before acknowledgment and reconciled asynchronously; the service also polls uncertain submissions so it does not blindly resubmit a withdrawal. Deposit confirmation counts and manual deposit review are configured per asset. Administrators configure assets and networks and review flagged deposits or withdrawals from Crypto Operations.
-
-The public API is routed through the gateway under `/api/v1/crypto/**`. Admin configuration is `PUT /api/v1/crypto/admin/assets`; review actions are under `/api/v1/crypto/admin/transactions/{id}`. Configure an enabled asset only after its Fireblocks asset ID, network, precision, address format, confirmation threshold, daily limit (integer base units), address mode, and fee asset have been checked for that specific network. For Fireblocks address behavior, `ACCOUNT` uses the vault asset address and `DERIVED` requests a distinct address for each user. Start with manual deposit review enabled.
-
-</details>
+1. Create a focused branch from the current development baseline.
+2. Keep service ownership and API contracts explicit; document schema or event changes.
+3. Add or update tests for the affected behavior, especially money movement, idempotency, authorization, and provider callbacks.
+4. Run the relevant frontend build or backend tests before opening a pull request.
+5. Never commit secrets, customer data, production dumps, or generated build output.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
-
-## Maintainers
-
-- **Elijah**: [@elijah571](https://github.com/elijah571)
+This project is distributed under the [MIT License](LICENSE).

@@ -54,7 +54,8 @@ Who and what talks to the system.
                        │ users
                        ▼
         ┌────────────────────────────┐
-        │    Web / Mobile Client     │
+        │ React Web Client           │
+        │ Customer + Admin Console   │
         └────────────────────────────┘
                        │ HTTPS, user JWT
                        ▼
@@ -84,7 +85,7 @@ Who and what talks to the system.
 
 ```text
                                        ┌──────────────────────────────────────┐
-                                       │         Web / Mobile Client          │
+                                       │  React Web Client (Vite)              │
                                        └──────────────────────────────────────┘
                                                            │ HTTPS, user JWT
                                                            ▼
@@ -144,10 +145,13 @@ crypto-service       ─┘
 
 The services live in one monorepo. They call each other synchronously over authenticated HTTP and pass events asynchronously over Kafka. MySQL is the durable store. Redis only holds short-lived, bounded state. Nothing depends on a distributed database transaction: each change is atomic in its own database, and the transactional outbox plus idempotent recovery coordinate the rest.
 
+The browser application lives in `frontend/` and uses React, Vite, and Redux Toolkit Query. It provides customer banking flows and role-aware administration screens in one web client. It calls the public API through the gateway and does not connect directly to MySQL, Kafka, Redis, or provider APIs. There is no native mobile client in this repository.
+
 ## 4. Components
 
 | Component               | Path                      | Responsibility                                                      | Tech                      |
 | ----------------------- | ------------------------- | ------------------------------------------------------------------- | ------------------------- |
+| Web client              | `../frontend`             | Customer banking and admin operations UI; calls the public gateway | React, Vite, Redux Toolkit Query |
 | API Gateway             | `API-GATEWAY`             | Public routing, JWT validation, role checks, rate limiting, CORS    | Spring Cloud Gateway      |
 | auth-service            | `auth-service`            | Users, credentials, email verification, JWT/refresh-token lifecycle | Spring Boot, MySQL        |
 | account-service         | `account-service`         | Accounts, double-entry ledger, journal, statements, reconciliation  | Spring Boot, MySQL        |
@@ -175,7 +179,11 @@ Crypto balances also belong to account-service, in separate `crypto_ledger_accou
 
 `crypto-service` creates Fireblocks vault accounts per customer and provisions an address per asset using the configured account or derived-address mode. Withdrawals verify the wallet PIN, run crypto-specific fraud screening, enforce the asset's daily limit, reserve the amount in account-service, and submit with a stable external transaction ID. Signed Webhook V2 requests are durably recorded before asynchronous processing; the service fetches current provider status and polls uncertain submissions instead of blindly resending them. Confirmed deposits can require administrator review before credit.
 
-### 4.3 Asynchronous services
+### 4.3 Identity verification and account upgrades
+
+Customers submit identity details, a document image, consent, and a prompted face-verification video through the web client. Account-service stores the submission and presents pending evidence in the administrator review screen. An authorized administrator records an approval or rejection; account-tier changes are applied by the backend after approval. This is a manual-review workflow: the application does not run biometric matching, automated liveness scoring, sanctions screening, or third-party identity verification. The uploaded images and videos are sensitive personal data and require strict access control, protected storage and backups, a defined retention period, and deletion procedures.
+
+### 4.4 Asynchronous services
 
 `fraud-detection-service` reads transfer and payout events, looks up the balance information it is allowed to see, and publishes a decision. `notification-service` reads auth, OTP, and transaction events and sends email, without ever owning money state. Both dedupe on event ID, which is what makes at-least-once delivery safe.
 
@@ -397,7 +405,7 @@ Recovery is built in rather than done by hand:
 | Concern          | Approach                                                                   |
 | ---------------- | -------------------------------------------------------------------------- |
 | Authentication   | Short-lived JWT access tokens with single-use, rotating refresh tokens     |
-| Authorization    | Role checks at the gateway, ownership re-checked inside each service       |
+| Authorization    | JWT and role checks at gateway/service boundaries; ownership re-checked in the responsible service |
 | Internal APIs    | Short-lived signed service tokens carrying caller, audience, allow-list    |
 | Transport        | TLS at the public edge; service and infra ports stay private in prod       |
 | Secrets          | Environment variables from a secrets manager, never in git                 |
@@ -406,8 +414,9 @@ Recovery is built in rather than done by hand:
 | Abuse protection | Rate limiting per IP and per user                                          |
 | Auditing         | Append-only audit records for sensitive actions and money changes          |
 | Fireblocks       | Server-side RS256 API request JWTs; detached RS512 Webhook V2 signatures checked against the configured environment JWKS |
+| KYC evidence     | Documents and face videos are reviewed by authorized administrators and treated as restricted identity data |
 
-Only `transaction-service`, `wallet-service`, and `crypto-service` can call their explicitly scoped internal ledger operations, and no service trusts an unverified `X-User-*` header for identity. Fireblocks credentials stay on the server. The webhook route is public at the gateway but verifies the signature and configured workspace before persisting an event.
+Only `transaction-service`, `wallet-service`, and `crypto-service` can call their explicitly scoped internal ledger operations, and no service trusts an unverified `X-User-*` header for identity. Auth-service validates JWTs locally on authenticated profile and user-administration routes. Fireblocks credentials stay on the server. The webhook route is public at the gateway but verifies the signature and configured workspace before persisting an event. Manual document review is not a substitute for a jurisdiction-specific KYC/AML compliance program.
 
 ## 9. Infrastructure and Deployment
 
@@ -427,16 +436,18 @@ Only `transaction-service`, `wallet-service`, and `crypto-service` can call thei
 - **Runtime:** Docker containers run with Docker Compose (`compose.yaml` locally, `compose.prod.yaml` in production)
 - **Environments:** `development` (local Compose), `staging`, `production`
 - **Migrations:** Flyway runs additively on startup, Hibernate only validates
-- **Crypto provider:** crypto-service runs on `:8088`; production publishes only the gateway. Fireblocks and all crypto assets are disabled by default
+- **Crypto provider:** crypto-service runs on `:8088`; production publishes only the gateway. Fireblocks is disabled by default and requires provider credentials, workspace/JWKS settings, and supported asset configuration
 - **Production hardening:** only the gateway is public, Swagger is off, actuator is limited, resource limits are set, logs rotate, containers restart on failure
-- **Rollback:** redeploy the previous image tag
+- **Web client:** build with `npm run build` in `frontend/`; set `VITE_API_URL` to the gateway origin and optionally `VITE_STRIPE_PUBLISHABLE_KEY`. Vite variables are public and must never contain secret credentials.
+- **Local configuration:** copy `bankend/.env.example` to `bankend/.env`. It contains development placeholders for Compose-required bank identifiers, payout limits, and PIN protection secrets. Replace all placeholder secrets before use.
+- **Rollback:** follow the release rollback procedure and reconcile ledger state before restoring customer traffic
 
 ## 10. Observability
 
-- **Logging:** structured JSON with `correlationId`, `userId`, and request context, with PIN, OTP, and password fields masked
-- **Health checks:** `/actuator/health` per service, aggregated at the gateway
-- **Metrics:** request rate, error rate, latency percentiles, Kafka consumer lag, outbox backlog
-- **Reconciliation:** a scheduled job checks cached balances against the journal and alerts on drift
+- **Request tracking:** gateway request IDs and service logs support request correlation; verify production redaction and retention settings.
+- **Health checks:** services expose actuator health endpoints for Compose health checks; production configuration limits actuator exposure.
+- **Metrics and tracing:** central metrics, distributed tracing, alerting, and Kafka/outbox dashboards require deployment configuration and are not supplied by the local Compose stack.
+- **Reconciliation:** account-service provides ledger reconciliation operations; configure monitoring and alerting around reconciliation results in the target environment.
 
 ## 11. Architecture Decision Records
 
@@ -474,13 +485,18 @@ Short notes on the decisions that shaped the design. The full set is in [`banken
 
 **Limitations**
 
+- The client is a web application; no native mobile client is included.
+- KYC is reviewed manually; automated biometrics, liveness scoring, and third-party identity screening are not implemented.
+- Local Compose runs a single Kafka broker with plaintext listeners and replication factor one; it is not production high availability.
 - Single-region deployment
 - NGN only, with no currency conversion in a transfer
 - Live inter-bank payouts depend on a third-party provider being up
 - Custodial crypto requires Fireblocks credentials, matching webhook workspace/JWKS configuration, and administrator-reviewed asset/network setup; live Fireblocks transactions have not been verified without provider credentials
+- Production backup restoration, disaster-recovery objectives, load targets, and external edge/WAF controls must be configured and validated for the deployment environment
 
 **Roadmap**
 
 - [ ] Add read replicas for statement and reporting queries
 - [ ] Add distributed tracing (OpenTelemetry) across the services
 - [ ] Expand automated load testing of the money path in CI
+- [ ] Define and implement production KYC evidence encryption, retention, and deletion controls
