@@ -9,6 +9,8 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.elibanking.common.security.AdminRbac;
+import org.elibanking.common.security.AuditorReadOnlyFilter;
 
 /**
  * Who may call what (wallet-plan 3.7):
@@ -45,10 +47,14 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/internal/v1/audit")
                         .access(CallerAllowList.only(CallerAllowList.WALLET))
                         .requestMatchers("/internal/v1/**").denyAll()
-                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/payouts").hasAuthority(AdminRbac.PAYOUTS_READ)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/audit").hasAuthority(AdminRbac.AUDIT_LOGS_READ)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/wallet/withdrawals/*/approve", "/api/v1/wallet/withdrawals/*/reject").hasAuthority(AdminRbac.PAYOUTS_APPROVE)
+                        .requestMatchers("/api/v1/admin/**").hasAuthority("ROLE_SUPER_ADMIN")
                         .requestMatchers("/api/**").access(CallerAllowList.users())
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(oauth -> oauth.authenticationManagerResolver(bearerTokens));
+        http.addFilterAfter(new AuditorReadOnlyFilter(), org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter.class);
         return http.build();
     }
 }

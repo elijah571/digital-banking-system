@@ -1,5 +1,9 @@
 package org.elibanking.cryptoservice.config;
 
+import org.elibanking.common.security.AdminJwtAuthenticationConverter;
+import org.elibanking.common.security.AdminRbac;
+import org.elibanking.common.security.AuditorReadOnlyFilter;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,15 +25,20 @@ import java.nio.charset.StandardCharsets;
 public class CryptoSecurityConfig {
     @Bean
     SecurityFilterChain cryptoSecurity(HttpSecurity http) throws Exception {
-        return http.csrf(csrf -> csrf.disable())
+        http.csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/crypto/webhooks/fireblocks").permitAll()
-                        .requestMatchers("/api/v1/crypto/admin/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/crypto/admin/assets").hasAuthority(AdminRbac.CRYPTO_WALLETS_READ)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/crypto/admin/reviews").hasAuthority(AdminRbac.CRYPTO_TRANSACTIONS_READ)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/crypto/admin/transactions/*/approve", "/api/v1/crypto/admin/transactions/*/reject").hasAuthority(AdminRbac.CRYPTO_OPERATIONS_APPROVE)
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/crypto/admin/assets").hasAuthority("ROLE_SUPER_ADMIN")
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().denyAll())
-                .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))).build();
+                .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.jwtAuthenticationConverter(new AdminJwtAuthenticationConverter())));
+        http.addFilterAfter(new AuditorReadOnlyFilter(), org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter.class);
+        return http.build();
     }
 
     @Bean
@@ -41,9 +50,4 @@ public class CryptoSecurityConfig {
         return decoder;
     }
 
-    private static JwtAuthenticationConverter jwtAuthenticationConverter() {
-        JwtGrantedAuthoritiesConverter authorities = new JwtGrantedAuthoritiesConverter();
-        authorities.setAuthoritiesClaimName("role"); authorities.setAuthorityPrefix("ROLE_");
-        JwtAuthenticationConverter converter = new JwtAuthenticationConverter(); converter.setJwtGrantedAuthoritiesConverter(authorities); return converter;
-    }
 }

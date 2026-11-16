@@ -5,12 +5,16 @@ import { Panel } from '../../components/common/Panel';
 import { Button } from '../../components/buttons/Button';
 import { StatusBadge } from '../../components/feedback/StatusBadge';
 import { useAdminCryptoAssetsQuery, useCryptoReviewsQuery, useDecideCryptoReviewMutation, useUpsertCryptoAssetMutation } from '../../store/api';
+import { hasPermission, isSuperAdmin } from '../../utils/permissions';
 
 const localTime = (value) => value ? new Date(value).toLocaleString() : '—';
 
-export function CryptoOperationsPage({ showToast }) {
-  const { data: assets = [], refetch: reloadAssets } = useAdminCryptoAssetsQuery();
-  const { data: reviews = [], refetch: reloadReviews } = useCryptoReviewsQuery();
+export function CryptoOperationsPage({ showToast, currentUser }) {
+  const canReadAssets = hasPermission(currentUser, 'crypto.wallets.read');
+  const canApprove = hasPermission(currentUser, 'crypto.operations.approve');
+  const canManageAssets = isSuperAdmin(currentUser);
+  const { data: assets = [], isError: assetsError, refetch: reloadAssets } = useAdminCryptoAssetsQuery(undefined, { skip: !canReadAssets });
+  const { data: reviews = [], isError: reviewsError, refetch: reloadReviews } = useCryptoReviewsQuery(undefined, { skip: !hasPermission(currentUser, 'crypto.transactions.read') });
   const [saveAsset, saveState] = useUpsertCryptoAssetMutation();
   const [decide, decisionState] = useDecideCryptoReviewMutation();
   const [error, setError] = useState('');
@@ -37,9 +41,11 @@ export function CryptoOperationsPage({ showToast }) {
     catch (failure) { showToast?.(failure?.data?.detail || 'Could not save the decision.', 'error'); }
   };
   return <div className="fade-in">
-    <PageHeader title="Crypto operations" description="Configure explicitly supported Fireblocks assets and review flagged withdrawals or confirmed deposits." action={<Button variant="secondary" onClick={() => { reloadAssets(); reloadReviews(); }}><RefreshCw size={15}/>Refresh</Button>} />
+    <PageHeader title="Crypto operations" description="Configure explicitly supported Fireblocks assets and review flagged withdrawals or confirmed deposits." actions={<Button variant="secondary" onClick={() => { reloadAssets(); reloadReviews(); }}><RefreshCw size={15}/>Refresh</Button>} />
     {error && <p role="alert" className="mb-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
+    {(assetsError || reviewsError) && <p role="alert" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Some crypto operations data could not be loaded. Check administrator access and refresh.</p>}
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.8fr)]">
+      {canManageAssets && <>
       <Panel className="p-5 sm:p-6"><h2 className="text-base font-bold text-ink">Supported asset and network</h2><p className="mt-1 text-xs leading-5 text-slate-500">Use the exact Fireblocks asset ID and configure the matching contract/network. Enabling requires Fireblocks credentials on the server.</p>
         <form onSubmit={submitAsset} className="mt-4 grid gap-3 sm:grid-cols-2">
           <Input name="assetKey" label="Internal asset key" placeholder="USDC_ETH_TEST" required />
@@ -59,10 +65,11 @@ export function CryptoOperationsPage({ showToast }) {
           <div className="sm:col-span-2"><Button type="submit" disabled={saveState.isLoading} isLoading={saveState.isLoading} loadingText="Saving configuration"><Plus size={15}/>Save asset configuration</Button></div>
         </form>
       </Panel>
-      <Panel className="p-5 sm:p-6"><h2 className="text-base font-bold text-ink">Configured assets</h2><div className="mt-4 space-y-3">{assets.length ? assets.map((asset) => <div key={asset.assetKey} className="rounded-xl border border-slate-200 p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-ink">{asset.displaySymbol} · {asset.networkCode}</p><p className="mt-1 text-xs text-slate-500">{asset.assetKey} · provider {asset.fireblocksAssetId} · {asset.decimals} decimals</p><p className="mt-1 text-xs text-slate-500">{asset.confirmationThreshold} confirmations · fee asset {asset.feeAssetKey}</p></div><StatusBadge tone={asset.enabled ? 'green' : 'slate'}>{asset.enabled ? 'Enabled' : 'Disabled'}</StatusBadge></div></div>) : <p className="text-sm text-slate-500">No assets configured.</p>}</div></Panel>
+      </>}
+      {canReadAssets && <Panel className="p-5 sm:p-6"><h2 className="text-base font-bold text-ink">Configured assets</h2><div className="mt-4 space-y-3">{assets.length ? assets.map((asset) => <div key={asset.assetKey} className="rounded-xl border border-slate-200 p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-ink">{asset.displaySymbol} · {asset.networkCode}</p><p className="mt-1 text-xs text-slate-500">{asset.assetKey} · provider {asset.fireblocksAssetId} · {asset.decimals} decimals</p><p className="mt-1 text-xs text-slate-500">{asset.confirmationThreshold} confirmations · fee asset {asset.feeAssetKey}</p></div><StatusBadge tone={asset.enabled ? 'green' : 'slate'}>{asset.enabled ? 'Enabled' : 'Disabled'}</StatusBadge></div></div>) : <p className="text-sm text-slate-500">No assets configured.</p>}</div></Panel>}
     </div>
     <Panel className="mt-5 overflow-hidden"><div className="border-b border-slate-100 p-5"><h2 className="text-base font-bold text-ink">Manual review queue</h2><p className="mt-1 text-xs text-slate-500">Confirm the asset, destination and requested amount before approving. Approving a withdrawal submits it to Fireblocks.</p></div>
-      {reviews.length ? <div className="divide-y divide-slate-100">{reviews.map((item) => <div key={item.id} className="flex flex-col gap-3 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-semibold text-ink">{item.direction} · {item.amount} {item.symbol} · {item.networkCode}</p><p className="mt-1 text-xs text-slate-500">Customer {item.userId} · {localTime(item.createdAt)}</p>{item.destinationAddress && <p className="mt-2 break-all font-mono text-xs text-slate-600">Destination: {item.destinationAddress}</p>}{item.destinationTag && <p className="mt-1 text-xs text-slate-500">Tag: {item.destinationTag}</p>}</div><StatusBadge tone="amber">Review required</StatusBadge></div><div className="flex gap-2"><Button disabled={decisionState.isLoading} onClick={() => review(item,true)}><Check size={15}/>Approve</Button><Button variant="secondary" disabled={decisionState.isLoading} onClick={() => review(item,false)}><X size={15}/>Reject</Button></div></div>)}</div> : <p className="p-6 text-sm text-slate-500">No crypto transactions are waiting for review.</p>}
+      {reviews.length ? <div className="divide-y divide-slate-100">{reviews.map((item) => <div key={item.id} className="flex flex-col gap-3 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-semibold text-ink">{item.direction} · {item.amount} {item.symbol} · {item.networkCode}</p><p className="mt-1 text-xs text-slate-500">Customer {item.userId} · {localTime(item.createdAt)}</p>{item.destinationAddress && <p className="mt-2 break-all font-mono text-xs text-slate-600">Destination: {item.destinationAddress}</p>}{item.destinationTag && <p className="mt-1 text-xs text-slate-500">Tag: {item.destinationTag}</p>}</div><StatusBadge tone="amber">Review required</StatusBadge></div>{canApprove ? <div className="flex gap-2"><Button disabled={decisionState.isLoading} onClick={() => review(item,true)}><Check size={15}/>Approve</Button><Button variant="secondary" disabled={decisionState.isLoading} onClick={() => review(item,false)}><X size={15}/>Reject</Button></div> : <p className="text-xs text-slate-600">Read-only review. Your role cannot approve crypto operations.</p>}</div>)}</div> : <p className="p-6 text-sm text-slate-500">No crypto transactions are waiting for review.</p>}
     </Panel>
   </div>;
 }

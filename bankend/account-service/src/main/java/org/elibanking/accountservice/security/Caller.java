@@ -5,15 +5,20 @@ package org.elibanking.accountservice.security;
  * {@link #internal()}, where every field is null. Headers are never identity: the legacy X-User-* path was removed in
  * phase 3 (wallet-plan 8.18).
  */
-public record Caller(String userId, String email, String role) {
+public record Caller(String userId, String email, String role, java.util.Set<String> authorities) {
+
+    public Caller(String userId, String email, String role) {
+        this(userId, email, role, "ADMIN".equals(role)
+                ? org.elibanking.common.security.AdminRbac.allPermissions() : java.util.Set.of());
+    }
 
     /** A service-to-service call, with no user: ownership checks are skipped. */
     public static Caller internal() {
-        return new Caller(null, null, null);
+        return new Caller(null, null, null, java.util.Set.of());
     }
 
     public boolean isAdmin() {
-        return "ADMIN".equals(role);
+        return hasPermission(org.elibanking.common.security.AdminRbac.KYC_REVIEW);
     }
 
     public boolean isInternal() {
@@ -22,6 +27,11 @@ public record Caller(String userId, String email, String role) {
 
     /** True if this caller may read/use a resource owned by {@code ownerId}. */
     public boolean canAccess(String ownerId) {
-        return isInternal() || isAdmin() || userId.equals(ownerId);
+        return isInternal() || userId.equals(ownerId)
+                || hasPermission(org.elibanking.common.security.AdminRbac.ACCOUNTS_READ);
+    }
+
+    public boolean hasPermission(String permission) {
+        return authorities.contains(permission) || authorities.contains("ROLE_SUPER_ADMIN");
     }
 }

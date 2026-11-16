@@ -65,6 +65,7 @@ import {
   useVerificationStatusQuery,
   useVerifyTransferMutation,
 } from './store/api';
+import { hasPermission, isStaffUser } from './utils/permissions';
 
 const viewTitles = {
   overview: 'Overview',
@@ -159,7 +160,7 @@ function App() {
   const { data: currentUser, isError: currentUserFailed } = useCurrentUserQuery(undefined, {
     skip: !hasSession,
   });
-  const isAdmin = currentUser?.role === 'ADMIN';
+  const isAdmin = isStaffUser(currentUser);
 
   const { data: accountRows = [] } = useMyAccountsQuery(undefined, {
     skip: !hasSession,
@@ -184,24 +185,24 @@ function App() {
 
   // Admin RTK Query connections
   const { data: reconciliationData } = useReconciliationQuery(undefined, {
-    skip: !hasSession || !adminMode,
+    skip: !hasSession || !adminMode || !hasPermission(currentUser, 'reconciliation.read'),
   });
   const { data: auditData } = useAdminAuditQuery(
     { limit: 100 },
-    { skip: !hasSession || !adminMode || view !== 'audit-log' }
+    { skip: !hasSession || !adminMode || view !== 'audit-log' || !hasPermission(currentUser, 'audit.logs.read') }
   );
   const { data: adminUsers = [] } = useUsersQuery(undefined, {
-    skip: !hasSession || !adminMode,
+    skip: !hasSession || !adminMode || !hasPermission(currentUser, 'customers.read'),
   });
   const { data: adminAccounts = [] } = useAllAccountsQuery(undefined, {
-    skip: !hasSession || !adminMode,
+    skip: !hasSession || !adminMode || !hasPermission(currentUser, 'accounts.read'),
   });
   const { data: adminTransactions = [] } = useAllTransactionsQuery(undefined, {
-    skip: !hasSession || !adminMode,
+    skip: !hasSession || !adminMode || !hasPermission(currentUser, 'transactions.read'),
   });
   const { data: payoutRows = [], refetch: refetchPayouts, isFetching: payoutsFetching } = usePendingPayoutsQuery(
     { state: 'PENDING_APPROVAL' },
-    { skip: !hasSession || !adminMode }
+    { skip: !hasSession || !adminMode || !hasPermission(currentUser, 'payouts.read') }
   );
 
   // Mutations
@@ -614,6 +615,17 @@ function App() {
     }
   };
 
+  const setUserRole = async (user, role) => {
+    try {
+      await updateUserRequest({ id: user.id, body: { role } }).unwrap();
+      notify(`${user.fullName}'s access role was updated.`, 'success');
+    } catch (failure) {
+      const err = failure?.data?.detail || 'The user role could not be updated.';
+      notify(err, 'error');
+      throw failure;
+    }
+  };
+
   const createAccount = async (type, openingBalance, accountHolderName, phone) => {
     setActionStatus({
       status: 'loading',
@@ -823,6 +835,7 @@ function App() {
         return (
           <OpsDashboardPage
             setView={moveTo}
+            currentUser={currentUser}
             payouts={payouts}
             users={adminUsers}
             accounts={adminAccounts}
@@ -837,6 +850,7 @@ function App() {
             onDecision={decidePayout}
             onRefresh={refetchPayouts}
             isRefreshing={payoutsFetching}
+            canDecide={hasPermission(currentUser, 'payouts.approve')}
           />
         );
       case 'risk-alerts':
@@ -848,8 +862,10 @@ function App() {
           <CustomersPage
             users={adminUsers}
             accounts={adminAccounts}
+            currentUser={currentUser}
             onAdjust={adjustAccount}
             onUserStatus={setUserEnabled}
+            onRoleChange={setUserRole}
             onBlock={async (account) => {
               try {
                 await blockAccountRequest(account.accountNumber).unwrap();
@@ -869,9 +885,9 @@ function App() {
       case 'reconciliation':
         return <ReconciliationPage data={reconciliationData} />;
       case 'kyc-reviews':
-        return <KycReviewsPage showToast={notify} />;
+        return <KycReviewsPage showToast={notify} currentUser={currentUser} />;
       case 'crypto-operations':
-        return <CryptoOperationsPage showToast={notify} />;
+        return <CryptoOperationsPage showToast={notify} currentUser={currentUser} />;
       default:
         return (
           <OverviewPage

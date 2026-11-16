@@ -11,6 +11,7 @@ import org.elibanking.authservice.dto.UpdateUserRequest;
 import org.elibanking.authservice.dto.UserResponse;
 import org.elibanking.authservice.exception.AuthException;
 import org.elibanking.authservice.service.UserAdminService;
+import org.elibanking.common.security.AdminRbac;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -33,8 +34,9 @@ public class UserAdminController {
     @ApiResponse(responseCode = "200", description = "Users")
     @ApiResponse(responseCode = "403", description = "Not an admin")
     public List<UserResponse> list(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt) {
-        requireAdmin(jwt.getClaimAsString("role"));
-        return userAdminService.listUsers();
+        if (hasPermission(jwt, AdminRbac.ADMIN_USERS_READ)) return userAdminService.listUsers(true);
+        requirePermission(jwt, AdminRbac.CUSTOMERS_READ);
+        return userAdminService.listUsers(false);
     }
 
     @GetMapping("/{id}")
@@ -43,8 +45,9 @@ public class UserAdminController {
     @ApiResponse(responseCode = "404", description = "Not found", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     public UserResponse get(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
                             @PathVariable String id) {
-        requireAdmin(jwt.getClaimAsString("role"));
-        return userAdminService.getUser(id);
+        UserResponse user = userAdminService.getUser(id);
+        requirePermission(jwt, user.role().isStaff() ? AdminRbac.ADMIN_USERS_READ : AdminRbac.CUSTOMERS_READ);
+        return user;
     }
 
     @PatchMapping("/{id}")
@@ -58,13 +61,24 @@ public class UserAdminController {
     public UserResponse update(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
                                @PathVariable String id,
                                @RequestBody UpdateUserRequest request) {
-        requireAdmin(jwt.getClaimAsString("role"));
+        UserResponse existing = userAdminService.getUser(id);
+        String managePermission = request.role() != null || existing.role().isStaff()
+                ? AdminRbac.ADMIN_USERS_MANAGE : AdminRbac.CUSTOMERS_MANAGE;
+        requirePermission(jwt, managePermission);
         return userAdminService.updateUser(jwt.getSubject(), id, request);
     }
 
-    private static void requireAdmin(String role) {
-        if (!"ADMIN".equals(role)) {
-            throw new AuthException(HttpStatus.FORBIDDEN, "Admin role required");
+    private static boolean hasPermission(Jwt jwt, String permission) {
+        if (jwt == null) return false;
+        java.util.List<String> authorities = java.util.Optional.ofNullable(jwt.getClaimAsStringList("authorities")).orElse(java.util.List.of());
+        java.util.List<String> roles = java.util.Optional.ofNullable(jwt.getClaimAsStringList("roles")).orElse(java.util.List.of());
+        boolean legacyAdmin = "ADMIN".equals(jwt.getClaimAsString("role")) && roles.isEmpty() && authorities.isEmpty();
+        return legacyAdmin || authorities.contains(permission);
+    }
+
+    private static void requirePermission(Jwt jwt, String permission) {
+        if (!hasPermission(jwt, permission)) {
+            throw new AuthException(HttpStatus.FORBIDDEN, "Required permission: " + permission);
         }
     }
 }

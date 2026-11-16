@@ -14,6 +14,7 @@ export function PayoutsPage({
   onRefresh,
   isRefreshing = false,
   decisionLoadingId = null,
+  canDecide = true,
 }) {
   const [selected, setSelected] = useState(null);
 
@@ -71,7 +72,7 @@ export function PayoutsPage({
         <PayoutTable
           payouts={payouts}
           onReview={setSelected}
-          onDecision={handleDecision}
+          onDecision={canDecide ? handleDecision : undefined}
           decisionLoadingId={decisionLoadingId}
         />
       </Panel>
@@ -81,7 +82,8 @@ export function PayoutsPage({
           isOpen={Boolean(selected)}
           onClose={() => setSelected(null)}
           payout={selected}
-          onDecision={handleDecision}
+          onDecision={canDecide ? handleDecision : undefined}
+          canDecide={canDecide}
           isLoading={Boolean(decisionLoadingId)}
         />
       )}

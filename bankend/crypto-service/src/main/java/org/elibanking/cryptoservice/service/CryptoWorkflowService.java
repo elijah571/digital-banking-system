@@ -159,6 +159,7 @@ public class CryptoWorkflowService {
 
     public TransactionView decide(String id,String adminId,boolean approve,String reason){
         Map<String,Object> row=jdbc.queryForMap("SELECT * FROM crypto_transaction WHERE id=? AND status='REVIEW_REQUIRED'",id);
+        if (adminId.equals(row.get("user_id"))) throw new ResponseStatusException(HttpStatus.FORBIDDEN,"The initiator cannot approve their own crypto operation");
         String direction=(String)row.get("direction");
         if(approve){
             if("DEPOSIT".equals(direction)){creditDeposit(id);auditAdmin(adminId,"APPROVE_DEPOSIT",id,null);}

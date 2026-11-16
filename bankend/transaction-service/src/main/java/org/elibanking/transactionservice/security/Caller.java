@@ -4,10 +4,15 @@ package org.elibanking.transactionservice.security;
  * Who is calling, from the verified user token (wallet-plan 3.7, D8): the subject is the user id, and the email and role
  * are claims. X-User-* headers are never identity. A request without a verified token never reaches a controller.
  */
-public record Caller(String userId, String email, String role) {
+public record Caller(String userId, String email, String role, java.util.Set<String> authorities) {
+
+    public Caller(String userId, String email, String role) {
+        this(userId, email, role, "ADMIN".equals(role)
+                ? org.elibanking.common.security.AdminRbac.allPermissions() : java.util.Set.of());
+    }
 
     public boolean isAdmin() {
-        return "ADMIN".equals(role);
+        return hasPermission(org.elibanking.common.security.AdminRbac.TRANSACTIONS_READ);
     }
 
     /** A call with no user. A verified token always has a subject, so this never comes from a user's request. */
@@ -17,6 +22,10 @@ public record Caller(String userId, String email, String role) {
 
     /** True if this caller may read/use a resource owned by {@code ownerId}. */
     public boolean canAccess(String ownerId) {
-        return isInternal() || isAdmin() || userId.equals(ownerId);
+        return isInternal() || userId.equals(ownerId) || isAdmin();
+    }
+
+    public boolean hasPermission(String permission) {
+        return authorities.contains(permission) || authorities.contains("ROLE_SUPER_ADMIN");
     }
 }

@@ -418,6 +418,14 @@ Recovery is built in rather than done by hand:
 
 Only `transaction-service`, `wallet-service`, and `crypto-service` can call their explicitly scoped internal ledger operations, and no service trusts an unverified `X-User-*` header for identity. Auth-service validates JWTs locally on authenticated profile and user-administration routes. Fireblocks credentials stay on the server. The webhook route is public at the gateway but verifies the signature and configured workspace before persisting an event. Manual document review is not a substitute for a jurisdiction-specific KYC/AML compliance program.
 
+### Staff RBAC
+
+Staff access uses seven roles: `ROLE_SUPER_ADMIN`, `ROLE_COMPLIANCE_OFFICER`, `ROLE_TREASURY_APPROVER`, `ROLE_FINANCE_RECON_ADMIN`, `ROLE_RISK_ANALYST`, `ROLE_CUSTOMER_SUPPORT`, and `ROLE_AUDITOR`. Auth-service adds the staff role and its resolved permission strings to signed JWT claims. The shared catalog and JWT converter live in `banking-common`; the gateway and downstream services check permissions on supported admin routes. The React console also filters navigation and write controls from the authenticated user permissions.
+
+Auditor requests are restricted to `GET`, `HEAD`, and `OPTIONS` at the gateway and in the account, auth, crypto, payment, transaction, and wallet services. Withdrawal and crypto review services prevent a requester from approving their own operation. Staff access changes are written to auth-service's append-only audit log and revoke refresh tokens. Access JWTs already issued remain usable until their short expiry.
+
+The current role storage is an enum on `users` with a shared code permission map. The normalized role and permission tables in the RBAC proposal are not implemented. `risk.alerts.resolve`, `reconciliation.resolve`, global limits management, and provider webhook inspection do not yet have operational API workflows. See [Banking Security Architecture](docs/engineering/BANKING_SECURITY_ARCHITECTURE.md) for the detailed permission matrix and implementation limits.
+
 ## 9. Infrastructure and Deployment
 
 ```text

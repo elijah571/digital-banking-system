@@ -31,8 +31,15 @@ public class CallerArgumentResolver implements HandlerMethodArgumentResolver, We
                                   NativeWebRequest request, WebDataBinderFactory binderFactory) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication instanceof JwtAuthenticationToken jwt) {
+            java.util.List<String> values = jwt.getToken().getClaimAsStringList("authorities");
+            java.util.List<String> roles = jwt.getToken().getClaimAsStringList("roles");
+            String role = jwt.getToken().getClaimAsString("role");
+            if ((values == null || values.isEmpty()) && "ADMIN".equals(role) && (roles == null || roles.isEmpty())) {
+                values = java.util.List.copyOf(org.elibanking.common.security.AdminRbac.allPermissions());
+            }
             return new Caller(jwt.getToken().getSubject(), jwt.getToken().getClaimAsString("email"),
-                    jwt.getToken().getClaimAsString("role"));
+                    role,
+                    values == null ? java.util.Set.of() : java.util.Set.copyOf(values));
         }
         // Fail closed. SecurityConfig requires a token on every /api route, so a request does not get here without one.
         throw new AccessDeniedException("no verified token");

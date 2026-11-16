@@ -8,6 +8,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import org.elibanking.authservice.config.AuthProperties;
 import org.elibanking.authservice.entity.User;
+import org.elibanking.common.security.AdminRbac;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -45,7 +46,10 @@ public class JwtService {
                 .expirationTime(Date.from(now.plus(props.accessTokenTtl())))
                 .claim("email", user.getEmail())
                 .claim("name", user.getFullName())
-                .claim("role", user.getRole().name())
+                // Keep the legacy role claim for service ownership checks while issuing a least-privilege staff role and authorities.
+                .claim("role", user.getRole().isStaff() ? "ADMIN" : "USER")
+                .claim("roles", user.getRole().isStaff() ? java.util.List.of(user.getRole().staffRoleClaim()) : java.util.List.of())
+                .claim("authorities", AdminRbac.permissionsFor(user.getRole().name()).stream().sorted().toList())
                 .build();
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
         try {

@@ -480,8 +480,8 @@ public class WithdrawalService {
     }
 
     private static void requireAdmin(Caller caller) {
-        if (!caller.isAdmin()) {
-            throw new RequestRefusedException(HttpStatus.FORBIDDEN, "Only an admin can decide a withdrawal");
+        if (!caller.hasPermission(org.elibanking.common.security.AdminRbac.PAYOUTS_APPROVE)) {
+            throw new RequestRefusedException(HttpStatus.FORBIDDEN, "Payout approval permission required");
         }
     }
 

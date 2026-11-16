@@ -1,5 +1,9 @@
 package org.elibanking.transactionservice.security;
 
+import org.elibanking.common.security.AdminJwtAuthenticationConverter;
+import org.elibanking.common.security.AdminRbac;
+import org.elibanking.common.security.AuditorReadOnlyFilter;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -61,8 +65,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/transactions").hasAuthority(AdminRbac.TRANSACTIONS_READ)
                         .anyRequest().authenticated())
-                .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.decoder(userTokens)));
+                .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.decoder(userTokens)
+                        .jwtAuthenticationConverter(new AdminJwtAuthenticationConverter())));
+        http.addFilterAfter(new AuditorReadOnlyFilter(), org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter.class);
         return http.build();
     }
 

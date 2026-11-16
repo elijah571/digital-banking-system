@@ -5,6 +5,18 @@ import { Panel } from '../../components/common/Panel';
 import { StatusBadge } from '../../components/feedback/StatusBadge';
 import { AdjustBalanceModal } from '../../components/modals/AdjustBalanceModal';
 import { money } from '../../data';
+import { hasPermission, isSuperAdmin } from '../../utils/permissions';
+
+const staffRoles = [
+  ['USER', 'Customer'],
+  ['ROLE_SUPER_ADMIN', 'Super admin'],
+  ['ROLE_COMPLIANCE_OFFICER', 'Compliance officer'],
+  ['ROLE_TREASURY_APPROVER', 'Treasury approver'],
+  ['ROLE_FINANCE_RECON_ADMIN', 'Finance reconciliation'],
+  ['ROLE_RISK_ANALYST', 'Risk analyst'],
+  ['ROLE_CUSTOMER_SUPPORT', 'Customer support'],
+  ['ROLE_AUDITOR', 'Auditor'],
+];
 
 export function CustomersPage({
   users = [],
@@ -12,6 +24,8 @@ export function CustomersPage({
   onBlock,
   onAdjust,
   onUserStatus,
+  onRoleChange,
+  currentUser,
 }) {
   const [query, setQuery] = useState('');
   const [adjustingAccount, setAdjustingAccount] = useState(null);
@@ -19,6 +33,12 @@ export function CustomersPage({
   const [adjustBusy, setAdjustBusy] = useState(false);
   const [userActionBusy, setUserActionBusy] = useState('');
   const [blockActionBusy, setBlockActionBusy] = useState('');
+  const [roleDrafts, setRoleDrafts] = useState({});
+  const [roleActionBusy, setRoleActionBusy] = useState('');
+  const canManageCustomers = hasPermission(currentUser, 'customers.manage');
+  const canFreezeAccounts = hasPermission(currentUser, 'accounts.freeze');
+  const canManageStaff = hasPermission(currentUser, 'admin.users.manage');
+  const canAdjustLedger = isSuperAdmin(currentUser);
 
   const results = users.filter((user) =>
     `${user.fullName} ${user.email}`.toLowerCase().includes(query.toLowerCase())
@@ -65,6 +85,21 @@ export function CustomersPage({
     }
   };
 
+  const handleRoleChange = async (user) => {
+    const existingRole = user.role === 'ADMIN' ? 'ROLE_SUPER_ADMIN' : user.role || 'USER';
+    const role = roleDrafts[user.id] || existingRole;
+    if (role === existingRole) return;
+    setRoleActionBusy(user.id);
+    try {
+      await onRoleChange?.(user, role);
+      setRoleDrafts((drafts) => { const next = { ...drafts }; delete next[user.id]; return next; });
+    } catch {
+      // Parent reports the API failure.
+    } finally {
+      setRoleActionBusy('');
+    }
+  };
+
   return (
     <div className="fade-in">
       <PageHeader
@@ -91,6 +126,7 @@ export function CustomersPage({
               <tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 <th className="px-5 py-3">Customer</th>
                 <th className="px-4 py-3">Account</th>
+                <th className="px-4 py-3">Access role</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Balance</th>
                 <th className="px-5 py-3 text-right">Operations</th>
@@ -99,6 +135,8 @@ export function CustomersPage({
             <tbody>
               {results.map((user) => {
                 const account = accounts.find((row) => row.ownerId === user.id);
+                const currentRole = user.role === 'ADMIN' ? 'ROLE_SUPER_ADMIN' : user.role || 'USER';
+                const canEditRole = canManageStaff && currentUser?.id !== user.id;
                 const isUserBusy = userActionBusy === user.id;
                 const isBlockBusy = blockActionBusy === account?.accountNumber;
 
@@ -115,6 +153,9 @@ export function CustomersPage({
                       {account ? `•••• ${account.accountNumber.slice(-4)}` : 'No account'}
                     </td>
                     <td className="px-4 py-3.5">
+                      {canEditRole ? <div className="flex items-center gap-2"><select aria-label={`Role for ${user.fullName}`} value={roleDrafts[user.id] ?? currentRole} onChange={(event) => setRoleDrafts((drafts) => ({ ...drafts, [user.id]: event.target.value }))} className="max-w-44 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px]"><option value="USER">Customer</option>{staffRoles.filter(([role]) => role !== 'USER').map(([role, label]) => <option key={role} value={role}>{label}</option>)}</select>{(roleDrafts[user.id] ?? currentRole) !== currentRole && <button disabled={roleActionBusy === user.id} onClick={() => handleRoleChange(user)} className="text-[11px] font-semibold text-gold-800 disabled:opacity-50">{roleActionBusy === user.id ? 'Saving…' : 'Save'}</button>}</div> : <StatusBadge tone="slate">{user.role?.replace(/^ROLE_/, '').replaceAll('_', ' ') || 'USER'}</StatusBadge>}
+                    </td>
+                    <td className="px-4 py-3.5">
                       <StatusBadge tone={user.enabled ? 'green' : 'red'}>
                         {user.enabled ? 'Active' : 'Disabled'}
                       </StatusBadge>
@@ -124,7 +165,7 @@ export function CustomersPage({
                     </td>
                     <td className="px-5 py-3.5 text-right">
                       <div className="flex justify-end gap-3 items-center">
-                        {user.role !== 'ADMIN' && (
+                        {canManageCustomers && currentUser?.id !== user.id && (
                           <button
                             disabled={isUserBusy}
                             onClick={() => handleToggleUser(user)}
@@ -141,9 +182,9 @@ export function CustomersPage({
                               : 'Enable user'}
                           </button>
                         )}
-                        {account?.status === 'ACTIVE' && (
+                        {account?.status === 'ACTIVE' && (canAdjustLedger || canFreezeAccounts) && (
                           <>
-                            <button
+                            {canAdjustLedger && <button
                               onClick={() => {
                                 setAdjustError('');
                                 setAdjustingAccount(account);
@@ -151,14 +192,14 @@ export function CustomersPage({
                               className="text-xs font-semibold text-gold-800 hover:text-gold-900 transition"
                             >
                               Adjust balance
-                            </button>
-                            <button
+                            </button>}
+                            {canFreezeAccounts && <button
                               disabled={isBlockBusy}
                               onClick={() => handleBlock(account)}
                               className="text-xs font-semibold text-rose-700 hover:text-rose-800 transition disabled:opacity-50"
                             >
                               {isBlockBusy ? 'Blocking…' : 'Block account'}
-                            </button>
+                            </button>}
                           </>
                         )}
                         {account?.status === 'BLOCKED' && (

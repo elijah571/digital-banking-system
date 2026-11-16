@@ -197,7 +197,7 @@ public class TransactionalService {
     }
 
     public List<TransactionResponse> getTransactionHistory(String accountNumber, Caller caller) {
-        if (!caller.isInternal() && !caller.isAdmin()) {
+        if (!caller.isInternal() && !caller.hasPermission(org.elibanking.common.security.AdminRbac.TRANSACTIONS_READ)) {
             AccountInfo account = accountService.getAccount(accountNumber);
             if (!caller.userId().equals(account.ownerId())) {
                 throw new TransactionAccessDeniedException("You do not have access to account " + accountNumber);

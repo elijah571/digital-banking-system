@@ -23,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { BrandMark } from './BrandMark';
+import { hasPermission } from '../../utils/permissions';
 
 const customerLinks = [
   { label: 'Overview', view: 'overview', icon: Grid2X2 },
@@ -40,13 +41,13 @@ const customerLinks = [
 
 const adminLinks = [
   { label: 'Dashboard', view: 'ops-dashboard', icon: Grid2X2 },
-  { label: 'KYC review', view: 'kyc-reviews', icon: FileCheck2 },
-  { label: 'Crypto operations', view: 'crypto-operations', icon: Coins },
-  { label: 'Payout queue', view: 'payouts', icon: FileClock, badge: 'Queue' },
-  { label: 'Risk alerts', view: 'risk-alerts', icon: ShieldAlert },
-  { label: 'Audit log', view: 'audit-log', icon: FileCheck2 },
-  { label: 'Customers', view: 'customers', icon: Users },
-  { label: 'Reconciliation', view: 'reconciliation', icon: Activity },
+  { label: 'KYC review', view: 'kyc-reviews', icon: FileCheck2, permission: 'kyc.read' },
+  { label: 'Crypto operations', view: 'crypto-operations', icon: Coins, permission: 'crypto.transactions.read' },
+  { label: 'Payout queue', view: 'payouts', icon: FileClock, badge: 'Queue', permission: 'payouts.read' },
+  { label: 'Risk alerts', view: 'risk-alerts', icon: ShieldAlert, permission: 'risk.alerts.read' },
+  { label: 'Audit log', view: 'audit-log', icon: FileCheck2, permission: 'audit.logs.read' },
+  { label: 'Customers', view: 'customers', icon: Users, permission: 'customers.read' },
+  { label: 'Reconciliation', view: 'reconciliation', icon: Activity, permission: 'reconciliation.read' },
 ];
 
 export function Sidebar({
@@ -61,7 +62,9 @@ export function Sidebar({
   isAdmin = false,
   onLogout,
 }) {
-  const links = adminMode ? adminLinks : customerLinks;
+  const links = adminMode
+    ? adminLinks.filter((link) => !link.permission || hasPermission(currentUser, link.permission))
+    : customerLinks;
 
   const navigate = (nextView) => {
     setView(nextView);

@@ -35,7 +35,13 @@ public class CallerArgumentResolver implements HandlerMethodArgumentResolver, We
             if ("SERVICE".equals(role)) {
                 return Caller.internal();
             }
-            return new Caller(jwt.getToken().getSubject(), jwt.getToken().getClaimAsString("email"), role);
+            java.util.List<String> values = jwt.getToken().getClaimAsStringList("authorities");
+            java.util.List<String> roles = jwt.getToken().getClaimAsStringList("roles");
+            if ((values == null || values.isEmpty()) && "ADMIN".equals(role) && (roles == null || roles.isEmpty())) {
+                values = java.util.List.copyOf(org.elibanking.common.security.AdminRbac.allPermissions());
+            }
+            return new Caller(jwt.getToken().getSubject(), jwt.getToken().getClaimAsString("email"), role,
+                    values == null ? java.util.Set.of() : java.util.Set.copyOf(values));
         }
         // Fail closed. Headers are not identity, and no other authentication reaches a controller.
         throw new AccessDeniedException("no verified token");

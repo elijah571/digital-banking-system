@@ -76,9 +76,12 @@ export function AuthPage({ view, setView, onSignIn, showToast }) {
       }
     } catch (failure) {
       setError(
-        failure?.message ||
-          failure?.data?.detail ||
+        failure?.data?.detail ||
           failure?.data?.message ||
+          (failure?.status === 'FETCH_ERROR' || failure?.status === 'TIMEOUT_ERROR'
+            ? 'Unable to reach the banking service. Check your connection and try again.'
+            : null) ||
+          failure?.message ||
           'We could not complete that request. Please verify your details and try again.'
       );
     }

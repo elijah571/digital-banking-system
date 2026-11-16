@@ -95,8 +95,8 @@ public class TransactionController {
     @ApiResponse(responseCode = "200", description = "All transactions")
     @ApiResponse(responseCode = "403", description = "Not an admin")
     public List<TransactionResponse> getAllTransactions(Caller caller) {
-        if (!caller.isAdmin()) {
-            throw new TransactionAccessDeniedException("Admin role required");
+        if (!caller.hasPermission(org.elibanking.common.security.AdminRbac.TRANSACTIONS_READ)) {
+            throw new TransactionAccessDeniedException("Transaction read permission required");
         }
         return transactionalService.getAllTransactions();
     }

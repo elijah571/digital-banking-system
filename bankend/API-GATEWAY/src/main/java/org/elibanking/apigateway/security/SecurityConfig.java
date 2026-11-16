@@ -19,6 +19,8 @@ import org.springframework.security.oauth2.server.resource.authentication.Reacti
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 import org.springframework.web.server.ServerWebExchange;
+import org.elibanking.common.security.AdminJwtAuthenticationConverter;
+import org.elibanking.common.security.AdminRbac;
 import reactor.core.publisher.Mono;
 
 import javax.crypto.spec.SecretKeySpec;
@@ -58,15 +60,25 @@ public class SecurityConfig {
                         .pathMatchers(PUBLIC_AUTH).permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/v1/payments/webhook").permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/v1/crypto/webhooks/fireblocks").permitAll()
-                        .pathMatchers("/api/v1/crypto/admin/**").hasRole("ADMIN")
                         .pathMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .pathMatchers(PUBLIC_DOCS).permitAll()
-                        .pathMatchers("/api/v1/users/**").hasRole("ADMIN")
-                        .pathMatchers(HttpMethod.GET, "/api/v1/accounts", "/api/v1/transactions").hasRole("ADMIN")
-                        .pathMatchers(HttpMethod.PUT, "/api/v1/accounts/*/block", "/api/v1/accounts/*/deduct",
-                                "/api/v1/accounts/*/credit").hasRole("ADMIN")
-                        .pathMatchers("/actuator/**").hasRole("ADMIN")
-                        .pathMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                        .pathMatchers(HttpMethod.GET, "/api/v1/users", "/api/v1/users/**").hasAnyAuthority(AdminRbac.CUSTOMERS_READ, AdminRbac.ADMIN_USERS_READ)
+                        .pathMatchers(HttpMethod.PATCH, "/api/v1/users/**").hasAnyAuthority(AdminRbac.CUSTOMERS_MANAGE, AdminRbac.ADMIN_USERS_MANAGE)
+                        .pathMatchers(HttpMethod.GET, "/api/v1/accounts").hasAuthority(AdminRbac.ACCOUNTS_READ)
+                        .pathMatchers(HttpMethod.PUT, "/api/v1/accounts/*/block").hasAuthority(AdminRbac.ACCOUNTS_FREEZE)
+                        .pathMatchers(HttpMethod.GET, "/api/v1/transactions").hasAuthority(AdminRbac.TRANSACTIONS_READ)
+                        .pathMatchers(HttpMethod.GET, "/api/v1/accounts/verification/admin/reviews").hasAuthority(AdminRbac.KYC_READ)
+                        .pathMatchers(HttpMethod.POST, "/api/v1/accounts/verification/admin/reviews/**").hasAuthority(AdminRbac.KYC_REVIEW)
+                        .pathMatchers(HttpMethod.GET, "/api/v1/admin/audit").hasAuthority(AdminRbac.AUDIT_LOGS_READ)
+                        .pathMatchers(HttpMethod.GET, "/api/v1/admin/payouts").hasAuthority(AdminRbac.PAYOUTS_READ)
+                        .pathMatchers(HttpMethod.GET, "/api/v1/admin/ledger/reconciliation").hasAuthority(AdminRbac.RECONCILIATION_READ)
+                        .pathMatchers(HttpMethod.POST, "/api/v1/wallet/withdrawals/*/approve", "/api/v1/wallet/withdrawals/*/reject").hasAuthority(AdminRbac.PAYOUTS_APPROVE)
+                        .pathMatchers(HttpMethod.GET, "/api/v1/crypto/admin/assets").hasAuthority(AdminRbac.CRYPTO_WALLETS_READ)
+                        .pathMatchers(HttpMethod.GET, "/api/v1/crypto/admin/reviews").hasAuthority(AdminRbac.CRYPTO_TRANSACTIONS_READ)
+                        .pathMatchers(HttpMethod.POST, "/api/v1/crypto/admin/transactions/*/approve", "/api/v1/crypto/admin/transactions/*/reject").hasAuthority(AdminRbac.CRYPTO_OPERATIONS_APPROVE)
+                        .pathMatchers(HttpMethod.PUT, "/api/v1/crypto/admin/assets").hasAuthority("ROLE_SUPER_ADMIN")
+                        .pathMatchers("/actuator/**").hasAuthority("ROLE_SUPER_ADMIN")
+                        .pathMatchers("/api/v1/admin/**").hasAuthority("ROLE_SUPER_ADMIN")
                         .pathMatchers("/api/**").authenticated()
                         .anyExchange().denyAll())
                 .oauth2ResourceServer(rs -> rs
@@ -99,14 +111,9 @@ public class SecurityConfig {
         return decoder;
     }
 
-    /** "role": "ADMIN" claim → authority ROLE_ADMIN. */
+    /** Read signed role and granular authority claims minted by auth-service. */
     private ReactiveJwtAuthenticationConverterAdapter jwtAuthenticationConverter() {
-        JwtGrantedAuthoritiesConverter authorities = new JwtGrantedAuthoritiesConverter();
-        authorities.setAuthoritiesClaimName("role");
-        authorities.setAuthorityPrefix("ROLE_");
-        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
-        converter.setJwtGrantedAuthoritiesConverter(authorities);
-        return new ReactiveJwtAuthenticationConverterAdapter(converter);
+        return new ReactiveJwtAuthenticationConverterAdapter(new AdminJwtAuthenticationConverter());
     }
 
     private static Mono<Void> problem(ServerWebExchange exchange, HttpStatus status, String detail) {

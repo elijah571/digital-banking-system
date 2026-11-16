@@ -10,6 +10,8 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.elibanking.common.security.AdminRbac;
+import org.elibanking.common.security.AuditorReadOnlyFilter;
 
 /**
  * Who may call what (wallet-plan 3.7, 8.18). Service tokens are checked by their {@code sub} through
@@ -59,18 +61,22 @@ public class SecurityConfig {
                         .access(CallerAllowList.only(CallerAllowList.TRANSACTION, CallerAllowList.WALLET,
                                 CallerAllowList.FRAUD, CallerAllowList.PAYMENT))
                         .requestMatchers("/internal/v1/**").denyAll()
-                        .requestMatchers("/api/v1/accounts/verification/admin/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/accounts/verification/admin/reviews").hasAuthority(AdminRbac.KYC_READ)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/accounts/verification/admin/reviews/**").hasAuthority(AdminRbac.KYC_REVIEW)
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/accounts/*/block").hasAuthority(AdminRbac.ACCOUNTS_FREEZE)
                         .requestMatchers("/api/v1/accounts/verification", "/api/v1/accounts/verification/**")
                         .access(CallerAllowList.users())
-                        .requestMatchers(HttpMethod.GET, "/api/v1/accounts").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/accounts").hasAuthority(AdminRbac.ACCOUNTS_READ)
                         // Account reads: users (the controller checks ownership) and the services that read accounts.
                         .requestMatchers(HttpMethod.GET, "/api/v1/accounts/*", "/api/v1/accounts/*/balance")
                         .access(AuthorizationManagers.anyOf(CallerAllowList.users(),
                                 CallerAllowList.only(CallerAllowList.TRANSACTION, CallerAllowList.WALLET,
                                         CallerAllowList.FRAUD, CallerAllowList.PAYMENT)))
-                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/ledger/reconciliation").hasAuthority(AdminRbac.RECONCILIATION_READ)
+                        .requestMatchers("/api/v1/admin/**").hasAuthority("ROLE_SUPER_ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth.authenticationManagerResolver(bearerTokens));
+        http.addFilterAfter(new AuditorReadOnlyFilter(), org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter.class);
         return http.build();
     }
 }

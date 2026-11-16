@@ -168,7 +168,9 @@ public class IdentityVerificationService {
     }
 
     private static void requireAdmin(Caller caller) {
-        if (caller == null || !caller.isAdmin()) throw new AccountOperationException("Administrator access is required");
+        if (caller == null || !caller.hasPermission(org.elibanking.common.security.AdminRbac.KYC_REVIEW)) {
+            throw new AccountOperationException("KYC review permission is required");
+        }
     }
 
     private static String normalizeVideo(String raw) {

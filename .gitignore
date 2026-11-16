@@ -2,3 +2,4 @@
 .claude/settings.json
 frontend/node_modules/
 frontend/dist/
+frontend/.env

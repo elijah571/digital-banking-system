@@ -1,6 +1,9 @@
 package org.elibanking.authservice.config;
 
 import org.elibanking.authservice.security.CallerAllowList;
+import org.elibanking.common.security.AdminJwtAuthenticationConverter;
+import org.elibanking.common.security.AdminRbac;
+import org.elibanking.common.security.AuditorReadOnlyFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -71,13 +74,15 @@ public class SecurityConfig {
                                 "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout",
                                 "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/verify-email").permitAll()
-                        .requestMatchers("/api/v1/users/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/users", "/api/v1/users/**").hasAnyAuthority(AdminRbac.CUSTOMERS_READ, AdminRbac.ADMIN_USERS_READ)
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/users/**").hasAnyAuthority(AdminRbac.CUSTOMERS_MANAGE, AdminRbac.ADMIN_USERS_MANAGE)
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/change-password").authenticated()
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt
                         .decoder(userTokenDecoder)
-                        .jwtAuthenticationConverter(userJwtAuthenticationConverter())));
+                        .jwtAuthenticationConverter(new AdminJwtAuthenticationConverter())));
+        http.addFilterAfter(new AuditorReadOnlyFilter(), org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter.class);
         return http.build();
     }
 
@@ -94,12 +99,4 @@ public class SecurityConfig {
         return decoder;
     }
 
-    private static JwtAuthenticationConverter userJwtAuthenticationConverter() {
-        JwtGrantedAuthoritiesConverter authorities = new JwtGrantedAuthoritiesConverter();
-        authorities.setAuthoritiesClaimName("role");
-        authorities.setAuthorityPrefix("ROLE_");
-        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
-        converter.setJwtGrantedAuthoritiesConverter(authorities);
-        return converter;
-    }
 }

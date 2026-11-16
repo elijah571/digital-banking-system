@@ -1,5 +1,7 @@
 package org.elibanking.walletservice.security;
 
+import org.elibanking.common.security.AdminJwtAuthenticationConverter;
+
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -46,7 +48,7 @@ class TokenConfig {
             @Value("${internal-auth.jwt-secret:}") String serviceSecret,
             @Value("${internal-auth.jwt-issuer}") String serviceIssuer,
             @Value("${internal-auth.audience}") String audience) {
-        JwtAuthenticationConverter authorities = rolesAsAuthorities();
+        var authorities = new AdminJwtAuthenticationConverter();
 
         JwtAuthenticationProvider user = new JwtAuthenticationProvider(
                 hs256(userSecret, "JWT_SECRET", JwtValidators.createDefaultWithIssuer(userIssuer)));
@@ -93,13 +95,4 @@ class TokenConfig {
                         sub -> sub != null && !sub.isBlank() && sub.length() <= 100));
     }
 
-    /** {@code "role": "ADMIN"} becomes the authority {@code ROLE_ADMIN}, as in the gateway. */
-    static JwtAuthenticationConverter rolesAsAuthorities() {
-        JwtGrantedAuthoritiesConverter authorities = new JwtGrantedAuthoritiesConverter();
-        authorities.setAuthoritiesClaimName("role");
-        authorities.setAuthorityPrefix("ROLE_");
-        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
-        converter.setJwtGrantedAuthoritiesConverter(authorities);
-        return converter;
-    }
 }
