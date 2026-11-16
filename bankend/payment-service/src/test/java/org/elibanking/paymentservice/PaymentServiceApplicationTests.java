@@ -9,7 +9,13 @@ import org.elibanking.paymentservice.security.UserTokens;
         "stripe.secret-key=",
         "stripe.webhook-secret=",
         "internal-auth.jwt-secret=payment-service-test-secret-0123456789",
-        "auth.jwt-secret=" + UserTokens.SECRET
+        "auth.jwt-secret=" + UserTokens.SECRET,
+        "payout.provider=flutterwave",
+        "payout.flutterwave.secret-key=FLWSECK_TEST-configuration-only",
+        "payout.flutterwave.webhook-secret=test-webhook-secret",
+        "payout.monnify.api-key=test-api-key",
+        "payout.monnify.secret-key=test-secret-key",
+        "payout.monnify.source-account-number=0123456789"
 })
 @Import(TestcontainersConfiguration.class)
 class PaymentServiceApplicationTests {
