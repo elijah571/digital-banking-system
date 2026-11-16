@@ -15,6 +15,7 @@ BANKEND=$(cd "$(dirname "$0")/.." && pwd)
 ROOT=$(git -C "$BANKEND" rev-parse --show-toplevel)
 REL=$(git -C "$BANKEND" rev-parse --show-prefix)          # "bankend/" inside the repository
 PROJECT=smoke
+APP_WAIT_TIMEOUT=${SMOKE_APP_WAIT_TIMEOUT:-900}
 OUT=$(mktemp -d /tmp/smoke-throwaway.XXXXXX)
 WT=$(mktemp -d /tmp/smoke-src.XXXXXX) && rmdir "$WT"       # git worktree add needs a path that does not exist yet
 OVERRIDE="$OUT/compose.override.yaml"
@@ -76,7 +77,7 @@ printf '%s\n' 'services:' '  mysql:' '    container_name: smoke-mysql' '    port
   '  kafka:' '    container_name: smoke-kafka' '    ports: !reset []' '    healthcheck:' \
   '      test: ["CMD-SHELL", "bash -c '\''echo > /dev/tcp/127.0.0.1/9092'\''"]' '      timeout: 5s' \
   '      start_period: 30s' '  account-service:' '    ports: !reset []' \
-  '  wallet-service:' '    ports: !reset []' '    environment:' '      WITHDRAWAL_DAILY_MAX: "5000000.00"' \
+  '  wallet-service:' '    ports: !reset []' '    healthcheck:' '      start_period: 15m' '    environment:' '      WITHDRAWAL_DAILY_MAX: "5000000.00"' \
   '  transaction-service:' '    ports: !reset []' '  fraud-detection-service:' '    ports: !reset []' \
   '  payment-service:' '    ports: !reset []' '  auth-service:' '    ports: !reset []' '    environment:' \
   '      APP_PUBLIC_URL: "http://127.0.0.1:${GATEWAY_PORT}"' \
@@ -94,7 +95,7 @@ COMPOSE=(docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE")
 "${COMPOSE[@]}" up -d --wait --wait-timeout 300 mysql redis kafka > "$OUT/infrastructure-up.log" 2>&1 \
   || { echo "infrastructure failed: see $OUT/infrastructure-up.log"; exit 2; }
 for svc in account-service wallet-service auth-service notification-service payment-service fraud-detection-service transaction-service api-gateway; do
-  "${COMPOSE[@]}" up -d --no-deps --wait --wait-timeout 300 "$svc" > "$OUT/$svc-start.log" 2>&1 \
+  "${COMPOSE[@]}" up -d --no-deps --wait --wait-timeout "$APP_WAIT_TIMEOUT" "$svc" > "$OUT/$svc-start.log" 2>&1 \
     || { echo "$svc failed to become healthy: see $OUT/$svc-start.log"; exit 2; }
 done
 for _ in $(seq 1 90); do
