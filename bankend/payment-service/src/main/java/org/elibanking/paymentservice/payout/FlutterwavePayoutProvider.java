@@ -32,6 +32,11 @@ public class FlutterwavePayoutProvider implements PayoutProvider {
     }
 
     @Override
+    public String getProviderName() {
+        return "flutterwave";
+    }
+
+    @Override
     public List<Bank> listBanks() {
         JsonNode data = requiredData(client.get().uri("/banks/NG").retrieve().body(JsonNode.class));
         if (!data.isArray()) {

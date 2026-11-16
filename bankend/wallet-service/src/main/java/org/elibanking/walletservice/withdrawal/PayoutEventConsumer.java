@@ -4,6 +4,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.elibanking.common.web.RequestIdContext;
 import org.elibanking.walletservice.outbox.OutboxWriter;
 import org.elibanking.walletservice.payout.OutboundPayoutRepository;
+import org.elibanking.walletservice.payout.OutboundPayout;
+import org.elibanking.walletservice.payout.PayoutState;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -39,7 +41,9 @@ public class PayoutEventConsumer {
         this.outbox = outbox;
     }
 
-    @KafkaListener(topics = {"payment.payout.success", "payment.payout.failed", "payment.payout.reversed"},
+    @KafkaListener(topics = {"payment.payout.success", "payment.payout.failed", "payment.payout.reversed",
+            "payment.payout.processing", "payment.payout.ambiguous", "payment.payout.retrying",
+            "payment.payout.review_required", "payment.payout.updated"},
             groupId = "wallet-service-group")
     @Transactional
     public void receive(String message) {
@@ -66,6 +70,28 @@ public class PayoutEventConsumer {
             return;
         }
         try {
+            String provider = event.path("payload").path("providerName").asText(null);
+            OutboundPayout payout = payouts.findById(id).orElseThrow();
+            if (provider != null && !provider.isBlank()) {
+                payout.setActiveProvider(provider);
+            }
+            if (event.path("payload").path("retryCount").canConvertToInt()) {
+                payout.setRetryCount(event.path("payload").path("retryCount").intValue());
+            }
+            String failure = event.path("payload").path("reason").asText(null);
+            payout.setFailureReason(failure == null || failure.isBlank() ? null : failure);
+            if ("payment.payout.ambiguous".equals(type)) {
+                txMove(id, PayoutState.AMBIGUOUS, "provider result is ambiguous; waiting for reconciliation");
+                return;
+            }
+            if ("payment.payout.review_required".equals(type)) {
+                txMove(id, PayoutState.REQUIRES_MANUAL_REVIEW, event.path("payload").path("reason").asText("provider retries exhausted"));
+                return;
+            }
+            if ("payment.payout.retrying".equals(type)) return;
+            if ("payment.payout.processing".equals(type) && payouts.findById(id).orElseThrow().getState() == PayoutState.PENDING_PROVIDER) {
+                txMove(id, PayoutState.PROCESSING, "provider accepted the transfer");
+            }
             if ("payment.payout.reversed".equals(type) && processor.reverseIfReversed(id)) {
                 return;
             }
@@ -73,6 +99,10 @@ public class PayoutEventConsumer {
         } catch (PayoutProcessor.ProviderStatusMismatchException mismatch) {
             alert(payoutKey, eventId, mismatch.getMessage());
         }
+    }
+
+    private void txMove(long id, PayoutState to, String reason) {
+        processor.applyProviderTransition(id, to, reason);
     }
 
     private void alert(String payoutKey, String eventId, String reason) {

@@ -119,6 +119,14 @@ class InternalPayoutControllerTest {
         send("payout-1", "0123456785", "1000.00").andExpect(status().isBadRequest());
     }
 
+    @Test
+    void monnifyWebhookIsPublicAndRequiresAConfiguredSignatureKey() throws Exception {
+        mvc.perform(post("/api/v1/webhooks/monnify").contentType(APPLICATION_JSON).content("{}"))
+                // The local environment may provide a webhook secret. Either way the public endpoint must
+                // reject this unsigned, malformed callback before acknowledging it.
+                .andExpect(status().is4xxClientError());
+    }
+
     private org.springframework.test.web.servlet.ResultActions send(String key, String accountNumber, String amount) throws Exception {
         return mvc.perform(post("/internal/v1/payouts")
                 .header("Authorization", "Bearer " + TestTokens.serviceTokenAs("wallet-service"))

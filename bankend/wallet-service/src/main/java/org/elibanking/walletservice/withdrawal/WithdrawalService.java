@@ -18,6 +18,7 @@ import org.elibanking.walletservice.payout.PayoutTransitions;
 import org.elibanking.walletservice.payout.PayoutType;
 import org.elibanking.walletservice.pin.PinService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -85,7 +86,18 @@ public class WithdrawalService {
     private final OutboxWriter outbox;
     private final FraudClient fraudClient;
     private final BigDecimal approvalThreshold;
+    private final String payoutProvider;
 
+    public WithdrawalService(OutboundPayoutRepository payouts, IdempotencyService idempotency, AccountServiceClient accounts,
+                             NameEnquiryService enquiries, PinService pins, PayoutTransitions transitions, TransactionTemplate tx,
+                             JdbcTemplate jdbc, ObjectMapper mapper, String ownBankCode, BigDecimal min, BigDecimal max,
+                             BigDecimal dailyMax, BigDecimal fee, OutboxWriter outbox, FraudClient fraudClient,
+                             BigDecimal approvalThreshold) {
+        this(payouts, idempotency, accounts, enquiries, pins, transitions, tx, jdbc, mapper, ownBankCode, min, max,
+                dailyMax, fee, outbox, fraudClient, approvalThreshold, "simulator");
+    }
+
+    @Autowired
     public WithdrawalService(OutboundPayoutRepository payouts, IdempotencyService idempotency, AccountServiceClient accounts,
                              NameEnquiryService enquiries, PinService pins, PayoutTransitions transitions, TransactionTemplate tx,
                              JdbcTemplate jdbc, ObjectMapper mapper,
@@ -94,10 +106,12 @@ public class WithdrawalService {
                              @Value("${wallet.withdrawals.max}") BigDecimal max,
                              @Value("${wallet.withdrawals.daily-max}") BigDecimal dailyMax,
                              @Value("${wallet.outbound-fee}") BigDecimal fee, OutboxWriter outbox, FraudClient fraudClient,
-                             @Value("${wallet.withdrawals.approval-threshold}") BigDecimal approvalThreshold) {
+                             @Value("${wallet.withdrawals.approval-threshold}") BigDecimal approvalThreshold,
+                             @Value("${payout.provider:simulator}") String payoutProvider) {
         this.outbox = outbox;
         this.fraudClient = fraudClient;
         this.approvalThreshold = approvalThreshold;
+        this.payoutProvider = payoutProvider;
         this.payouts = payouts;
         this.idempotency = idempotency;
         this.accounts = accounts;
@@ -397,6 +411,7 @@ public class WithdrawalService {
             }
             if (approve) {
                 transitions.move(current, PayoutState.APPROVED, reason);
+                prepareExternalDispatch(current);
             } else {
                 transitions.move(current, PayoutState.PENDING_APPROVAL, reason);
                 outbox.append("wallet.payout.approval-required", key, key, event("wallet.payout.approval-required", Map.of(
@@ -413,9 +428,65 @@ public class WithdrawalService {
         if (withdrawal(id).getUserId().equals(approver.userId())) {
             throw new RequestRefusedException(HttpStatus.FORBIDDEN, "The requester cannot approve their own withdrawal");
         }
-        tx.executeWithoutResult(status -> transitions.move(awaitingApproval(id), PayoutState.APPROVED,
-                "approved by " + approver.userId()));
+        tx.executeWithoutResult(status -> {
+            OutboundPayout payout = awaitingApproval(id);
+            transitions.move(payout, PayoutState.APPROVED, "approved by " + approver.userId());
+            prepareExternalDispatch(payout);
+        });
         return respond(withdrawal(id));
+    }
+
+    private void prepareExternalDispatch(OutboundPayout payout) {
+        if ("flutterwave".equalsIgnoreCase(payoutProvider)) {
+            payout.setActiveProvider("flutterwave");
+            transitions.move(payout, PayoutState.PENDING_PROVIDER, "queued for asynchronous provider dispatch");
+        }
+    }
+
+    public void rerouteForOperations(Caller operator, long id, String provider) {
+        requirePermission(operator, org.elibanking.common.security.AdminRbac.PAYOUTS_APPROVE);
+        if (!"flutterwave".equalsIgnoreCase(payoutProvider)) {
+            throw new RequestRefusedException(HttpStatus.SERVICE_UNAVAILABLE, "Multi-rail payout routing is not enabled");
+        }
+        if (!"flutterwave".equalsIgnoreCase(provider) && !"monnify".equalsIgnoreCase(provider)) {
+            throw new RequestRefusedException(HttpStatus.BAD_REQUEST, "provider must be flutterwave or monnify");
+        }
+        tx.executeWithoutResult(status -> {
+            OutboundPayout payout = payouts.findById(id).orElseThrow(() -> new RequestRefusedException(HttpStatus.NOT_FOUND, "Payout not found"));
+            if (payout.getState() != PayoutState.REQUIRES_MANUAL_REVIEW) {
+                throw new RequestRefusedException(HttpStatus.CONFLICT, "Only payouts in manual review can be rerouted");
+            }
+            payout.setActiveProvider(provider.toLowerCase(java.util.Locale.ROOT));
+            payout.setRetryCount(0);
+            payout.setNextRetryAt(null);
+            payout.setFailureReason(null);
+            transitions.move(payout, PayoutState.PENDING_PROVIDER, "rerouted by " + operator.userId());
+            jdbc.update("INSERT INTO audit_log (actor, action, entity_type, entity_id, details) VALUES (?, 'PAYOUT_REROUTED', 'outbound_payout', ?, JSON_OBJECT('provider', ?))",
+                    operator.userId(), String.valueOf(id), provider.toLowerCase(java.util.Locale.ROOT));
+        });
+    }
+
+    public void cancelForOperations(Caller operator, long id, String reason) {
+        requirePermission(operator, org.elibanking.common.security.AdminRbac.PAYOUTS_APPROVE);
+        if (reason == null || reason.isBlank() || reason.length() > 500) {
+            throw new RequestRefusedException(HttpStatus.BAD_REQUEST, "A cancellation reason of at most 500 characters is required");
+        }
+        tx.executeWithoutResult(status -> {
+            OutboundPayout payout = payouts.findById(id).orElseThrow(() -> new RequestRefusedException(HttpStatus.NOT_FOUND, "Payout not found"));
+            if (payout.getState() != PayoutState.REQUIRES_MANUAL_REVIEW) {
+                throw new RequestRefusedException(HttpStatus.CONFLICT, "Only payouts in manual review can be cancelled");
+            }
+            release(payout);
+            transitions.move(payout, PayoutState.FAILED, "cancelled by " + operator.userId() + ": " + reason);
+            jdbc.update("INSERT INTO audit_log (actor, action, entity_type, entity_id, details) VALUES (?, 'PAYOUT_CANCELLED_AND_REFUNDED', 'outbound_payout', ?, JSON_OBJECT('reason', ?))",
+                    operator.userId(), String.valueOf(id), reason);
+        });
+    }
+
+    private static void requirePermission(Caller caller, String permission) {
+        if (caller == null || !caller.hasPermission(permission)) {
+            throw new RequestRefusedException(HttpStatus.FORBIDDEN, "Payout operations permission is required");
+        }
     }
 
     /** An admin rejects a payout that is waiting. Its money is released to the user. */

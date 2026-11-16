@@ -14,7 +14,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -35,10 +37,12 @@ public class InternalPayoutController {
 
     private final PayoutProvider provider;
     private final ObjectProvider<MerchantDirectory> merchants;
+    private final JdbcTemplate jdbc;
 
-    public InternalPayoutController(PayoutProvider provider, ObjectProvider<MerchantDirectory> merchants) {
+    public InternalPayoutController(PayoutProvider provider, ObjectProvider<MerchantDirectory> merchants, JdbcTemplate jdbc) {
         this.provider = provider;
         this.merchants = merchants;
+        this.jdbc = jdbc;
     }
 
     @GetMapping("/banks")
@@ -72,7 +76,7 @@ public class InternalPayoutController {
     }
 
     /** The provider's answer to a send: its reference, and ACCEPTED, PENDING or FAILED. */
-    public record SendResponse(String providerRef, String status) {
+    public record SendResponse(String providerRef, String status, String providerName) {
     }
 
     /** The provider's status and transfer facts; wallet checks these against its payout before moving ledger money. */
@@ -83,15 +87,29 @@ public class InternalPayoutController {
     public SendResponse send(@Valid @RequestBody SendRequest request) {
         PayoutProvider.SendResult result = provider.send(request.key(), new BigDecimal(request.amount()), request.bankCode(),
                 request.accountNumber(), request.accountName(), request.narration());
-        return new SendResponse(result.providerRef(), result.status().name());
+        return new SendResponse(result.providerRef(), result.status().name(), result.providerName());
     }
 
     @GetMapping("/payouts/{key}")
-    public StatusResponse status(@PathVariable String key) {
+    public StatusResponse status(@PathVariable String key, @RequestParam(required = false) String providerName) {
         if (!key.matches("out-\\d+")) {
             throw new IllegalArgumentException("key must be out-{id}");
         }
-        PayoutProvider.StatusResult result = provider.getStatusDetails(key);
+        String selected = providerName;
+        String dispatchState = null;
+        String requestPayload = null;
+        List<java.util.Map<String, Object>> dispatch = jdbc.queryForList(
+                "SELECT active_provider,state,request_payload FROM payout_dispatch WHERE payout_key=?", key);
+        if (!dispatch.isEmpty()) {
+            if (selected == null || selected.isBlank()) selected = (String) dispatch.getFirst().get("active_provider");
+            dispatchState = (String) dispatch.getFirst().get("state");
+            requestPayload = dispatch.getFirst().get("request_payload").toString();
+        }
+        PayoutProvider.StatusResult result = provider.checkStatus(key, selected);
+        if (result.status() == PayoutProvider.PayoutStatus.NOT_FOUND && "FAILED".equals(dispatchState)) {
+            tools.jackson.databind.JsonNode request = new tools.jackson.databind.ObjectMapper().readTree(requestPayload);
+            return new StatusResponse("FAILED", key, request.path("amount").asText(null), request.path("currency").asText(null));
+        }
         return new StatusResponse(result.status().name(), result.reference(),
                 result.amount() == null ? null : result.amount().toPlainString(), result.currency());
     }

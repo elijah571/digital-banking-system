@@ -42,7 +42,7 @@ public class PayoutProcessor {
     private final WithdrawalService withdrawals;
     private final TransactionTemplate tx;
     private final Duration recoveryAfter;
-    private final String clearingAccount;
+    private final String defaultProvider;
 
     public PayoutProcessor(OutboundPayoutRepository payouts, PaymentServiceClient payments, AccountServiceClient accounts,
                            PayoutTransitions transitions, WithdrawalService withdrawals, TransactionTemplate tx,
@@ -55,7 +55,7 @@ public class PayoutProcessor {
         this.transitions = transitions;
         this.withdrawals = withdrawals;
         this.tx = tx;
-        this.clearingAccount = "PROVIDER_CLEARING:" + provider.toUpperCase(java.util.Locale.ROOT) + ":NGN";
+        this.defaultProvider = provider;
     }
 
     /** Advances the payouts that are waiting to be sent, or for the provider's answer. One that fails is left for the next run. */
@@ -81,6 +81,7 @@ public class PayoutProcessor {
             case APPROVED -> send(id);
             case REQUESTED -> recoverIfStale(payout);
             case PROCESSING -> followTheProvider(current(id));
+            case PENDING_PROVIDER, AMBIGUOUS -> followTheProvider(current(id));
             default -> {
             }
         }
@@ -96,7 +97,7 @@ public class PayoutProcessor {
             return false;
         }
         List<LedgerLine> lines = new ArrayList<>();
-        lines.add(new LedgerLine(null, clearingAccount, "DEBIT", payout.getAmount().toPlainString(), WithdrawalService.CURRENCY));
+        lines.add(new LedgerLine(null, clearingAccount(payout), "DEBIT", payout.getAmount().toPlainString(), WithdrawalService.CURRENCY));
         if (payout.getFee().signum() > 0) {
             lines.add(new LedgerLine(null, WithdrawalService.FEE_REVENUE, "DEBIT", payout.getFee().toPlainString(),
                     WithdrawalService.CURRENCY));
@@ -106,6 +107,13 @@ public class PayoutProcessor {
         accounts.postEntry("OUTBOUND_REVERSAL", payout.ledgerKey() + "-reversal", String.valueOf(id), "payout-" + id, lines);
         tx.executeWithoutResult(status -> transitions.move(current(id), PayoutState.REVERSED, "the bank reversed the transfer"));
         return true;
+    }
+
+    public void applyProviderTransition(long id, PayoutState target, String reason) {
+        tx.executeWithoutResult(status -> {
+            OutboundPayout payout = current(id);
+            if (payout.getState() != target) transitions.move(payout, target, reason);
+        });
     }
 
     /**
@@ -120,7 +128,11 @@ public class PayoutProcessor {
 
     /** APPROVED to PROCESSING, then the send. The move comes first, so a send that is lost is found as PROCESSING. */
     private void send(long id) {
-        tx.executeWithoutResult(status -> transitions.move(current(id), PayoutState.PROCESSING, "sent to the provider"));
+        tx.executeWithoutResult(status -> {
+            OutboundPayout payout = current(id);
+            if (payout.getActiveProvider() == null) payout.setActiveProvider(defaultProvider);
+            transitions.move(payout, PayoutState.PROCESSING, "sent to the provider");
+        });
         sendToProvider(current(id));
     }
 
@@ -132,7 +144,11 @@ public class PayoutProcessor {
             return;
         }
         long id = payout.getId();
-        tx.executeWithoutResult(status -> current(id).setProviderReference(sent.providerRef()));
+        tx.executeWithoutResult(status -> {
+            OutboundPayout current = current(id);
+            current.setProviderReference(sent.providerRef());
+            if (sent.providerName() != null && !sent.providerName().isBlank()) current.setActiveProvider(sent.providerName());
+        });
     }
 
     private void followTheProvider(OutboundPayout payout) {
@@ -141,7 +157,10 @@ public class PayoutProcessor {
             case SUCCESS -> settle(payout);
             case FAILED -> endWithRelease(id, PayoutState.FAILED, "the provider failed the transfer");
             case REVERSED -> endWithRelease(id, PayoutState.REVERSED, "the provider reversed the transfer before it settled");
-            case NOT_FOUND -> sendToProvider(payout);
+            case NOT_FOUND -> {
+                if (!"flutterwave".equalsIgnoreCase(defaultProvider)) sendToProvider(payout);
+                // In external-rail mode payment-service owns safe retries and ambiguity reconciliation.
+            }
             default -> {
                 // PENDING: the provider is still working on it. The next run asks again.
             }
@@ -151,7 +170,9 @@ public class PayoutProcessor {
     /** A provider answer must match our payout before it can settle or release held funds. */
     private ProviderStatus statusFor(OutboundPayout payout) {
         org.elibanking.walletservice.client.PaymentServiceClient.PayoutStatus result =
-                payments.payoutStatusDetails(payout.ledgerKey());
+                payout.getActiveProvider() == null || payout.getActiveProvider().isBlank()
+                        ? payments.payoutStatusDetails(payout.ledgerKey())
+                        : payments.payoutStatusDetails(payout.ledgerKey(), payout.getActiveProvider());
         // Existing service-level mocks return null for unstubbed methods; the real client returns a complete record or throws.
         if (result == null) {
             return ProviderStatus.valueOf(payments.payoutStatus(payout.ledgerKey()));
@@ -185,7 +206,7 @@ public class PayoutProcessor {
         List<LedgerLine> lines = List.of(
                 new LedgerLine(null, WithdrawalService.PAYOUT_PAYABLE, "DEBIT", payout.getAmount().toPlainString(),
                         WithdrawalService.CURRENCY),
-                new LedgerLine(null, clearingAccount, "CREDIT", payout.getAmount().toPlainString(),
+                new LedgerLine(null, clearingAccount(payout), "CREDIT", payout.getAmount().toPlainString(),
                         WithdrawalService.CURRENCY));
         accounts.postEntry("OUTBOUND_SETTLE", payout.ledgerKey() + "-settle", String.valueOf(id), "payout-" + id, lines);
         tx.executeWithoutResult(status -> transitions.move(current(id), PayoutState.COMPLETED, "the provider confirmed success"));
@@ -199,5 +220,11 @@ public class PayoutProcessor {
 
     private OutboundPayout current(long id) {
         return payouts.findById(id).orElseThrow(() -> new IllegalStateException("payout " + id + " does not exist"));
+    }
+
+    private static String clearingAccount(OutboundPayout payout) {
+        String provider = payout.getActiveProvider() == null || payout.getActiveProvider().isBlank()
+                ? "SIMULATOR" : payout.getActiveProvider().toUpperCase(java.util.Locale.ROOT);
+        return "PROVIDER_CLEARING:" + provider + ":NGN";
     }
 }

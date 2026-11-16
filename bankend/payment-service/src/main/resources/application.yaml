@@ -84,6 +84,12 @@ payout:
     webhook-secret: ${FLUTTERWAVE_WEBHOOK_SECRET:}
     encryption-key: ${FLUTTERWAVE_ENCRYPTION_KEY:}
     base-url: ${FLUTTERWAVE_BASE_URL:https://api.flutterwave.com/v3}
+  monnify:
+    base-url: ${MONNIFY_BASE_URL:https://sandbox.monnify.com}
+    api-key: ${MONNIFY_API_KEY:}
+    secret-key: ${MONNIFY_SECRET_KEY:}
+    source-account-number: ${MONNIFY_SOURCE_ACCOUNT_NUMBER:}
+    webhook-secret: ${MONNIFY_WEBHOOK_SECRET:${MONNIFY_SECRET_KEY:}}
 
 # Verifies the user tokens that auth-service issues (wallet-plan 3.7, D8). The gateway and auth-service share this secret.
 auth:

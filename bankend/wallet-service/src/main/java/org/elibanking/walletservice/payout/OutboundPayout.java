@@ -64,14 +64,23 @@ public class OutboundPayout {
     private String narration;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "state", nullable = false, length = 20)
+    @Column(name = "state", nullable = false, length = 40)
     private PayoutState state;
 
-    @Column(name = "failure_reason", length = 255)
+    @Column(name = "failure_reason", length = 500)
     private String failureReason;
 
     @Column(name = "provider_reference", length = 100)
     private String providerReference;
+
+    @Column(name = "active_provider", length = 50)
+    private String activeProvider;
+
+    @Column(name = "retry_count", nullable = false)
+    private int retryCount;
+
+    @Column(name = "next_retry_at")
+    private Instant nextRetryAt;
 
     @Version
     @Column(name = "version", nullable = false)

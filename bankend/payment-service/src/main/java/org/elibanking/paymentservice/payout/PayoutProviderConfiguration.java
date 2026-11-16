@@ -8,6 +8,8 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.web.client.RestClient;
 
+import java.util.Optional;
+
 /**
  * Selects the payout provider from {@code PAYOUT_PROVIDER} (wallet-plan 9.3). The code default is {@code simulator}, so tests and CI
  * never need provider credentials and never touch the network; the demo prefers {@code flutterwave}. Selection is deterministic: an
@@ -24,6 +26,7 @@ public class PayoutProviderConfiguration {
             @Value("${payout.flutterwave.secret-key:}") String flutterwaveSecret,
             @Value("${payout.flutterwave.webhook-secret:}") String flutterwaveWebhookSecret,
             @Value("${payout.flutterwave.base-url:https://api.flutterwave.com/v3}") String flutterwaveBaseUrl,
+            Optional<MonnifyPayoutProvider> monnify,
             Environment environment) {
         if ("simulator".equalsIgnoreCase(provider)) {
             return new SimulatedPayoutProvider(SimulatedPayoutProvider.DefaultOutcome.parse(defaultOutcome), delayMs);
@@ -47,7 +50,8 @@ public class PayoutProviderConfiguration {
             throw new IllegalStateException("dev and test profiles require a Flutterwave test secret key (FLWSECK_TEST-...)");
         }
         RestClient client = flutterwaveClient(RestClient.builder(), flutterwaveSecret, flutterwaveBaseUrl);
-        return new FlutterwavePayoutProvider(client);
+        return new ResilientPayoutRouter(new FlutterwavePayoutProvider(client), monnify.orElseThrow(() ->
+                new IllegalStateException("Monnify credentials must be configured when Flutterwave payout routing is enabled")));
     }
 
     @Bean
@@ -56,6 +60,27 @@ public class PayoutProviderConfiguration {
             @Value("${payout.flutterwave.secret-key:}") String flutterwaveSecret,
             @Value("${payout.flutterwave.base-url:https://api.flutterwave.com/v3}") String flutterwaveBaseUrl) {
         return new FlutterwaveMerchantDirectory(flutterwaveClient(RestClient.builder(), flutterwaveSecret, flutterwaveBaseUrl));
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "payout.provider", havingValue = "flutterwave")
+    MonnifyTokenManager monnifyTokenManager(
+            @Value("${payout.monnify.base-url:https://sandbox.monnify.com}") String baseUrl,
+            @Value("${payout.monnify.api-key:}") String apiKey,
+            @Value("${payout.monnify.secret-key:}") String secretKey) {
+        RestClient client = RestClient.builder().baseUrl(baseUrl).defaultHeader("Accept", "application/json").build();
+        return new MonnifyTokenManager(client, apiKey, secretKey);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "payout.provider", havingValue = "flutterwave")
+    MonnifyPayoutProvider monnifyPayoutProvider(
+            @Value("${payout.monnify.base-url:https://sandbox.monnify.com}") String baseUrl,
+            @Value("${payout.monnify.source-account-number:}") String sourceAccountNumber,
+            MonnifyTokenManager tokens) {
+        RestClient client = RestClient.builder().baseUrl(baseUrl).defaultHeader("Accept", "application/json")
+                .defaultHeader("User-Agent", "EliBanking-Payment-Service/1.0").build();
+        return new MonnifyPayoutProvider(client, tokens, sourceAccountNumber);
     }
 
     static RestClient flutterwaveClient(RestClient.Builder builder, String flutterwaveSecret, String flutterwaveBaseUrl) {

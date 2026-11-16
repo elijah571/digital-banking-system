@@ -12,6 +12,8 @@ import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * The one place a payout changes state (wallet-plan 8.3). Every move is checked against the table, and in the same transaction it
@@ -26,10 +28,18 @@ public class PayoutTransitions {
 
     private final OutboxWriter outbox;
     private final JdbcTemplate jdbc;
+    private final String payoutProvider;
 
     public PayoutTransitions(OutboxWriter outbox, JdbcTemplate jdbc) {
+        this(outbox, jdbc, "simulator");
+    }
+
+    @Autowired
+    public PayoutTransitions(OutboxWriter outbox, JdbcTemplate jdbc,
+                             @Value("${payout.provider:simulator}") String payoutProvider) {
         this.outbox = outbox;
         this.jdbc = jdbc;
+        this.payoutProvider = payoutProvider;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -51,6 +61,30 @@ public class PayoutTransitions {
         }
         audit(payout, from, to, reason);
         appendEvent(payout, from, to, reason);
+        if (to == PayoutState.PENDING_PROVIDER) {
+            appendDispatchRequest(payout);
+        }
+    }
+
+    /** The provider request is durable in the same transaction as the ledger hold and payout state. */
+    private void appendDispatchRequest(OutboundPayout payout) {
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("eventId", UUID.randomUUID().toString());
+        envelope.put("type", "payout.requested");
+        envelope.put("version", 1);
+        envelope.put("occurredAt", Instant.now().toString());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("payoutKey", payout.ledgerKey());
+        body.put("amount", payout.getAmount().toPlainString());
+        body.put("currency", payout.getCurrency());
+        body.put("bankCode", payout.getBankCode());
+        body.put("destinationAccountNumber", payout.getDestinationAccountNumber());
+        body.put("destinationAccountName", payout.getDestinationAccountName());
+        body.put("narration", payout.getNarration());
+        body.put("idempotencyKey", payout.ledgerKey());
+        body.put("provider", payout.getActiveProvider() == null ? payoutProvider : payout.getActiveProvider());
+        envelope.put("payload", body);
+        outbox.append("payout.requested", payout.ledgerKey(), payout.ledgerKey(), envelope);
     }
 
     private void appendEvent(OutboundPayout payout, PayoutState from, PayoutState to, String reason) {

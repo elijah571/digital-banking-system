@@ -31,12 +31,23 @@ public interface PayoutProvider {
         FAILED
     }
 
-    record SendResult(String providerRef, SendStatus status) {
+    record SendResult(String providerRef, SendStatus status, String providerName) {
+        public SendResult(String providerRef, SendStatus status) {
+            this(providerRef, status, null);
+        }
+    }
+
+    /** Provider-neutral bank payout command. */
+    record PayoutRequest(String key, BigDecimal amount, String bankCode, String accountNumber, String accountName,
+                         String narration) {
     }
 
     /** Status plus the provider facts wallet must match before it can settle or reverse a payout. */
     record StatusResult(PayoutStatus status, String reference, BigDecimal amount, String currency) {
     }
+
+    /** Stable configured rail name used in routing and the wallet payout audit trail. */
+    String getProviderName();
 
     /**
      * The status of a send, asked of the provider. The send's own answer is not enough to settle (wallet-plan 8.3). REVERSED is the
@@ -52,14 +63,30 @@ public interface PayoutProvider {
 
     List<Bank> listBanks();
 
+    default Resolution validateAccount(String bankCode, String accountNumber) {
+        return resolveAccount(bankCode, accountNumber);
+    }
+
     Resolution resolveAccount(String bankCode, String accountNumber);
 
     /** Sends money under the key. A send with a key that was sent before returns the first answer and sends nothing new (8.7). */
     SendResult send(String key, BigDecimal amount, String bankCode, String accountNumber, String accountName, String narration);
 
+    default SendResult initiatePayout(PayoutRequest request) {
+        return send(request.key(), request.amount(), request.bankCode(), request.accountNumber(), request.accountName(), request.narration());
+    }
+
     PayoutStatus getStatus(String key);
 
     default StatusResult getStatusDetails(String key) {
         return new StatusResult(getStatus(key), key, null, null);
+    }
+
+    default StatusResult checkStatus(String key) {
+        return getStatusDetails(key);
+    }
+
+    default StatusResult checkStatus(String key, String providerName) {
+        return checkStatus(key);
     }
 }

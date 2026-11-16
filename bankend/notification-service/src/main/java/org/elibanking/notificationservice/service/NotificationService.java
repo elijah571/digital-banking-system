@@ -76,7 +76,8 @@ public class NotificationService {
 
     @KafkaListener(topics = {
             "wallet.payout.requested", "wallet.payout.pending_approval", "wallet.payout.approved",
-            "wallet.payout.processing", "wallet.payout.completed", "wallet.payout.failed",
+            "wallet.payout.processing", "wallet.payout.ambiguous", "wallet.payout.requires_manual_review",
+            "wallet.payout.completed", "wallet.payout.failed",
             "wallet.payout.rejected", "wallet.payout.cancelled", "wallet.payout.expired", "wallet.payout.reversed"
     }, groupId = "notification-service-group")
     public void consumePayoutUpdate(@Payload Map<String, Object> event) {

@@ -87,6 +87,23 @@ class PayoutTransitionsTest {
         assertEquals("0.00", usage(account), "D21: a reversed payout gives its allowance back");
     }
 
+    @Test
+    void queuesTheProviderCommandInTheSameOutboxTransaction() {
+        String account = newAccount();
+        long id = openPayout(account, "1250.00");
+        tx.executeWithoutResult(status -> {
+            OutboundPayout payout = payouts.findById(id).orElseThrow();
+            transitions.move(payout, PayoutState.APPROVED, "approved");
+            payout.setActiveProvider("monnify");
+            transitions.move(payout, PayoutState.PENDING_PROVIDER, "queued");
+        });
+        assertEquals("PENDING_PROVIDER", stateOf(id));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM outbox WHERE topic='payout.requested' AND message_key=?",
+                Integer.class, "out-" + id));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM outbox WHERE topic='wallet.payout.pending_provider' AND message_key=?",
+                Integer.class, "out-" + id));
+    }
+
     /** A payout in REQUESTED with its day's usage opened, as the withdrawal request will do (6.2). */
     private long openPayout(String account, String amount) {
         OutboundPayout p = new OutboundPayout();

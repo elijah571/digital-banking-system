@@ -48,6 +48,7 @@ public class SecurityConfig {
                         .access(CallerAllowList.only(CallerAllowList.WALLET))
                         .requestMatchers("/internal/v1/**").denyAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/admin/payouts").hasAuthority(AdminRbac.PAYOUTS_READ)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/admin/payouts/*/reroute", "/api/v1/admin/payouts/*/cancel-and-refund").hasAuthority(AdminRbac.PAYOUTS_APPROVE)
                         .requestMatchers(HttpMethod.GET, "/api/v1/admin/audit").hasAuthority(AdminRbac.AUDIT_LOGS_READ)
                         .requestMatchers(HttpMethod.POST, "/api/v1/wallet/withdrawals/*/approve", "/api/v1/wallet/withdrawals/*/reject").hasAuthority(AdminRbac.PAYOUTS_APPROVE)
                         .requestMatchers("/api/v1/admin/**").hasAuthority("ROLE_SUPER_ADMIN")

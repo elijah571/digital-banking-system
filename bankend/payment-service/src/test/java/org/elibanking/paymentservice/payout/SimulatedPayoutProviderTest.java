@@ -5,9 +5,11 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
 import org.springframework.core.env.StandardEnvironment;
+import org.springframework.web.client.RestClient;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -91,22 +93,26 @@ class SimulatedPayoutProviderTest {
         PayoutProviderConfiguration configuration = new PayoutProviderConfiguration();
         StandardEnvironment env = new StandardEnvironment();
         String base = "https://api.flutterwave.com/v3";
+        Optional<MonnifyPayoutProvider> monnify = Optional.of(new MonnifyPayoutProvider(
+                RestClient.builder().baseUrl("https://sandbox.monnify.com").build(),
+                new MonnifyTokenManager(RestClient.builder().baseUrl("https://sandbox.monnify.com").build(), "key", "secret"),
+                "0123456789"));
 
         // Flutterwave selected but no secret key: fail closed.
         assertThrows(IllegalStateException.class, () -> configuration.payoutProvider("flutterwave", "success", 0,
-                "", "whsec", base, env));
+                "", "whsec", base, monnify, env));
         // Flutterwave with a test key but no webhook secret: fail closed.
         assertThrows(IllegalStateException.class, () -> configuration.payoutProvider("flutterwave", "success", 0,
-                "FLWSECK_TEST-abc", "", base, env));
+                "FLWSECK_TEST-abc", "", base, monnify, env));
         // An unsupported provider is rejected.
         assertThrows(IllegalStateException.class, () -> configuration.payoutProvider("paystack", "success", 0,
-                "", "", base, env));
+                "", "", base, monnify, env));
         // A bad simulator default outcome is rejected.
         assertThrows(IllegalArgumentException.class, () -> configuration.payoutProvider("simulator", "unknown", 0,
-                "", "", base, env));
-        // A valid test configuration builds the Flutterwave adapter without a network call.
-        assertInstanceOf(FlutterwavePayoutProvider.class, configuration.payoutProvider("flutterwave", "success", 0,
-                "FLWSECK_TEST-abc", "whsec_test", base, env));
+                "", "", base, monnify, env));
+        // A valid test configuration builds the two-rail router without a network call.
+        assertInstanceOf(ResilientPayoutRouter.class, configuration.payoutProvider("flutterwave", "success", 0,
+                "FLWSECK_TEST-abc", "whsec_test", base, monnify, env));
     }
 
     private static PayoutProvider.SendResult send(SimulatedPayoutProvider provider, String key, String accountNumber) {

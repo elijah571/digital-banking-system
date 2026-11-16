@@ -138,6 +138,11 @@ spring:
                     redis-rate-limiter.replenishRate: 5
                     redis-rate-limiter.burstCapacity: 10
                     key-resolver: "#{@userKeyResolver}"
+            - id: payment-service-monnify-webhook
+              uri: ${PAYMENT_SERVICE_URL:http://localhost:8085}
+              predicates:
+                - Path=/api/v1/webhooks/monnify
+                - Method=POST
 
             - id: crypto-service
               uri: ${CRYPTO_SERVICE_URL:http://localhost:8088}

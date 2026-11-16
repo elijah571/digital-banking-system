@@ -82,6 +82,11 @@ public class SimulatedPayoutProvider implements PayoutProvider {
         this.delayMs = delayMs;
     }
 
+    @Override
+    public String getProviderName() {
+        return "simulator";
+    }
+
     /**
      * The outcome comes from the last digit of the account number, so tests are deterministic (8.7): 0 is a send that FAILS; 1 is PENDING
      * until its status is asked, then SUCCESS; 2 is SUCCESS, then REVERSED at the next status check. Other numbers use the configured

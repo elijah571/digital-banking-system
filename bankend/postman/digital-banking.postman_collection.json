@@ -178,6 +178,10 @@
       "key": "fraudServiceUrl",
       "value": "http://localhost:8086",
       "type": "string"
+    },
+    {
+      "key": "monnifySignature",
+      "value": ""
     }
   ],
   "item": [
@@ -5186,6 +5190,168 @@
                 "check"
               ]
             }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Monnify resilient payout operations",
+      "item": [
+        {
+          "name": "List payouts requiring manual review",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/payouts?state=REQUIRES_MANUAL_REVIEW",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "payouts"
+              ],
+              "query": [
+                {
+                  "key": "state",
+                  "value": "REQUIRES_MANUAL_REVIEW"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reroute payout to Monnify",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/payouts/{{payoutId}}/reroute?provider=monnify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "payouts",
+                "{{payoutId}}",
+                "reroute"
+              ],
+              "query": [
+                {
+                  "key": "provider",
+                  "value": "monnify"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel payout and refund hold",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/payouts/{{payoutId}}/cancel-and-refund",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "payouts",
+                "{{payoutId}}",
+                "cancel-and-refund"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\":\"Provider confirmed no transfer was made\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Monnify payout webhook (raw body; signature must be HMAC-SHA512)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "monnify-signature",
+                "value": "{{monnifySignature}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/webhooks/monnify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "monnify"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"eventType\":\"DISBURSEMENT_SUCCESSFUL\",\"eventData\":{\"transactionReference\":\"out-000000000001\",\"amount\":100.00,\"currency\":\"NGN\"}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Use a raw-body HMAC-SHA512 hex digest with the Monnify client secret in monnify-signature. Sandbox Monnify callbacks may omit this header; the handler intentionally rejects unsigned requests."
           },
           "response": []
         }

@@ -20,15 +20,20 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Asks payment-service for a card intent, with a SERVICE token whose sub is wallet-service and aud is payment-service
- * (wallet-plan 3.5, step 2). payment-service keys the intent by the deposit id, so a repeat for the same deposit gets the same
+ * Asks payment-service for a card intent, with a SERVICE token whose sub is
+ * wallet-service and aud is payment-service
+ * (wallet-plan 3.5, step 2). payment-service keys the intent by the deposit id,
+ * so a repeat for the same deposit gets the same
  * intent back. See {@link AccountServiceClient} for why this is a RestClient.
  */
 @Slf4j
 @Component
 public class PaymentServiceClient {
 
-    /** The card intent for a deposit. {@code clientSecret} lets Stripe.js confirm the payment, so {@code toString} hides it. */
+    /**
+     * The card intent for a deposit. {@code clientSecret} lets Stripe.js confirm
+     * the payment, so {@code toString} hides it.
+     */
     public record Intent(String paymentIntentId, String clientSecret) {
         @Override
         public String toString() {
@@ -42,7 +47,7 @@ public class PaymentServiceClient {
     private final RestClient client;
 
     public PaymentServiceClient(@Value("${payment-service.url}") String baseUrl,
-                                @Qualifier("paymentServiceTokens") ServiceTokens tokens) {
+            @Qualifier("paymentServiceTokens") ServiceTokens tokens) {
         this.client = RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestInterceptor((request, body, execution) -> {
@@ -53,7 +58,10 @@ public class PaymentServiceClient {
                 .build();
     }
 
-    /** Creates the intent for a deposit. Any failure refuses the request with 503; the deposit can be resumed on a retry. */
+    /**
+     * Creates the intent for a deposit. Any failure refuses the request with 503;
+     * the deposit can be resumed on a retry.
+     */
     public Intent createIntent(String depositId, String amount, String currency) {
         JsonNode body;
         try {
@@ -64,7 +72,8 @@ public class PaymentServiceClient {
                     .retrieve()
                     .body(JsonNode.class);
         } catch (RestClientException e) {
-            log.warn("payment-service did not create the intent for deposit {}: {}", depositId, e.getClass().getSimpleName());
+            log.warn("payment-service did not create the intent for deposit {}: {}", depositId,
+                    e.getClass().getSimpleName());
             throw unavailable();
         }
         if (body == null || body.path("paymentIntentId").asText().isEmpty()) {
@@ -74,8 +83,10 @@ public class PaymentServiceClient {
     }
 
     /**
-     * Asks payment-service to cancel a deposit's intent at Stripe. True when it is canceled now, or was before. False when Stripe will
-     * not cancel it, for example because it has succeeded. Any other failure is refused with 503, and the caller tries again later.
+     * Asks payment-service to cancel a deposit's intent at Stripe. True when it is
+     * canceled now, or was before. False when Stripe will
+     * not cancel it, for example because it has succeeded. Any other failure is
+     * refused with 503, and the caller tries again later.
      */
     public boolean cancelIntent(String paymentIntentId) {
         try {
@@ -92,15 +103,21 @@ public class PaymentServiceClient {
         }
     }
 
-    /** A bank the provider can send to (wallet-plan 8.4). */
+    /** A bank the provider can send to. */
     public record Bank(String name, String code) {
     }
 
-    /** Safe Flutterwave collection merchant fields; bank details remain private to payment-service. */
+    /**
+     * Safe Flutterwave collection merchant fields; bank details remain private to
+     * payment-service.
+     */
     public record Merchant(String id, String businessName) {
     }
 
-    /** What the provider found for an account number: FOUND, NOT_FOUND or UNAVAILABLE, with the holder's name when it was found. */
+    /**
+     * What the provider found for an account number: FOUND, NOT_FOUND or
+     * UNAVAILABLE, with the holder's name when it was found.
+     */
     public record Resolution(String status, String accountName) {
     }
 
@@ -142,7 +159,10 @@ public class PaymentServiceClient {
         return merchants;
     }
 
-    /** The provider's name enquiry for an account at another bank (wallet-plan 8.4). The account number is not logged. */
+    /**
+     * The provider's name enquiry for an account at another bank (wallet-plan 8.4).
+     * The account number is not logged.
+     */
     public Resolution resolveAccount(String bankCode, String accountNumber) {
         JsonNode body;
         try {
@@ -163,15 +183,23 @@ public class PaymentServiceClient {
         return new Resolution(body.get("status").asText(), name);
     }
 
-    /** The provider's answer to a send: its reference, and ACCEPTED, PENDING or FAILED (wallet-plan 8.7). */
-    public record Send(String providerRef, String status) {
+    /**
+     * The provider's answer to a send: its reference, and ACCEPTED, PENDING or
+     * FAILED (wallet-plan 8.7).
+     */
+    public record Send(String providerRef, String status, String providerName) {
+        public Send(String providerRef, String status) {
+            this(providerRef, status, null);
+        }
     }
 
     /**
-     * Sends a payout under its key, out-{id}. The provider answers a repeat of a key with its first answer, so a retry is safe. Any failure
+     * Sends a payout under its key, out-{id}. The provider answers a repeat of a
+     * key with its first answer, so a retry is safe. Any failure
      * is refused with 503, and the processor tries again with the same key.
      */
-    public Send sendPayout(String key, String amount, String bankCode, String accountNumber, String accountName, String narration) {
+    public Send sendPayout(String key, String amount, String bankCode, String accountNumber, String accountName,
+            String narration) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("key", key);
         body.put("amount", amount);
@@ -194,10 +222,14 @@ public class PaymentServiceClient {
         if (answer == null || !answer.hasNonNull("status")) {
             throw unavailable();
         }
-        return new Send(answer.path("providerRef").asText(), answer.get("status").asText());
+        return new Send(answer.path("providerRef").asText(), answer.get("status").asText(),
+                answer.path("providerName").asText(null));
     }
 
-    /** The provider's status for a send: SUCCESS, PENDING, FAILED, REVERSED or NOT_FOUND. Asked, not believed from the send (wallet-plan 8.3). */
+    /**
+     * The provider's status for a send: SUCCESS, PENDING, FAILED, REVERSED or
+     * NOT_FOUND. Asked, not believed from the send (wallet-plan 8.3).
+     */
     public String payoutStatus(String key) {
         JsonNode answer;
         try {
@@ -212,10 +244,22 @@ public class PaymentServiceClient {
         return answer.get("status").asText();
     }
 
-    /** Includes the provider facts required to validate a payout result before posting ledger entries. */
+    /**
+     * Includes the provider facts required to validate a payout result before
+     * posting ledger entries.
+     */
     public PayoutStatus payoutStatusDetails(String key) {
+        return payoutStatusDetails(key, null);
+    }
+
+    public PayoutStatus payoutStatusDetails(String key, String providerName) {
         try {
-            JsonNode body = client.get().uri("/internal/v1/payouts/{key}", key).retrieve().body(JsonNode.class);
+            JsonNode body = client.get().uri(uri -> {
+                var builder = uri.path("/internal/v1/payouts/{key}");
+                if (providerName != null && !providerName.isBlank())
+                    builder.queryParam("providerName", providerName);
+                return builder.build(key);
+            }).retrieve().body(JsonNode.class);
             if (body == null || body.path("status").asText().isBlank()) {
                 throw unavailable();
             }

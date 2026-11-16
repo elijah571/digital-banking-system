@@ -26,8 +26,15 @@ class OutboundPayoutStateMachineTest {
                 PayoutState.REQUESTED, Set.of(PayoutState.APPROVED, PayoutState.PENDING_APPROVAL, PayoutState.FAILED),
                 PayoutState.PENDING_APPROVAL, Set.of(PayoutState.APPROVED, PayoutState.REJECTED, PayoutState.CANCELLED,
                         PayoutState.EXPIRED),
-                PayoutState.APPROVED, Set.of(PayoutState.PROCESSING),
-                PayoutState.PROCESSING, Set.of(PayoutState.COMPLETED, PayoutState.FAILED, PayoutState.REVERSED),
+                PayoutState.APPROVED, Set.of(PayoutState.PROCESSING, PayoutState.PENDING_PROVIDER),
+                PayoutState.PENDING_PROVIDER, Set.of(PayoutState.PROCESSING, PayoutState.AMBIGUOUS, PayoutState.COMPLETED,
+                        PayoutState.FAILED, PayoutState.REQUIRES_MANUAL_REVIEW, PayoutState.REVERSED),
+                PayoutState.PROCESSING, Set.of(PayoutState.PENDING_PROVIDER, PayoutState.AMBIGUOUS, PayoutState.COMPLETED,
+                        PayoutState.FAILED, PayoutState.REQUIRES_MANUAL_REVIEW, PayoutState.REVERSED),
+                PayoutState.AMBIGUOUS, Set.of(PayoutState.PENDING_PROVIDER, PayoutState.PROCESSING, PayoutState.COMPLETED,
+                        PayoutState.FAILED, PayoutState.REQUIRES_MANUAL_REVIEW, PayoutState.REVERSED),
+                PayoutState.REQUIRES_MANUAL_REVIEW, Set.of(PayoutState.PENDING_PROVIDER, PayoutState.COMPLETED,
+                        PayoutState.FAILED, PayoutState.REVERSED),
                 PayoutState.COMPLETED, Set.of(PayoutState.REVERSED));
 
         for (PayoutState from : PayoutState.values()) {

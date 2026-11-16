@@ -47,6 +47,8 @@ class AdminRoutesTest {
     private static final String RECONCILIATION = "/api/v1/admin/ledger/reconciliation";
     private static final String CREDIT = "/api/v1/admin/accounts/1234567890/credit";
     private static final String STATEMENT = "/api/v1/accounts/1234567890/statement";
+    private static final String PAYOUT_REROUTE = "/api/v1/admin/payouts/42/reroute?provider=monnify";
+    private static final String MONNIFY_WEBHOOK = "/api/v1/webhooks/monnify";
 
     /** Every request the stub received, in order. */
     private static final Queue<Upstream> RECEIVED = new ConcurrentLinkedQueue<>();
@@ -67,6 +69,8 @@ class AdminRoutesTest {
     @DynamicPropertySource
     static void accountService(DynamicPropertyRegistry registry) {
         registry.add("ACCOUNT_SERVICE_URL", () -> "http://localhost:" + UPSTREAM.getAddress().getPort());
+        registry.add("WALLET_SERVICE_URL", () -> "http://localhost:" + UPSTREAM.getAddress().getPort());
+        registry.add("PAYMENT_SERVICE_URL", () -> "http://localhost:" + UPSTREAM.getAddress().getPort());
     }
 
     @BeforeEach
@@ -87,7 +91,27 @@ class AdminRoutesTest {
 
         assertEquals(403, call(HttpMethod.GET, RECONCILIATION, user).status());
         assertEquals(403, call(HttpMethod.PUT, CREDIT + "?amount=1.00&reason=x", user, "Idempotency-Key", "k-1").status());
+        assertEquals(403, call(HttpMethod.POST, PAYOUT_REROUTE, user).status());
         assertTrue(RECEIVED.isEmpty(), "nothing reaches account-service for a user");
+    }
+
+    @Test
+    void payoutRerouteIsForwardedOnlyForAnAdminWithApprovalPermission() {
+        Response response = call(HttpMethod.POST, PAYOUT_REROUTE, token("admin-1", "ADMIN"));
+        assertEquals(200, response.status());
+        Upstream seen = RECEIVED.poll();
+        assertEquals("POST", seen.method());
+        assertEquals("/api/v1/admin/payouts/42/reroute", seen.path());
+        assertEquals("provider=monnify", seen.query());
+    }
+
+    @Test
+    void theMonnifyWebhookRouteIsPublicAndForwardsToPaymentService() {
+        Response response = call(HttpMethod.POST, MONNIFY_WEBHOOK, null);
+        assertEquals(200, response.status());
+        Upstream seen = RECEIVED.poll();
+        assertEquals("POST", seen.method());
+        assertEquals(MONNIFY_WEBHOOK, seen.path());
     }
 
     @Test

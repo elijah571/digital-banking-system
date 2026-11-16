@@ -22,8 +22,15 @@ public final class OutboundPayoutStateMachine {
         LEGAL.put(PayoutState.REQUESTED, EnumSet.of(PayoutState.APPROVED, PayoutState.PENDING_APPROVAL, PayoutState.FAILED));
         LEGAL.put(PayoutState.PENDING_APPROVAL, EnumSet.of(PayoutState.APPROVED, PayoutState.REJECTED, PayoutState.CANCELLED,
                 PayoutState.EXPIRED));
-        LEGAL.put(PayoutState.APPROVED, EnumSet.of(PayoutState.PROCESSING));
-        LEGAL.put(PayoutState.PROCESSING, EnumSet.of(PayoutState.COMPLETED, PayoutState.FAILED, PayoutState.REVERSED));
+        LEGAL.put(PayoutState.APPROVED, EnumSet.of(PayoutState.PROCESSING, PayoutState.PENDING_PROVIDER));
+        LEGAL.put(PayoutState.PENDING_PROVIDER, EnumSet.of(PayoutState.PROCESSING, PayoutState.AMBIGUOUS,
+                PayoutState.COMPLETED, PayoutState.FAILED, PayoutState.REQUIRES_MANUAL_REVIEW, PayoutState.REVERSED));
+        LEGAL.put(PayoutState.PROCESSING, EnumSet.of(PayoutState.PENDING_PROVIDER, PayoutState.AMBIGUOUS,
+                PayoutState.COMPLETED, PayoutState.FAILED, PayoutState.REQUIRES_MANUAL_REVIEW, PayoutState.REVERSED));
+        LEGAL.put(PayoutState.AMBIGUOUS, EnumSet.of(PayoutState.PENDING_PROVIDER, PayoutState.PROCESSING,
+                PayoutState.COMPLETED, PayoutState.FAILED, PayoutState.REQUIRES_MANUAL_REVIEW, PayoutState.REVERSED));
+        LEGAL.put(PayoutState.REQUIRES_MANUAL_REVIEW, EnumSet.of(PayoutState.PENDING_PROVIDER, PayoutState.COMPLETED,
+                PayoutState.FAILED, PayoutState.REVERSED));
         LEGAL.put(PayoutState.COMPLETED, EnumSet.of(PayoutState.REVERSED));
         // REJECTED, CANCELLED, EXPIRED, FAILED and REVERSED end the payout: they have no moves out.
     }
