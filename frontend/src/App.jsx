@@ -237,7 +237,7 @@ function App() {
 
   useEffect(() => {
     if (!transactionRows.length) {
-      setTransactions([]);
+      setTransactions((current) => (current.length ? [] : current));
       return;
     }
     setTransactions(
@@ -260,6 +260,10 @@ function App() {
   }, [transactionRows, primaryAccountNumber]);
 
   useEffect(() => {
+    if (!payoutRows.length) {
+      setPayouts((current) => (current.length ? [] : current));
+      return;
+    }
     setPayouts(
       payoutRows.map((payout) => ({
         id: String(payout.payoutId),
