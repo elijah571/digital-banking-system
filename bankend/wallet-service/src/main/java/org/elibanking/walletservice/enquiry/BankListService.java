@@ -12,6 +12,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -24,6 +25,10 @@ import java.util.List;
 public class BankListService {
 
     static final String CACHE_KEY = "banks:provider-list";
+    private static final Comparator<Bank> BANK_NAME_ORDER = Comparator
+            .comparing(Bank::name, String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(Bank::name)
+            .thenComparing(Bank::code);
 
     private final PaymentServiceClient payments;
     private final StringRedisTemplate redis;
@@ -47,6 +52,7 @@ public class BankListService {
     public List<Bank> list() {
         List<Bank> banks = new ArrayList<>(providerBanks());
         banks.add(new Bank(ownBankName, ownBankCode));
+        banks.sort(BANK_NAME_ORDER);
         return banks;
     }
 

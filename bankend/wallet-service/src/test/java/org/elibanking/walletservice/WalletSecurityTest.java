@@ -71,4 +71,15 @@ class WalletSecurityTest {
                         .header("Authorization", "Bearer " + TestTokens.userToken("admin", "ADMIN")))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    void theFlutterwaveMerchantDirectoryIsAdminOnly() throws Exception {
+        mvc.perform(get("/api/v1/admin/merchants")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/admin/merchants")
+                        .header("Authorization", "Bearer " + TestTokens.userToken("alice", "USER")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/merchants")
+                        .header("Authorization", "Bearer " + TestTokens.userToken("admin", "ADMIN")))
+                .andExpect(status().isServiceUnavailable());
+    }
 }

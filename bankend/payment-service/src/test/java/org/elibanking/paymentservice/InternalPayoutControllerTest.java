@@ -33,6 +33,13 @@ class InternalPayoutControllerTest {
     }
 
     @Test
+    void merchantsAreUnavailableWhenTheSimulatorIsSelected() throws Exception {
+        mvc.perform(get("/internal/v1/merchants")
+                        .header("Authorization", "Bearer " + TestTokens.serviceTokenAs("wallet-service")))
+                .andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
     void aFoundAccountGivesItsName() throws Exception {
         resolve("001", "0123456785").andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("FOUND"))
@@ -60,6 +67,10 @@ class InternalPayoutControllerTest {
     @Test
     void otherServicesAreRefused() throws Exception {
         mvc.perform(get("/internal/v1/banks")
+                        .header("Authorization", "Bearer " + TestTokens.serviceTokenAs("transaction-service")))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(get("/internal/v1/merchants")
                         .header("Authorization", "Bearer " + TestTokens.serviceTokenAs("transaction-service")))
                 .andExpect(status().isForbidden());
     }

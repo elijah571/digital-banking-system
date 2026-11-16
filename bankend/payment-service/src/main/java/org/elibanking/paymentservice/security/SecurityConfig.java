@@ -47,7 +47,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/internal/v1/payments/intents",
                                 "/internal/v1/payments/intents/*/cancel")
                         .access(CallerAllowList.only(CallerAllowList.WALLET))
-                        .requestMatchers(HttpMethod.GET, "/internal/v1/banks")
+                        .requestMatchers(HttpMethod.GET, "/internal/v1/banks", "/internal/v1/merchants")
                         .access(CallerAllowList.only(CallerAllowList.WALLET))
                         .requestMatchers(HttpMethod.POST, "/internal/v1/accounts/resolve")
                         .access(CallerAllowList.only(CallerAllowList.WALLET))

@@ -96,6 +96,10 @@ public class PaymentServiceClient {
     public record Bank(String name, String code) {
     }
 
+    /** Safe Flutterwave collection merchant fields; bank details remain private to payment-service. */
+    public record Merchant(String id, String businessName) {
+    }
+
     /** What the provider found for an account number: FOUND, NOT_FOUND or UNAVAILABLE, with the holder's name when it was found. */
     public record Resolution(String status, String accountName) {
     }
@@ -117,6 +121,25 @@ public class PaymentServiceClient {
             banks.add(new Bank(bank.path("name").asText(), bank.path("code").asText()));
         }
         return banks;
+    }
+
+    /** Flutterwave subaccounts, available only when Flutterwave is selected. */
+    public List<Merchant> listMerchants() {
+        JsonNode body;
+        try {
+            body = client.get().uri("/internal/v1/merchants").retrieve().body(JsonNode.class);
+        } catch (RestClientException e) {
+            log.warn("payment-service did not list Flutterwave merchants: {}", e.getClass().getSimpleName());
+            throw unavailable();
+        }
+        if (body == null || !body.isArray()) {
+            throw unavailable();
+        }
+        List<Merchant> merchants = new ArrayList<>();
+        for (JsonNode merchant : body) {
+            merchants.add(new Merchant(merchant.path("id").asText(), merchant.path("businessName").asText()));
+        }
+        return merchants;
     }
 
     /** The provider's name enquiry for an account at another bank (wallet-plan 8.4). The account number is not logged. */

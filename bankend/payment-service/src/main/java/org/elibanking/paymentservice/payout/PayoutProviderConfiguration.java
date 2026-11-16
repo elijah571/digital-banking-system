@@ -3,6 +3,7 @@ package org.elibanking.paymentservice.payout;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.web.client.RestClient;
@@ -47,6 +48,14 @@ public class PayoutProviderConfiguration {
         }
         RestClient client = flutterwaveClient(RestClient.builder(), flutterwaveSecret, flutterwaveBaseUrl);
         return new FlutterwavePayoutProvider(client);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "payout.provider", havingValue = "flutterwave")
+    MerchantDirectory flutterwaveMerchantDirectory(
+            @Value("${payout.flutterwave.secret-key:}") String flutterwaveSecret,
+            @Value("${payout.flutterwave.base-url:https://api.flutterwave.com/v3}") String flutterwaveBaseUrl) {
+        return new FlutterwaveMerchantDirectory(flutterwaveClient(RestClient.builder(), flutterwaveSecret, flutterwaveBaseUrl));
     }
 
     static RestClient flutterwaveClient(RestClient.Builder builder, String flutterwaveSecret, String flutterwaveBaseUrl) {

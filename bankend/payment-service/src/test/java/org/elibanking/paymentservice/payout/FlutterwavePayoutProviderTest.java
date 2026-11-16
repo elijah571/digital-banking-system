@@ -44,14 +44,14 @@ class FlutterwavePayoutProviderTest {
                 .andExpect(header("Authorization", "Bearer FLWSECK_TEST-x"))
                 .andRespond(withSuccess("""
                         {"status":"success","message":"Banks fetched","data":[
-                          {"id":1,"code":"044","name":"Access Bank"},
-                          {"id":2,"code":"058","name":"GTBank"}]}""", MediaType.APPLICATION_JSON));
+                          {"id":1,"code":"058","name":"GTBank"},
+                          {"id":2,"code":"044","name":"Access Bank"}]}""", MediaType.APPLICATION_JSON));
 
         List<PayoutProvider.Bank> banks = provider.listBanks();
 
         assertEquals(2, banks.size());
-        assertEquals("044", banks.get(0).code());
         assertEquals("Access Bank", banks.get(0).name());
+        assertEquals("GTBank", banks.get(1).name());
         server.verify();
     }
 

@@ -7,6 +7,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -18,6 +19,11 @@ import java.util.Map;
  * verify by reference before any retry. Amounts are NGN naira major units (D32); status is verified by our own reference (D33).
  */
 public class FlutterwavePayoutProvider implements PayoutProvider {
+
+    private static final Comparator<Bank> BANK_NAME_ORDER = Comparator
+            .comparing(Bank::name, String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(Bank::name)
+            .thenComparing(Bank::code);
 
     private final RestClient client;
 
@@ -39,6 +45,7 @@ public class FlutterwavePayoutProvider implements PayoutProvider {
                 banks.add(new Bank(name, code));
             }
         }
+        banks.sort(BANK_NAME_ORDER);
         return List.copyOf(banks);
     }
 

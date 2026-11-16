@@ -3813,6 +3813,27 @@
               ]
             }
           }
+        },
+        {
+          "name": "List Flutterwave merchants",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/merchants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "merchants"
+              ]
+            },
+            "description": "Requires an ADMIN token. Lists Flutterwave subaccounts alphabetically by business name; available when PAYOUT_PROVIDER=flutterwave."
+          },
+          "response": []
         }
       ]
     },

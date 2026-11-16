@@ -26,11 +26,13 @@ class BankListServiceTest {
         StringRedisTemplate redis = mock(StringRedisTemplate.class);
         ValueOperations<String, String> values = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(values);
-        when(values.get(BankListService.CACHE_KEY)).thenReturn("[{\"name\":\"Provider Bank\",\"code\":\"001\"}]");
+        when(values.get(BankListService.CACHE_KEY)).thenReturn("[{\"name\":\"Zulu Bank\",\"code\":\"001\"},"
+                + "{\"name\":\"alpha Bank\",\"code\":\"002\"}]");
         BankListService service = new BankListService(payments, redis, new ObjectMapper(), "Our Bank", "999",
                 Duration.ofHours(24));
 
-        assertEquals(List.of(new Bank("Provider Bank", "001"), new Bank("Our Bank", "999")), service.list());
+        assertEquals(List.of(new Bank("alpha Bank", "002"), new Bank("Our Bank", "999"),
+                new Bank("Zulu Bank", "001")), service.list());
         verify(payments, never()).listBanks();
     }
 
@@ -42,11 +44,12 @@ class BankListServiceTest {
         ValueOperations<String, String> values = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(values);
         when(values.get(BankListService.CACHE_KEY)).thenThrow(new DataAccessResourceFailureException("test outage"));
-        when(payments.listBanks()).thenReturn(List.of(new Bank("Provider Bank", "001")));
+        when(payments.listBanks()).thenReturn(List.of(new Bank("Zulu Bank", "001"), new Bank("alpha Bank", "002")));
         BankListService service = new BankListService(payments, redis, new ObjectMapper(), "Our Bank", "999",
                 Duration.ofHours(24));
 
-        assertEquals(List.of(new Bank("Provider Bank", "001"), new Bank("Our Bank", "999")), service.list());
+        assertEquals(List.of(new Bank("alpha Bank", "002"), new Bank("Our Bank", "999"),
+                new Bank("Zulu Bank", "001")), service.list());
         verify(payments).listBanks();
     }
 }

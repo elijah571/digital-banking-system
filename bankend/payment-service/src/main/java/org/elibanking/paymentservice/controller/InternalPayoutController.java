@@ -5,6 +5,10 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.elibanking.paymentservice.payout.PayoutProvider;
+import org.elibanking.paymentservice.payout.MerchantDirectory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,14 +34,26 @@ public class InternalPayoutController {
     }
 
     private final PayoutProvider provider;
+    private final ObjectProvider<MerchantDirectory> merchants;
 
-    public InternalPayoutController(PayoutProvider provider) {
+    public InternalPayoutController(PayoutProvider provider, ObjectProvider<MerchantDirectory> merchants) {
         this.provider = provider;
+        this.merchants = merchants;
     }
 
     @GetMapping("/banks")
     public List<PayoutProvider.Bank> banks() {
         return provider.listBanks();
+    }
+
+    @GetMapping("/merchants")
+    public List<MerchantDirectory.Merchant> merchants() {
+        MerchantDirectory directory = merchants.getIfAvailable();
+        if (directory == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Flutterwave merchant directory requires PAYOUT_PROVIDER=flutterwave");
+        }
+        return directory.list();
     }
 
     @PostMapping("/accounts/resolve")
