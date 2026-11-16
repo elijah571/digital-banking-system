@@ -52,7 +52,7 @@ class AuthServiceApplicationTests {
 		statistics.setStatisticsEnabled(true);
 		statistics.clear();
 		entityManager.clear();
-		assertEquals(25, users.listUsers().stream().filter(u -> u.email().contains(emailDomain)).count());
+		assertEquals(25, users.listUsers(false).stream().filter(u -> u.email().contains(emailDomain)).count());
 		assertEquals(1, statistics.getPrepareStatementCount(), "user list should use one query");
 
 		statistics.clear();
