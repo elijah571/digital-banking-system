@@ -60,7 +60,7 @@ public class SecurityConfig {
                         .pathMatchers(PUBLIC_AUTH).permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/v1/payments/webhook").permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/v1/webhooks/monnify").permitAll()
-                        .pathMatchers(HttpMethod.POST, "/api/v1/crypto/webhooks/fireblocks").permitAll()
+                        .pathMatchers(HttpMethod.POST, "/api/v1/crypto/webhooks/privy").permitAll()
                         .pathMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .pathMatchers(PUBLIC_DOCS).permitAll()
                         .pathMatchers(HttpMethod.GET, "/api/v1/users", "/api/v1/users/**").hasAnyAuthority(AdminRbac.CUSTOMERS_READ, AdminRbac.ADMIN_USERS_READ)

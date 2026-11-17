@@ -1,0 +1,11 @@
+ALTER TABLE customer_vault
+  ADD COLUMN provider VARCHAR(24) NOT NULL DEFAULT 'FIREBLOCKS' AFTER user_id;
+
+ALTER TABLE crypto_deposit_address
+  ADD COLUMN provider VARCHAR(24) NOT NULL DEFAULT 'FIREBLOCKS' AFTER user_id;
+
+ALTER TABLE crypto_transaction
+  ADD COLUMN provider VARCHAR(24) NOT NULL DEFAULT 'FIREBLOCKS' AFTER direction;
+
+ALTER TABLE crypto_provider_event
+  ADD COLUMN provider VARCHAR(24) NOT NULL DEFAULT 'FIREBLOCKS' AFTER event_id;

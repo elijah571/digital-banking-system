@@ -51,8 +51,10 @@ public class CryptoController {
     @GetMapping("/transactions") public List<CryptoWorkflowService.TransactionView> transactions(@AuthenticationPrincipal Jwt jwt){return workflow.transactions(userId(jwt));}
     @GetMapping("/transactions/{id}") public CryptoWorkflowService.TransactionView transaction(@PathVariable String id,@AuthenticationPrincipal Jwt jwt){return workflow.getTransaction(userId(jwt),id);}
 
-    @PostMapping("/webhooks/fireblocks") public ResponseEntity<WebhookAck> webhook(@RequestBody byte[] rawBody,
-            @RequestHeader(value="Fireblocks-Webhook-Signature",required=false) String signature){workflow.acceptWebhook(rawBody,signature);return ResponseEntity.ok(new WebhookAck(true));}
+    @PostMapping("/webhooks/privy") public ResponseEntity<WebhookAck> webhook(@RequestBody byte[] rawBody,
+            @RequestHeader(value="svix-id",required=false) String eventId,
+            @RequestHeader(value="svix-timestamp",required=false) String timestamp,
+            @RequestHeader(value="svix-signature",required=false) String signature){workflow.acceptPrivyWebhook(rawBody,eventId,timestamp,signature);return ResponseEntity.ok(new WebhookAck(true));}
     @GetMapping("/admin/reviews") public List<CryptoWorkflowService.TransactionView> reviews(){return workflow.adminReviews();}
     @PostMapping("/admin/transactions/{id}/approve") public CryptoWorkflowService.TransactionView approve(@PathVariable String id,@AuthenticationPrincipal Jwt jwt){return workflow.decide(id,jwt.getSubject(),true,null);}
     @PostMapping("/admin/transactions/{id}/reject") public CryptoWorkflowService.TransactionView reject(@PathVariable String id,@Valid @RequestBody AdminDecision body,@AuthenticationPrincipal Jwt jwt){return workflow.decide(id,jwt.getSubject(),false,body.reason());}

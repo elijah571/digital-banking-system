@@ -29,7 +29,7 @@ public class CryptoSecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/crypto/webhooks/fireblocks").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/crypto/webhooks/privy").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/crypto/admin/assets").hasAuthority(AdminRbac.CRYPTO_WALLETS_READ)
                         .requestMatchers(HttpMethod.GET, "/api/v1/crypto/admin/reviews").hasAuthority(AdminRbac.CRYPTO_TRANSACTIONS_READ)
                         .requestMatchers(HttpMethod.POST, "/api/v1/crypto/admin/transactions/*/approve", "/api/v1/crypto/admin/transactions/*/reject").hasAuthority(AdminRbac.CRYPTO_OPERATIONS_APPROVE)

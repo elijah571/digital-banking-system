@@ -32,14 +32,23 @@ wallet-service:
   url: ${WALLET_SERVICE_URL:http://localhost:8087}
 fraud-service:
   url: ${FRAUD_SERVICE_URL:http://localhost:8084}
+privy:
+  enabled: ${PRIVY_ENABLED:false}
+  base-url: ${PRIVY_BASE_URL:https://api.privy.io/v1}
+  app-id: ${PRIVY_APP_ID:${PRIVY_APP:}}
+  app-secret: ${PRIVY_APP_SECRET:${PRIVY_SECRET:}}
+  authorization-key-id: ${PRIVY_AUTHORIZATION_KEY_QUORUM_ID:${PRIVY_AUTHORIZATION_KEY_ID:}}
+  authorization-private-key: ${PRIVY_AUTHORIZATION_PRIVATE_KEY:}
+  webhook-signing-secret: ${PRIVY_WEBHOOK_SIGNING_SECRET:}
+  evm-chain-ids: ${PRIVY_EVM_CHAIN_IDS:ETHEREUM=1,ETH=1,ERC20=1}
+# Temporary disabled compatibility settings for the existing workflow while the Privy
+# adapter is being implemented. No Fireblocks credentials are read or passed by Compose.
 fireblocks:
-  enabled: ${FIREBLOCKS_ENABLED:false}
-  base-url: ${FIREBLOCKS_BASE_URL:https://sandbox-api.fireblocks.io}
-  api-key: ${FIREBLOCKS_API_KEY:}
-  private-key: ${FIREBLOCKS_PRIVATE_KEY:}
-  webhook-jwks-url: ${FIREBLOCKS_WEBHOOK_JWKS_URL:https://sandbox-keys.fireblocks.io/.well-known/jwks.json}
-  webhook-workspace-id: ${FIREBLOCKS_WEBHOOK_WORKSPACE_ID:}
-  master-vault-account-id: ${FIREBLOCKS_MASTER_VAULT_ACCOUNT_ID:}
+  enabled: false
+  base-url: https://sandbox-api.fireblocks.io
+  api-key: ""
+  private-key: ""
+  webhook-jwks-url: https://sandbox-keys.fireblocks.io/.well-known/jwks.json
 crypto:
   deposit-confirmations: ${CRYPTO_DEFAULT_CONFIRMATIONS:12}
   reconcile-cron: ${CRYPTO_RECONCILE_CRON:0 */5 * * * *}
