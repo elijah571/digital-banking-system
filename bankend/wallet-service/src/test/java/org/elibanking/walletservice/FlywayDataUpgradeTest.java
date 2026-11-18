@@ -36,7 +36,7 @@ class FlywayDataUpgradeTest {
             }
 
             Flyway latest = migrate(url, null);
-            assertEquals("7", latest.info().current().getVersion().getVersion());
+            assertEquals("8", latest.info().current().getVersion().getVersion());
             try (Connection connection = DriverManager.getConnection(url, "root", mysql.getPassword());
                  var statement = connection.createStatement();
                  var result = statement.executeQuery("SELECT pin_hash, pepper_version, failed_count FROM pin_credential WHERE user_id='upgrade-user'")) {

@@ -38,7 +38,7 @@ class FlywayDataUpgradeTest {
             }
 
             Flyway latest = migrate(url, null);
-            assertEquals("3", latest.info().current().getVersion().getVersion());
+            assertEquals("4", latest.info().current().getVersion().getVersion());
             try (Connection connection = DriverManager.getConnection(url, "root", mysql.getPassword());
                  var statement = connection.createStatement();
                  var result = statement.executeQuery("SELECT amount, currency, status FROM payments WHERE id='upgrade-payment'")) {
