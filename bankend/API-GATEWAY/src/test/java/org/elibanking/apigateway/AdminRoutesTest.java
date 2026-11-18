@@ -18,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.client.RestClient;
+import org.elibanking.common.security.AdminRbac;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -26,6 +27,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -180,6 +182,16 @@ class AdminRoutesTest {
     }
 
     @Test
+    void anAuditorCanReadAtTheGatewayButCannotUseAWriteRoute() {
+        String auditor = auditorToken("auditor-1");
+        assertEquals(200, call(HttpMethod.GET, STATEMENT, auditor).status());
+        assertEquals("auditor-1", RECEIVED.poll().userId());
+
+        assertEquals(403, call(HttpMethod.POST, "/api/v1/transactions", auditor).status());
+        assertTrue(RECEIVED.isEmpty(), "the gateway blocks the write before it reaches a service");
+    }
+
+    @Test
     void theStatementIsRoutedForAnyLoggedInUserAndNeedsAToken() {
         assertEquals(200, call(HttpMethod.GET, STATEMENT, token("user-1", "USER")).status(),
                 "the gateway lets any logged-in user through; account-service checks ownership");
@@ -226,6 +238,23 @@ class AdminRoutesTest {
             return jwt.serialize();
         } catch (Exception e) {
             throw new IllegalStateException("could not sign a test token", e);
+        }
+    }
+
+    private static String auditorToken(String subject) {
+        try {
+            Instant now = Instant.now();
+            JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                    .issuer("elibanking-auth").subject(subject)
+                    .issueTime(Date.from(now)).expirationTime(Date.from(now.plusSeconds(600)))
+                    .claim("role", "ADMIN").claim("roles", List.of("ROLE_AUDITOR"))
+                    .claim("authorities", AdminRbac.permissionsFor("ROLE_AUDITOR").stream().sorted().toList())
+                    .claim("email", subject + "@example.test").build();
+            SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
+            jwt.sign(new MACSigner(SECRET.getBytes(StandardCharsets.UTF_8)));
+            return jwt.serialize();
+        } catch (Exception e) {
+            throw new IllegalStateException("could not sign an auditor token", e);
         }
     }
 

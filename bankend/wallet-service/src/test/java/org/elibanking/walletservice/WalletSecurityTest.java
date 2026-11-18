@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -81,5 +82,14 @@ class WalletSecurityTest {
         mvc.perform(get("/api/v1/admin/merchants")
                         .header("Authorization", "Bearer " + TestTokens.userToken("admin", "ADMIN")))
                 .andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
+    void anAuditorCanReadPayoutsButCannotRequestAPinCode() throws Exception {
+        String auditor = TestTokens.auditorToken("auditor-1");
+        mvc.perform(get("/api/v1/admin/payouts").header("Authorization", "Bearer " + auditor))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/wallet/pin/otp").header("Authorization", "Bearer " + auditor))
+                .andExpect(status().isForbidden());
     }
 }

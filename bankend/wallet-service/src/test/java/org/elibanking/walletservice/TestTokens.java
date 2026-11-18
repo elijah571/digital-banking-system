@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.List;
 
 /** Mints tokens the way auth-service and the calling services do, for tests only. */
 public final class TestTokens {
@@ -31,6 +32,27 @@ public final class TestTokens {
 
     public static String userToken(String userId, String role, String fullName) {
         return sign(USER_SECRET, USER_ISSUER, null, userId, role, fullName, Duration.ofMinutes(10));
+    }
+
+    public static String auditorToken(String userId) {
+        Instant now = Instant.now();
+        try {
+            JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                    .issuer(USER_ISSUER).subject(userId)
+                    .issueTime(Date.from(now.minus(Duration.ofMinutes(1))))
+                    .expirationTime(Date.from(now.plus(Duration.ofMinutes(10))))
+                    .claim("role", "ADMIN").claim("name", "Auditor")
+                    .claim("roles", List.of("ROLE_AUDITOR"))
+                    .claim("authorities", List.of("customers.read", "accounts.read", "kyc.read", "ledger.read",
+                            "reconciliation.read", "transactions.read", "payouts.read", "crypto.wallets.read",
+                            "crypto.transactions.read", "risk.alerts.read", "audit.logs.read"))
+                    .claim("email", userId + "@example.test").build();
+            SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
+            jwt.sign(new MACSigner(USER_SECRET.getBytes(StandardCharsets.UTF_8)));
+            return jwt.serialize();
+        } catch (Exception e) {
+            throw new IllegalStateException("could not sign an auditor token", e);
+        }
     }
 
     public static String expiredUserToken(String userId) {

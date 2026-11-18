@@ -59,6 +59,16 @@ class TransactionAuthTest {
     }
 
     @Test
+    void anAuditorCannotSubmitATransfer() throws Exception {
+        mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY)
+                        .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
+                        .header("Authorization", "Bearer " + UserTokens.auditor("auditor-1")))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(accountService);
+        verifyNoInteractions(ledger);
+    }
+
+    @Test
     void aUserCannotTransferFromSomeoneElsesAccount() throws Exception {
         when(accountService.getAccount(SENDER)).thenReturn(new AccountInfo(SENDER, "user-b", "ACTIVE"));
 

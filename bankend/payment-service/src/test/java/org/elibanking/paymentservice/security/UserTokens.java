@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.List;
 
 /** Mints user tokens the way auth-service does, for tests only. The secret is the one this service is configured with. */
 public final class UserTokens {
@@ -21,6 +22,25 @@ public final class UserTokens {
 
     public static String of(String subject, String role) {
         return sign(subject, role);
+    }
+
+    public static String auditor(String subject) {
+        Instant now = Instant.now();
+        try {
+            JWTClaimsSet claims = new JWTClaimsSet.Builder().issuer("elibanking-auth").subject(subject)
+                    .issueTime(Date.from(now.minus(Duration.ofMinutes(1))))
+                    .expirationTime(Date.from(now.plus(Duration.ofMinutes(10))))
+                    .claim("role", "ADMIN").claim("roles", List.of("ROLE_AUDITOR"))
+                    .claim("authorities", List.of("customers.read", "accounts.read", "kyc.read", "ledger.read",
+                            "reconciliation.read", "transactions.read", "payouts.read", "crypto.wallets.read",
+                            "crypto.transactions.read", "risk.alerts.read", "audit.logs.read"))
+                    .claim("email", subject + "@example.test").build();
+            SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
+            jwt.sign(new MACSigner(SECRET.getBytes(StandardCharsets.UTF_8)));
+            return jwt.serialize();
+        } catch (Exception e) {
+            throw new IllegalStateException("could not sign an auditor token", e);
+        }
     }
 
     /** A valid, signed token with no subject. The service must refuse it. */

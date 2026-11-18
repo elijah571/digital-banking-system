@@ -103,6 +103,13 @@ class InternalAuthTest {
     }
 
     @Test
+    void auditorJwtCannotUseTheAuthenticatedPasswordChangeRoute() throws Exception {
+        mvc.perform(post("/api/v1/auth/change-password").contentType(APPLICATION_JSON).content("{}")
+                        .header("Authorization", "Bearer " + TestTokens.auditorToken("auditor-1")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void aUserTokenIsNotAServiceToken() throws Exception {
         mvc.perform(check(TestTokens.userToken("someone", "USER"), "someone", PASSWORD))
                 .andExpect(status().isUnauthorized());

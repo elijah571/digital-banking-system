@@ -92,6 +92,13 @@ class ApiSecurityTest {
     }
 
     @Test
+    void anAuditorCanReadAccountsButCannotSubmitIdentityEvidence() {
+        String auditor = TestTokens.auditorToken("auditor-1");
+        assertEquals(200, get("/api/v1/accounts", auditor));
+        assertEquals(403, post("/api/v1/accounts/verification/identity", auditor));
+    }
+
+    @Test
     void healthIsPublic() {
         assertEquals(200, get("/actuator/health", null));
     }
@@ -118,5 +125,10 @@ class ApiSecurityTest {
                 h.setBearerAuth(bearer);
             }
         }).exchange((request, response) -> response.getStatusCode().value());
+    }
+
+    private int post(String path, String bearer) {
+        return client.post().uri(path).headers(h -> h.setBearerAuth(bearer))
+                .exchange((request, response) -> response.getStatusCode().value());
     }
 }

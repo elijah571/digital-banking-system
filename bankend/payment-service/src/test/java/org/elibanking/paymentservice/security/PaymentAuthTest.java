@@ -62,6 +62,14 @@ class PaymentAuthTest {
     }
 
     @Test
+    void anAuditorCannotCreateAPayment() throws Exception {
+        mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY)
+                        .header("Authorization", "Bearer " + UserTokens.auditor("auditor-1")))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(accountClient);
+    }
+
+    @Test
     void theWebhookStaysPublicAndStillRejectsABadSignature() throws Exception {
         mvc.perform(post("/api/v1/payments/webhook").contentType(MediaType.APPLICATION_JSON).content("{}")
                         .header("Stripe-Signature", "t=1,v1=bad"))
