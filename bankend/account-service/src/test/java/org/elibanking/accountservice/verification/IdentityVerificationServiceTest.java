@@ -12,17 +12,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
 import java.util.Base64;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
@@ -30,15 +26,13 @@ class IdentityVerificationServiceTest {
 
     private static final String IMAGE = Base64.getEncoder().encodeToString(
             new byte[]{(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0x01, 0x02});
+    private static final String WEBM_VIDEO = webmVideo();
 
     @Autowired
     private IdentityVerificationService verificationService;
 
     @Autowired
     private AccountRepository accountRepository;
-
-    @MockitoBean
-    private DojahIdentityProvider dojah;
 
     private Caller caller;
 
@@ -61,41 +55,36 @@ class IdentityVerificationServiceTest {
     }
 
     @Test
-    void documentIdentityVerificationUsesNoBvnAndRequiresDojahLiveness() {
-        when(dojah.verifyDocument(anyString(), anyString()))
-                .thenReturn(new DojahIdentityProvider.DocumentResult(true, new BigDecimal("98.5"), "National ID"));
-        when(dojah.checkLiveness(anyString()))
-                .thenReturn(new DojahIdentityProvider.LivenessResult(true, new BigDecimal("99")));
-
+    void documentIdentityVerificationSubmissionWaitsForManualReview() {
         VerificationStatusResponse result = verificationService.verifyIdentity(caller,
-                new DocumentIdentityRequest("NIN_SLIP", IMAGE, IMAGE, true));
+                new DocumentIdentityRequest("NIN_SLIP", IMAGE, WEBM_VIDEO, true));
 
-        assertEquals("VERIFIED", result.identityStatus());
+        assertEquals("MANUAL", result.provider());
+        assertEquals("PENDING_REVIEW", result.identityStatus());
         assertEquals("NIN_SLIP", result.documentType());
-        assertEquals(new BigDecimal("99.00"), result.identityLivenessScore());
-        verify(dojah, never()).verifyBvnSelfie(anyString(), anyString());
+        assertNull(result.identityLivenessScore());
     }
 
     @Test
-    void accountUpgradeRequiresBvnAddressFaceMatchAndLiveness() {
-        when(dojah.validateBvn(anyString(), anyString(), anyString()))
-                .thenReturn(new DojahIdentityProvider.BvnResult(true, new BigDecimal("98")));
-        when(dojah.verifyBvnSelfie(anyString(), anyString()))
-                .thenReturn(new DojahIdentityProvider.SelfieResult(true, new BigDecimal("99")));
-        when(dojah.checkLiveness(anyString()))
-                .thenReturn(new DojahIdentityProvider.LivenessResult(true, new BigDecimal("99")));
-        when(dojah.readAddressDocument(anyString()))
-                .thenReturn(java.util.List.of("Elijah Okafor", "25 Main Street Lagos"));
-
+    void accountUpgradeSubmissionWaitsForManualReview() {
         VerificationStatusResponse result = verificationService.upgradeAccount(caller,
                 new AccountUpgradeRequest("12345678901", "Elijah", "Okafor", "UTILITY_BILL",
-                        "25 Main Street Lagos", IMAGE, IMAGE, true));
+                        "25 Main Street Lagos", IMAGE, WEBM_VIDEO, true));
 
-        assertEquals("VERIFIED", result.accountUpgradeStatus());
-        assertEquals("VERIFIED", result.addressStatus());
-        assertEquals(AccountTier.VERIFIED, result.accountTier());
-        assertEquals(new BigDecimal("5000000.00"), result.dailyTransactionLimit());
-        assertEquals(AccountTier.VERIFIED, accountRepository
+        assertEquals("PENDING_REVIEW", result.accountUpgradeStatus());
+        assertEquals("PENDING_REVIEW", result.addressStatus());
+        assertEquals(AccountTier.STANDARD, result.accountTier());
+        assertEquals(new BigDecimal("100000.00"), result.dailyTransactionLimit());
+        assertEquals(AccountTier.STANDARD, accountRepository
                 .findAllByOwnerIdOrderByCreatedAtDesc(caller.userId()).getFirst().getAccountTier());
+    }
+
+    private static String webmVideo() {
+        byte[] bytes = new byte[1024];
+        bytes[0] = 0x1a;
+        bytes[1] = 0x45;
+        bytes[2] = (byte) 0xdf;
+        bytes[3] = (byte) 0xa3;
+        return Base64.getEncoder().encodeToString(bytes);
     }
 }
