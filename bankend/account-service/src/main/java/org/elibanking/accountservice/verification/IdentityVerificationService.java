@@ -33,6 +33,7 @@ public class IdentityVerificationService {
 
     private final AccountRepository accounts;
     private final JdbcTemplate jdbc;
+    private final VerificationStateWriter stateWriter;
     @Value("${account.verification.verified-daily-limit:5000000.00}")
     private BigDecimal verifiedDailyLimit;
 
@@ -93,15 +94,7 @@ public class IdentityVerificationService {
         }
         String documentImage = normalizeImage(request.documentImage());
         String video = normalizeVideo(request.faceVideo());
-        jdbc.update("""
-                INSERT INTO account_verification (owner_id, provider, identity_status, document_type,
-                    identity_document_image, identity_face_video, identity_consent_at, identity_verified_at)
-                VALUES (?, 'MANUAL', 'PENDING_REVIEW', ?, ?, ?, CURRENT_TIMESTAMP(6), NULL)
-                ON DUPLICATE KEY UPDATE provider='MANUAL', identity_status='PENDING_REVIEW', document_type=VALUES(document_type),
-                    identity_document_image=VALUES(identity_document_image), identity_face_video=VALUES(identity_face_video),
-                    identity_consent_at=CURRENT_TIMESTAMP(6), identity_verified_at=NULL, review_reason=NULL,
-                    reviewed_by=NULL, reviewed_at=NULL
-                """, caller.userId(), request.documentType(), documentImage, video);
+        stateWriter.submitManualIdentity(caller.userId(), request.documentType(), documentImage, video);
         return statusFor(caller.userId());
     }
 
@@ -114,19 +107,9 @@ public class IdentityVerificationService {
         ensureNamesMatchAccount(account.getAccountHolderName(), request.firstName(), request.lastName());
         String addressDocument = normalizeImage(request.addressDocumentImage());
         String video = normalizeVideo(request.faceVideo());
-        jdbc.update("""
-                INSERT INTO account_verification (owner_id, provider, upgrade_status, bvn_last_four,
-                    address_document_type, address_status, upgrade_document_image, upgrade_face_video,
-                    first_name, last_name, residential_address, upgrade_consent_at)
-                VALUES (?, 'MANUAL', 'PENDING_REVIEW', ?, ?, 'PENDING_REVIEW', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6))
-                ON DUPLICATE KEY UPDATE provider='MANUAL', upgrade_status='PENDING_REVIEW', bvn_last_four=VALUES(bvn_last_four),
-                    address_document_type=VALUES(address_document_type), address_status='PENDING_REVIEW',
-                    upgrade_document_image=VALUES(upgrade_document_image), upgrade_face_video=VALUES(upgrade_face_video),
-                    first_name=VALUES(first_name), last_name=VALUES(last_name), residential_address=VALUES(residential_address),
-                    upgrade_consent_at=CURRENT_TIMESTAMP(6), account_upgraded_at=NULL, review_reason=NULL,
-                    reviewed_by=NULL, reviewed_at=NULL
-                """, caller.userId(), lastFour(request.bvn()), request.addressDocumentType(), addressDocument, video,
-                request.firstName().trim(), request.lastName().trim(), request.residentialAddress().trim());
+        stateWriter.submitManualUpgrade(caller.userId(), lastFour(request.bvn()), request.addressDocumentType(),
+                addressDocument, video, request.firstName().trim(), request.lastName().trim(),
+                request.residentialAddress().trim());
         return statusFor(caller.userId());
     }
 
@@ -158,12 +141,7 @@ public class IdentityVerificationService {
             int updated = accounts.upgradeOwnedAccounts(ownerId, verifiedDailyLimit);
             if (updated == 0) throw new AccountNotFoundException("No account found for this customer");
         }
-        String approvalTime = approve ? "CURRENT_TIMESTAMP(6)" : "NULL";
-        jdbc.update("UPDATE account_verification SET " + column + "=?, review_reason=?, reviewed_by=?, reviewed_at=CURRENT_TIMESTAMP(6)"
-                + ("UPGRADE".equals(type) ? ", address_status=?, address_verified_at=" + approvalTime + ", account_upgraded_at=" + approvalTime
-                : ", identity_verified_at=" + approvalTime)
-                + " WHERE owner_id=?", "UPGRADE".equals(type) ? new Object[]{status, reason, caller.userId(), status, ownerId}
-                : new Object[]{status, reason, caller.userId(), ownerId});
+        stateWriter.review(ownerId, type, status, reason, caller.userId());
         return statusFor(ownerId);
     }
 

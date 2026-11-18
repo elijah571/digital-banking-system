@@ -19,6 +19,50 @@ public class VerificationStateWriter {
     private final AccountRepository accounts;
 
     @Transactional
+    public void submitManualIdentity(String ownerId, String documentType, String documentImage, String faceVideo) {
+        jdbc.update("""
+                INSERT INTO account_verification (owner_id, provider, identity_status, document_type,
+                    identity_document_image, identity_face_video, identity_consent_at, identity_verified_at)
+                VALUES (?, 'MANUAL', 'PENDING_REVIEW', ?, ?, ?, CURRENT_TIMESTAMP(6), NULL)
+                ON DUPLICATE KEY UPDATE provider='MANUAL', identity_status='PENDING_REVIEW', document_type=VALUES(document_type),
+                    identity_document_image=VALUES(identity_document_image), identity_face_video=VALUES(identity_face_video),
+                    identity_consent_at=CURRENT_TIMESTAMP(6), identity_verified_at=NULL, review_reason=NULL,
+                    reviewed_by=NULL, reviewed_at=NULL
+                """, ownerId, documentType, documentImage, faceVideo);
+    }
+
+    @Transactional
+    public void submitManualUpgrade(String ownerId, String bvnLastFour, String addressDocumentType,
+                                    String addressDocument, String faceVideo, String firstName, String lastName,
+                                    String residentialAddress) {
+        jdbc.update("""
+                INSERT INTO account_verification (owner_id, provider, upgrade_status, bvn_last_four,
+                    address_document_type, address_status, upgrade_document_image, upgrade_face_video,
+                    first_name, last_name, residential_address, upgrade_consent_at)
+                VALUES (?, 'MANUAL', 'PENDING_REVIEW', ?, ?, 'PENDING_REVIEW', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6))
+                ON DUPLICATE KEY UPDATE provider='MANUAL', upgrade_status='PENDING_REVIEW', bvn_last_four=VALUES(bvn_last_four),
+                    address_document_type=VALUES(address_document_type), address_status='PENDING_REVIEW',
+                    upgrade_document_image=VALUES(upgrade_document_image), upgrade_face_video=VALUES(upgrade_face_video),
+                    first_name=VALUES(first_name), last_name=VALUES(last_name), residential_address=VALUES(residential_address),
+                    upgrade_consent_at=CURRENT_TIMESTAMP(6), account_upgraded_at=NULL, review_reason=NULL,
+                    reviewed_by=NULL, reviewed_at=NULL
+                """, ownerId, bvnLastFour, addressDocumentType, addressDocument, faceVideo, firstName, lastName,
+                residentialAddress);
+    }
+
+    @Transactional
+    public void review(String ownerId, String type, String status, String reason, String reviewer) {
+        String column = "IDENTITY".equals(type) ? "identity_status" : "upgrade_status";
+        String approvalTime = "VERIFIED".equals(status) ? "CURRENT_TIMESTAMP(6)" : "NULL";
+        String update = "UPDATE account_verification SET " + column + "=?, review_reason=?, reviewed_by=?, reviewed_at=CURRENT_TIMESTAMP(6)"
+                + ("UPGRADE".equals(type) ? ", address_status=?, address_verified_at=" + approvalTime + ", account_upgraded_at=" + approvalTime
+                : ", identity_verified_at=" + approvalTime)
+                + " WHERE owner_id=?";
+        jdbc.update(update, "UPGRADE".equals(type) ? new Object[]{status, reason, reviewer, status, ownerId}
+                : new Object[]{status, reason, reviewer, ownerId});
+    }
+
+    @Transactional
     public void identityResult(String ownerId, String status, String documentType, BigDecimal faceMatchScore,
                                BigDecimal livenessScore, boolean consentGranted) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
