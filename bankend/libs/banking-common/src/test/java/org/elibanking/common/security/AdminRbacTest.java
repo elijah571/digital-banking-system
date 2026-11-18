@@ -45,8 +45,11 @@ class AdminRbacTest {
                         AdminRbac.TRANSACTIONS_READ, AdminRbac.PAYOUTS_READ, AdminRbac.CRYPTO_WALLETS_READ,
                         AdminRbac.CRYPTO_TRANSACTIONS_READ, AdminRbac.RISK_ALERTS_READ, AdminRbac.AUDIT_LOGS_READ)));
 
-        assertEquals(expected.keySet(), AdminRbac.roleNames());
+        assertEquals(expected.keySet(), AdminRbac.roleNames().stream()
+                .filter(role -> !"ROLE_SUPER_ADMIN".equals(role))
+                .collect(java.util.stream.Collectors.toSet()));
         expected.forEach((role, permissions) -> assertEquals(permissions, AdminRbac.permissionsFor(role), role));
+        assertEquals(AdminRbac.allPermissions(), AdminRbac.permissionsFor("ROLE_SUPER_ADMIN"));
     }
 
     @Test
