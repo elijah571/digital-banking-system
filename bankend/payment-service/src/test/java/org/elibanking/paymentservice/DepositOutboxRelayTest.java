@@ -11,6 +11,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
+import org.apache.kafka.clients.producer.ProducerRecord;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -19,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -49,8 +52,9 @@ class DepositOutboxRelayTest {
     KafkaTemplate<String, Object> kafka;
 
     @Test
+    @Transactional
     void aRecordedDepositEventIsPublishedOnceAndMarkedSent() throws Exception {
-        when(kafka.send(anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(kafka.send(anyRecord())).thenReturn(CompletableFuture.completedFuture(null));
         String deposit = "dep-" + UUID.randomUUID();
         String event = "{\"id\":\"evt_" + UUID.randomUUID() + "\",\"object\":\"event\",\"api_version\":\"" + DepositWebhookTest.API_VERSION
                 + "\",\"type\":\"payment_intent.succeeded\","
@@ -64,8 +68,14 @@ class DepositOutboxRelayTest {
         relay.publishPending();
         relay.publishPending();
 
-        verify(kafka, org.mockito.Mockito.times(1)).send(eq("payment.intent.succeeded"), eq(deposit), any());
+        verify(kafka, org.mockito.Mockito.times(1)).send(argThat((ProducerRecord<String, Object> record) ->
+                "payment.intent.succeeded".equals(record.topic()) && deposit.equals(record.key())));
         assertNotNull(jdbc.queryForObject("SELECT sent_at FROM outbox WHERE aggregate_id = ?", java.sql.Timestamp.class, deposit));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM outbox WHERE aggregate_id = ?", Integer.class, deposit));
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static ProducerRecord<String, Object> anyRecord() {
+        return (ProducerRecord) any(ProducerRecord.class);
     }
 }

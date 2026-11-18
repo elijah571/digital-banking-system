@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.List;
@@ -23,7 +24,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -53,12 +53,12 @@ class PinOtpServiceTest {
 
         codes.issue(user, email, user);
 
-        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
-        verify(kafka).send(eq(PinOtpService.TOPIC), eq(user), event.capture());
-        Map<?, ?> sent = (Map<?, ?>) event.getValue();
-        String code = String.valueOf(sent.get("otp"));
-        assertEquals("PIN_CHANGE", sent.get("purpose"));
-        assertEquals(email, sent.get("email"));
+        ProducerRecord<String, Object> sent = sentRecord(PinOtpService.TOPIC, user);
+        Map<?, ?> envelope = (Map<?, ?>) sent.value();
+        Map<?, ?> event = (Map<?, ?>) envelope.get("payload");
+        String code = String.valueOf(event.get("otp"));
+        assertEquals("PIN_CHANGE", event.get("purpose"));
+        assertEquals(email, event.get("email"));
         assertTrue(code.matches("\\d{6}"), "six digits");
         String stored = redis.opsForValue().get("pin-otp:code:" + user);
         assertFalse(stored.contains(code), "Redis does not hold the code");
@@ -126,7 +126,7 @@ class PinOtpServiceTest {
     @Test
     void aCodeThatCannotBeSentIsNotLeftWaitingFor() {
         String user = "user-" + UUID.randomUUID();
-        when(kafka.send(anyString(), anyString(), any())).thenThrow(new IllegalStateException("broker is down"));
+        when(kafka.send(anyRecord())).thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker is down")));
 
         assertThrows(PinOtpUnavailableException.class, () -> codes.issue(user, user + "@example.test", user));
 
@@ -144,13 +144,26 @@ class PinOtpServiceTest {
     }
 
     private String codeSentTo(String user) {
-        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
-        verify(kafka, org.mockito.Mockito.atLeastOnce()).send(eq(PinOtpService.TOPIC), eq(user), event.capture());
-        return String.valueOf(((Map<?, ?>) event.getAllValues().get(event.getAllValues().size() - 1)).get("otp"));
+        Map<?, ?> envelope = (Map<?, ?>) sentRecord(PinOtpService.TOPIC, user).value();
+        return String.valueOf(((Map<?, ?>) envelope.get("payload")).get("otp"));
     }
 
     private void whenKafkaAccepts() {
-        when(kafka.send(anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(kafka.send(anyRecord())).thenReturn(CompletableFuture.completedFuture(null));
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static ProducerRecord<String, Object> anyRecord() {
+        return (ProducerRecord) any(ProducerRecord.class);
+    }
+
+    private ProducerRecord<String, Object> sentRecord(String topic, String user) {
+        ArgumentCaptor<ProducerRecord<String, Object>> records = ArgumentCaptor.forClass((Class) ProducerRecord.class);
+        verify(kafka, org.mockito.Mockito.atLeastOnce()).send(records.capture());
+        return records.getAllValues().stream()
+                .filter(record -> topic.equals(record.topic()) && user.equals(record.key()))
+                .reduce((first, last) -> last)
+                .orElseThrow(() -> new AssertionError("No Kafka record for " + topic + " and " + user));
     }
 
     private static long countOf(List<Object> outcomes, PinOtpService.Result result) {

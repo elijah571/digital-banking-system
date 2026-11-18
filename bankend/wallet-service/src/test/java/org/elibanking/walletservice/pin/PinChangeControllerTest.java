@@ -9,19 +9,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.elibanking.walletservice.client.AuthServiceClient;
 import org.elibanking.walletservice.client.AuthServiceClient.PasswordCheck;
 
-import java.util.Map;
 import java.util.UUID;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -102,11 +101,20 @@ class PinChangeControllerTest {
     // ------------------------------------------------------------------ helpers
 
     private String codeFor(String user) {
-        when(kafka.send(anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(kafka.send(anyRecord())).thenReturn(CompletableFuture.completedFuture(null));
         codes.issue(user, user + "@example.test", user);
-        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
-        verify(kafka, atLeastOnce()).send(eq("notification.otp"), eq(user), event.capture());
-        return String.valueOf(((Map<?, ?>) event.getValue()).get("otp"));
+        ArgumentCaptor<ProducerRecord<String, Object>> records = ArgumentCaptor.forClass((Class) ProducerRecord.class);
+        verify(kafka, atLeastOnce()).send(records.capture());
+        ProducerRecord<String, Object> sent = records.getAllValues().stream()
+                .filter(record -> "notification.otp".equals(record.topic()) && user.equals(record.key()))
+                .reduce((first, last) -> last)
+                .orElseThrow(() -> new AssertionError("No PIN OTP record was sent"));
+        return String.valueOf(((Map<?, ?>) ((Map<?, ?>) sent.value()).get("payload")).get("otp"));
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static ProducerRecord<String, Object> anyRecord() {
+        return (ProducerRecord) any(ProducerRecord.class);
     }
 
     private static MockHttpServletRequestBuilder change(String token, String body) {

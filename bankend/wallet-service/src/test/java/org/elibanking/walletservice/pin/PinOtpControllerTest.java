@@ -8,13 +8,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -38,7 +38,7 @@ class PinOtpControllerTest {
 
     @Test
     void aUserGetsACodeByEmail() throws Exception {
-        when(kafka.send(anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(kafka.send(anyRecord())).thenReturn(CompletableFuture.completedFuture(null));
         String user = "user-" + UUID.randomUUID();
 
         mvc.perform(post(PATH).header("Authorization", "Bearer " + TestTokens.userToken(user, "USER")))
@@ -49,7 +49,7 @@ class PinOtpControllerTest {
 
     @Test
     void aSecondCodeWithinAMinuteIsTooManyRequests() throws Exception {
-        when(kafka.send(anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(kafka.send(anyRecord())).thenReturn(CompletableFuture.completedFuture(null));
         String user = "user-" + UUID.randomUUID();
         mvc.perform(post(PATH).header("Authorization", "Bearer " + TestTokens.userToken(user, "USER")));
 
@@ -67,5 +67,10 @@ class PinOtpControllerTest {
     @Test
     void noTokenIsRefused() throws Exception {
         mvc.perform(post(PATH)).andExpect(status().isUnauthorized());
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static ProducerRecord<String, Object> anyRecord() {
+        return (ProducerRecord) any(ProducerRecord.class);
     }
 }

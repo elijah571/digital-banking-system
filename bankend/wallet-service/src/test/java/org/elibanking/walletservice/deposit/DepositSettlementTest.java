@@ -16,7 +16,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
+import org.apache.kafka.clients.producer.ProducerRecord;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -35,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -242,18 +245,24 @@ class DepositSettlementTest {
     }
 
     @Test
+    @Transactional
     void aCompletedDepositIsPublishedOnceAndMarkedSent() throws Exception {
-        jdbc.update("UPDATE outbox SET sent_at = NOW(6) WHERE sent_at IS NULL");
         Deposit deposit = openDeposit("20000.00");
         settlement.apply(outcome(SUCCEEDED, newEventId(), deposit.getId(), "20000.00", "NGN", null));
-        when(kafka.send(anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(kafka.send(anyRecord())).thenReturn(CompletableFuture.completedFuture(null));
 
         relay.publishPending();
 
-        verify(kafka, times(1)).send(eq("wallet.deposit.completed"), eq(deposit.getId()), any());
+        verify(kafka, times(1)).send(argThat((ProducerRecord<String, Object> record) ->
+                "wallet.deposit.completed".equals(record.topic()) && deposit.getId().equals(record.key())));
         assertNotNull(jdbc.queryForObject(
                 "SELECT sent_at FROM outbox WHERE aggregate_id = ? AND topic = 'wallet.deposit.completed'",
                 java.sql.Timestamp.class, deposit.getId()));
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static ProducerRecord<String, Object> anyRecord() {
+        return (ProducerRecord) any(ProducerRecord.class);
     }
 
     // ------------------------------------------------------------------ helpers

@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.Duration;
@@ -25,7 +26,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
@@ -80,7 +80,7 @@ class PinChangeServiceTest {
         assertEquals(PinChangeService.Result.CHANGED, change(user, codeFor(user), "5678").result());
         assertEquals(PinService.Outcome.VALID, pins.check(user, "5678", user).outcome());
         assertEquals(PinService.Outcome.WRONG, pins.check(user, "1234", user).outcome(), "the old PIN no longer works");
-        verify(kafka, times(2)).send(eq("wallet.pin.changed"), eq(user), any());
+        assertSentRecords("wallet.pin.changed", user, 2);
     }
 
     @Test
@@ -163,7 +163,7 @@ class PinChangeServiceTest {
 
         change(user, codeFor(user), "4444");
 
-        verify(kafka).send(eq("wallet.pin.changed"), eq(user), any());
+        assertSentRecords("wallet.pin.changed", user, 1);
     }
 
     // ------------------------------------------------------------------ helpers
@@ -174,7 +174,7 @@ class PinChangeServiceTest {
 
     private String newUser() {
         String user = "user-" + UUID.randomUUID();
-        when(kafka.send(anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(kafka.send(anyRecord())).thenReturn(CompletableFuture.completedFuture(null));
         return user;
     }
 
@@ -188,10 +188,26 @@ class PinChangeServiceTest {
     private String codeFor(String user) {
         clearCooldown(user);
         codes.issue(user, user + "@example.test", user);
-        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
-        verify(kafka, atLeastOnce()).send(eq("notification.otp"), eq(user), event.capture());
-        Object last = event.getAllValues().get(event.getAllValues().size() - 1);
-        return String.valueOf(((Map<?, ?>) last).get("otp"));
+        ArgumentCaptor<ProducerRecord<String, Object>> records = ArgumentCaptor.forClass((Class) ProducerRecord.class);
+        verify(kafka, atLeastOnce()).send(records.capture());
+        ProducerRecord<String, Object> last = records.getAllValues().stream()
+                .filter(record -> "notification.otp".equals(record.topic()) && user.equals(record.key()))
+                .reduce((first, current) -> current)
+                .orElseThrow(() -> new AssertionError("No PIN OTP record was sent"));
+        return String.valueOf(((Map<?, ?>) ((Map<?, ?>) last.value()).get("payload")).get("otp"));
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static ProducerRecord<String, Object> anyRecord() {
+        return (ProducerRecord) any(ProducerRecord.class);
+    }
+
+    private void assertSentRecords(String topic, String user, long expectedCount) {
+        ArgumentCaptor<ProducerRecord<String, Object>> records = ArgumentCaptor.forClass((Class) ProducerRecord.class);
+        verify(kafka, atLeastOnce()).send(records.capture());
+        long actualCount = records.getAllValues().stream()
+                .filter(record -> topic.equals(record.topic()) && user.equals(record.key())).count();
+        assertEquals(expectedCount, actualCount, topic + " sends for user");
     }
 
     private void clearCooldown(String user) {
