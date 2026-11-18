@@ -79,6 +79,7 @@ class DepositSettlementTest {
 
     @BeforeEach
     void theLedgerAccepts() {
+        jdbc.update("DELETE FROM outbox");
         when(accounts.postEntry(anyString(), anyString(), anyString(), anyString(), anyList()))
                 .thenReturn(new PostResult(1L, false));
     }
