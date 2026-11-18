@@ -5,14 +5,11 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
-import org.springframework.core.env.StandardEnvironment;
-import org.springframework.web.client.RestClient;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -89,30 +86,80 @@ class SimulatedPayoutProviderTest {
     }
 
     @Test
-    void providerSelectionAndDefaultOutcomeAreValidatedAtStartup() {
-        PayoutProviderConfiguration configuration = new PayoutProviderConfiguration();
-        StandardEnvironment env = new StandardEnvironment();
-        String base = "https://api.flutterwave.com/v3";
-        Optional<MonnifyPayoutProvider> monnify = Optional.of(new MonnifyPayoutProvider(
-                RestClient.builder().baseUrl("https://sandbox.monnify.com").build(),
-                new MonnifyTokenManager(RestClient.builder().baseUrl("https://sandbox.monnify.com").build(), "key", "secret"),
-                "0123456789"));
+    void simulatorSelectionCreatesOnlyTheSimulatorProviderBean() {
+        new ApplicationContextRunner().withUserConfiguration(PayoutProviderConfiguration.class)
+                .withPropertyValues("payout.provider=simulator").run(context -> {
+                    assertTrue(context.isRunning());
+                    assertEquals(1, context.getBeansOfType(PayoutProvider.class).size());
+                    assertEquals("simulator", context.getBean(PayoutProvider.class).getProviderName());
+                    assertTrue(context.getBean(PayoutProvider.class) instanceof SimulatedPayoutProvider);
+                });
+    }
 
-        // Flutterwave selected but no secret key: fail closed.
-        assertThrows(IllegalStateException.class, () -> configuration.payoutProvider("flutterwave", "success", 0,
-                "", "whsec", base, monnify, env));
-        // Flutterwave with a test key but no webhook secret: fail closed.
-        assertThrows(IllegalStateException.class, () -> configuration.payoutProvider("flutterwave", "success", 0,
-                "FLWSECK_TEST-abc", "", base, monnify, env));
-        // An unsupported provider is rejected.
-        assertThrows(IllegalStateException.class, () -> configuration.payoutProvider("paystack", "success", 0,
-                "", "", base, monnify, env));
-        // A bad simulator default outcome is rejected.
-        assertThrows(IllegalArgumentException.class, () -> configuration.payoutProvider("simulator", "unknown", 0,
-                "", "", base, monnify, env));
-        // A valid test configuration builds the two-rail router without a network call.
-        assertInstanceOf(ResilientPayoutRouter.class, configuration.payoutProvider("flutterwave", "success", 0,
-                "FLWSECK_TEST-abc", "whsec_test", base, monnify, env));
+    @Test
+    void monnifySelectionFailsFastWithTheMissingSourceAccountSetting() {
+        new ApplicationContextRunner().withUserConfiguration(PayoutProviderConfiguration.class)
+                .withPropertyValues("payout.provider=monnify", "payout.monnify.api-key=test-key",
+                        "payout.monnify.secret-key=test-secret", "payout.monnify.source-account-number=")
+                .run(context -> {
+                    assertTrue(context.getStartupFailure() != null);
+                    assertTrue(allMessages(context.getStartupFailure()).contains("MONNIFY_SOURCE_ACCOUNT_NUMBER"));
+                });
+    }
+
+    @Test
+    void flutterwaveSelectionRequiresItsSecretAndWebhookSettings() {
+        new ApplicationContextRunner().withUserConfiguration(PayoutProviderConfiguration.class)
+                .withPropertyValues("payout.provider=flutterwave", "payout.flutterwave.webhook-secret=test-webhook",
+                        "payout.monnify.api-key=test-key", "payout.monnify.secret-key=test-secret",
+                        "payout.monnify.source-account-number=0123456789")
+                .run(context -> {
+                    assertTrue(allMessages(context.getStartupFailure()).contains("FLUTTERWAVE_SECRET_KEY"));
+                });
+
+        new ApplicationContextRunner().withUserConfiguration(PayoutProviderConfiguration.class)
+                .withPropertyValues("payout.provider=flutterwave", "payout.flutterwave.secret-key=FLWSECK_TEST-test",
+                        "payout.monnify.api-key=test-key", "payout.monnify.secret-key=test-secret",
+                        "payout.monnify.source-account-number=0123456789")
+                .run(context -> {
+                    assertTrue(allMessages(context.getStartupFailure()).contains("FLUTTERWAVE_WEBHOOK_SECRET"));
+                });
+    }
+
+    @Test
+    void unsupportedPayoutProviderFailsWithTheSelectedSettingName() {
+        new ApplicationContextRunner().withUserConfiguration(PayoutProviderConfiguration.class)
+                .withPropertyValues("payout.provider=paystack").run(context -> {
+                    assertTrue(allMessages(context.getStartupFailure()).contains("Unsupported PAYOUT_PROVIDER"));
+                });
+    }
+
+    @Test
+    void invalidSimulatorOutcomeStillFailsDuringProviderCreation() {
+        new ApplicationContextRunner().withUserConfiguration(PayoutProviderConfiguration.class)
+                .withPropertyValues("payout.provider=simulator", "payout.sim.default-outcome=unknown")
+                .run(context -> assertTrue(allMessages(context.getStartupFailure()).contains("PAYOUT_SIM_DEFAULT_OUTCOME")));
+    }
+
+    @Test
+    void flutterwaveSelectionBuildsOneConfiguredRouterProvider() {
+        new ApplicationContextRunner().withUserConfiguration(PayoutProviderConfiguration.class)
+                .withPropertyValues("payout.provider=flutterwave", "payout.flutterwave.secret-key=FLWSECK_TEST-test",
+                        "payout.flutterwave.webhook-secret=test-webhook", "payout.monnify.api-key=test-key",
+                        "payout.monnify.secret-key=test-secret", "payout.monnify.source-account-number=0123456789")
+                .run(context -> {
+                    assertTrue(context.isRunning());
+                    assertEquals(1, context.getBeansOfType(PayoutProvider.class).size());
+                    assertTrue(context.getBean(PayoutProvider.class) instanceof ResilientPayoutRouter);
+                });
+    }
+
+    private static String allMessages(Throwable failure) {
+        StringBuilder messages = new StringBuilder();
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            messages.append(cause.getMessage()).append('\n');
+        }
+        return messages.toString();
     }
 
     private static PayoutProvider.SendResult send(SimulatedPayoutProvider provider, String key, String accountNumber) {

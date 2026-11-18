@@ -28,7 +28,7 @@ public final class MonnifyTokenManager {
 
     MonnifyTokenManager(RestClient client, String apiKey, String secretKey, Clock clock) {
         if (apiKey == null || apiKey.isBlank() || secretKey == null || secretKey.isBlank()) {
-            throw new IllegalArgumentException("Monnify API credentials must be configured");
+            throw new IllegalArgumentException("MONNIFY_API_KEY and MONNIFY_SECRET_KEY must be configured");
         }
         this.client = client;
         this.apiKey = apiKey;
