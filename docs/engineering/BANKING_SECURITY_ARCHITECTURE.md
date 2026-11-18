@@ -28,10 +28,12 @@ Payout approval checks that the requesting customer is not the approver. Crypto 
 
 - Account and transaction ownership is checked in the owning service. `account-service` is the only NGN/crypto ledger writer.
 - Account passwords use BCrypt cost 12. Wallet PINs use the Argon2id/peppered path; OTPs are hashed and never logged.
-- Stripe signatures use the Stripe SDK against the raw payload; Flutterwave uses its provider-defined constant-time `verif-hash`; Fireblocks Webhook V2 uses detached RS512/JWKS plus workspace matching.
+- Stripe signatures use the Stripe SDK against the raw payload; Flutterwave's `verif-hash` is compared in constant time; Privy uses Svix HMAC-SHA256 verification. A Fireblocks Webhook V2 RS512/JWKS verifier and workspace check remain in code for legacy provider records, but there is no active Fireblocks webhook controller or gateway route.
 - Public gateway routes have Redis-backed rate limiting. Sensitive write paths use idempotency and service audit/outbox records.
 - Staff role changes and account enable/disable changes write an append-only auth-service audit row and revoke refresh tokens.
 - Identity documents and face videos are restricted identity evidence shown to roles with KYC read or review permission (compliance and auditor). Customer support currently has no KYC endpoint access.
+- `crypto-service` is routed by the gateway at `/api/v1/crypto/**`; development Compose publishes port 8088. New EVM deposit addresses and withdrawals use Privy when enabled and when the asset network code is explicitly mapped to a supported EVM chain ID.
+- Privy webhook events use Svix HMAC-SHA256 verification with timestamp tolerance and constant-time signature comparison. The crypto controller currently exposes the Privy webhook route.
 
 ## Current implementation limits
 
@@ -41,5 +43,7 @@ Payout approval checks that the requesting customer is not the approver. Crypto 
 - `risk.alerts.resolve`, `reconciliation.resolve`, global limits management, provider webhook-log inspection, and some catalog permissions are defined but lack corresponding operational API endpoints. A permission alone does not create that workflow.
 - Customer support does not receive `kyc.read`, so it cannot see KYC metadata or media. A separate masked KYC metadata endpoint is still needed to match the support role in the specification.
 - No passkey/WebAuthn or general MFA enrollment and recovery flow is implemented. mTLS, managed secret rotation, HSTS, WAF, bot protection, and origin firewalling remain deployment responsibilities.
+- Privy is disabled by default. Enabling it requires the app ID and secret, wallet authorization quorum ID and private key, webhook signing secret, and explicit EVM chain mappings. `PRIVY_APP` and `PRIVY_SECRET` are accepted as Compose compatibility aliases for the app ID and secret. The current withdrawal path accepts EVM addresses only.
+- Fireblocks support is in transition: the client and status reconciliation code remain for previously recorded legacy provider transactions, but new crypto withdrawals are stored with provider `PRIVY`, and legacy-provider submissions fail closed. Fireblocks Webhook V2 verification code is not connected to an exposed webhook endpoint.
 
 Do not market the current system as satisfying a banking compliance or certification standard. Review jurisdiction-specific KYC/AML obligations and close the implementation limits above with a threat-modelled rollout.
