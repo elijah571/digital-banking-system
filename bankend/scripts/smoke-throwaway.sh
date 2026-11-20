@@ -43,6 +43,31 @@ capture_evidence() {
   (cd "$WT/$REL" && "${dc[@]}" exec -T mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -t auth_db -e "SELECT u.email, u.email_verified, t.type, t.token_hash, t.created_at, t.expires_at, t.used_at FROM auth_tokens t JOIN users u ON u.id = t.user_id ORDER BY u.email, t.created_at"') > "$OUT/auth-tokens.txt" 2>&1
 }
 
+# Capture process-level evidence for a service that failed its health wait. This runs
+# before the EXIT trap tears the throwaway stack down. Diagnostics must never mask
+# the original fail-fast result if a tool is unavailable in the container.
+capture_service_diagnostics() {
+  local svc=$1 cid dir
+  dir="$OUT/$svc-diagnostics"
+  mkdir -p "$dir"
+  cid=$("${COMPOSE[@]}" ps -q "$svc" 2>/dev/null || true)
+  if [[ -z "$cid" ]]; then
+    echo "No container ID for $svc" > "$dir/container-id.txt"
+    return
+  fi
+  printf '%s\n' "$cid" > "$dir/container-id.txt"
+  docker top "$cid" > "$dir/top.txt" 2>&1 || true
+  docker stats --no-stream "$cid" > "$dir/stats.txt" 2>&1 || true
+  if docker exec -T "$cid" sh -c 'command -v jcmd >/dev/null 2>&1 && jcmd 1 Thread.print' > "$dir/thread-dump.txt" 2>&1; then
+    :
+  else
+    echo "jcmd unavailable or attach failed; sent SIGQUIT (kill -3) to PID 1" > "$dir/thread-dump.txt"
+    docker exec -T "$cid" sh -c 'kill -3 1' > "$dir/thread-dump-signal.txt" 2>&1 || true
+  fi
+  docker logs --tail 200 --timestamps "$cid" > "$dir/logs-tail-200.txt" 2>&1 || true
+  echo "startup diagnostics: $dir"
+}
+
 cleanup() {
   [[ -n "$FOLLOWER" ]] && kill "$FOLLOWER" 2>/dev/null
   if [[ -d "$WT/$REL" ]]; then
@@ -93,10 +118,10 @@ COMPOSE=(docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE")
 # with the dev broker and other services; healthchecks remain unchanged.
 "${COMPOSE[@]}" build > "$OUT/build.log" 2>&1 || { echo "build failed: see $OUT/build.log"; exit 2; }
 "${COMPOSE[@]}" up -d --wait --wait-timeout 300 mysql redis kafka > "$OUT/infrastructure-up.log" 2>&1 \
-  || { echo "infrastructure failed: see $OUT/infrastructure-up.log"; exit 2; }
+  || { for svc in mysql redis kafka; do capture_service_diagnostics "$svc"; done; echo "infrastructure failed: see $OUT/infrastructure-up.log"; exit 2; }
 for svc in account-service wallet-service auth-service notification-service payment-service fraud-detection-service transaction-service api-gateway; do
   "${COMPOSE[@]}" up -d --no-deps --wait --wait-timeout "$APP_WAIT_TIMEOUT" "$svc" > "$OUT/$svc-start.log" 2>&1 \
-    || { echo "$svc failed to become healthy: see $OUT/$svc-start.log"; exit 2; }
+    || { capture_service_diagnostics "$svc"; echo "$svc failed to become healthy: see $OUT/$svc-start.log"; exit 2; }
 done
 for _ in $(seq 1 90); do
   [[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$GATEWAY_PORT/actuator/health") == 200 ]] && break
