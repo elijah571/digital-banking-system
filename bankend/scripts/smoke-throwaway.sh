@@ -32,7 +32,7 @@ capture_evidence() {
   (cd "$WT/$REL" && "${dc[@]}" ps --all) > "$OUT/compose-ps.txt" 2>&1
   (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps) > "$OUT/services.log" 2>&1
   for svc in mysql redis kafka account-service wallet-service transaction-service payment-service fraud-detection-service \
-    auth-service notification-service api-gateway; do
+    auth-service notification-service crypto-service api-gateway; do
     (cd "$WT/$REL" && "${dc[@]}" logs --no-color --timestamps "$svc") > "$OUT/$svc.log" 2>&1
     container_id=$(cd "$WT/$REL" && "${dc[@]}" ps -aq "$svc")
     if [[ -n "$container_id" ]]; then
@@ -58,11 +58,11 @@ capture_service_diagnostics() {
   printf '%s\n' "$cid" > "$dir/container-id.txt"
   docker top "$cid" > "$dir/top.txt" 2>&1 || true
   docker stats --no-stream "$cid" > "$dir/stats.txt" 2>&1 || true
-  if docker exec -T "$cid" sh -c 'command -v jcmd >/dev/null 2>&1 && jcmd 1 Thread.print' > "$dir/thread-dump.txt" 2>&1; then
+  if docker exec "$cid" sh -c 'command -v jcmd >/dev/null 2>&1 && jcmd 1 Thread.print' > "$dir/thread-dump.txt" 2>&1; then
     :
   else
     echo "jcmd unavailable or attach failed; sent SIGQUIT (kill -3) to PID 1" > "$dir/thread-dump.txt"
-    docker exec -T "$cid" sh -c 'kill -3 1' > "$dir/thread-dump-signal.txt" 2>&1 || true
+    docker exec "$cid" sh -c 'kill -3 1' > "$dir/thread-dump-signal.txt" 2>&1 || true
   fi
   docker logs --tail 200 --timestamps "$cid" > "$dir/logs-tail-200.txt" 2>&1 || true
   echo "startup diagnostics: $dir"
@@ -119,7 +119,7 @@ COMPOSE=(docker compose -p "$PROJECT" -f compose.yaml -f "$OVERRIDE")
 "${COMPOSE[@]}" build > "$OUT/build.log" 2>&1 || { echo "build failed: see $OUT/build.log"; exit 2; }
 "${COMPOSE[@]}" up -d --wait --wait-timeout 300 mysql redis kafka > "$OUT/infrastructure-up.log" 2>&1 \
   || { for svc in mysql redis kafka; do capture_service_diagnostics "$svc"; done; echo "infrastructure failed: see $OUT/infrastructure-up.log"; exit 2; }
-for svc in account-service wallet-service auth-service notification-service payment-service fraud-detection-service transaction-service api-gateway; do
+for svc in account-service wallet-service auth-service notification-service payment-service fraud-detection-service transaction-service crypto-service api-gateway; do
   "${COMPOSE[@]}" up -d --no-deps --wait --wait-timeout "$APP_WAIT_TIMEOUT" "$svc" > "$OUT/$svc-start.log" 2>&1 \
     || { capture_service_diagnostics "$svc"; echo "$svc failed to become healthy: see $OUT/$svc-start.log"; exit 2; }
 done
