@@ -272,8 +272,8 @@ function App() {
         name: payout.destinationAccountName || 'Bank customer',
         bank: `${payout.bankCode} · ${payout.destinationAccountNumber?.slice(-4) || ''}`,
         amount: Number(payout.amount),
-        risk: payout.status,
-        requested: payout.status,
+        risk: payout.state || payout.status || 'PENDING_APPROVAL',
+        requested: payout.createdAt ? new Date(payout.createdAt).toLocaleString() : payout.state || 'Pending approval',
       }))
     );
   }, [payoutRows]);
@@ -851,6 +851,8 @@ function App() {
             onRefresh={refetchPayouts}
             isRefreshing={payoutsFetching}
             canDecide={hasPermission(currentUser, 'payouts.approve')}
+            canRead={hasPermission(currentUser, 'payouts.read')}
+            currentUser={currentUser}
           />
         );
       case 'risk-alerts':

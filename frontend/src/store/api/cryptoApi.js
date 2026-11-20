@@ -8,6 +8,10 @@ export const cryptoApi = baseApi.injectEndpoints({
     cryptoAddresses: build.query({ query: () => '/api/v1/crypto/deposit-addresses', providesTags: ['CryptoAddress'] }),
     createCryptoAddress: build.mutation({ query: (body) => ({ url: '/api/v1/crypto/deposit-addresses', method: 'POST', body }), invalidatesTags: ['CryptoAddress'] }),
     cryptoTransactions: build.query({ query: () => '/api/v1/crypto/transactions', providesTags: ['CryptoTransaction'] }),
+    cryptoTransaction: build.query({
+      query: (id) => `/api/v1/crypto/transactions/${encodeURIComponent(id)}`,
+      providesTags: (_result, _error, id) => [{ type: 'CryptoTransaction', id }],
+    }),
     createCryptoWithdrawal: build.mutation({
       query: ({ body, idempotencyKey = crypto.randomUUID() }) => ({ url: '/api/v1/crypto/withdrawals', method: 'POST', body, headers: { 'Idempotency-Key': idempotencyKey } }),
       invalidatesTags: ['CryptoBalance', 'CryptoTransaction'],
@@ -25,7 +29,8 @@ export const cryptoApi = baseApi.injectEndpoints({
 
 export const {
   useCryptoAssetsQuery, useCryptoNetworksQuery, useCryptoBalancesQuery, useCryptoAddressesQuery,
-  useCreateCryptoAddressMutation, useCryptoTransactionsQuery, useCreateCryptoWithdrawalMutation,
+  useCreateCryptoAddressMutation, useCryptoTransactionsQuery, useCryptoTransactionQuery,
+  useCreateCryptoWithdrawalMutation,
   useCancelCryptoWithdrawalMutation, useAdminCryptoAssetsQuery, useCryptoReviewsQuery,
   useDecideCryptoReviewMutation, useUpsertCryptoAssetMutation,
 } = cryptoApi;

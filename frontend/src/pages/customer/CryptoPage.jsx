@@ -5,8 +5,9 @@ import { Panel } from '../../components/common/Panel';
 import { Button } from '../../components/buttons/Button';
 import { StatusBadge } from '../../components/feedback/StatusBadge';
 import {
-  useCryptoAssetsQuery, useCryptoBalancesQuery, useCryptoAddressesQuery, useCryptoTransactionsQuery,
-  useCreateCryptoAddressMutation, useCreateCryptoWithdrawalMutation,
+  useCryptoAssetsQuery, useCryptoNetworksQuery, useCryptoBalancesQuery, useCryptoAddressesQuery, useCryptoTransactionsQuery,
+  useCryptoTransactionQuery, useCreateCryptoAddressMutation, useCreateCryptoWithdrawalMutation,
+  useCancelCryptoWithdrawalMutation,
 } from '../../store/api';
 
 const formatDate = (value) => value ? new Date(value).toLocaleString() : '—';
@@ -14,11 +15,15 @@ const tone = (status) => ['COMPLETED'].includes(status) ? 'green' : ['FAILED','R
 
 export function CryptoPage({ showToast }) {
   const { data: assets = [], isLoading: assetsLoading } = useCryptoAssetsQuery();
+  const { data: networks = [], isError: networksError } = useCryptoNetworksQuery();
   const { data: balances = [], refetch: refreshBalances } = useCryptoBalancesQuery();
   const { data: addresses = [], refetch: refreshAddresses } = useCryptoAddressesQuery();
   const { data: transactions = [], refetch: refreshTransactions } = useCryptoTransactionsQuery();
+  const [selectedTransactionId, setSelectedTransactionId] = useState('');
+  const { data: selectedTransaction, isFetching: transactionLoading } = useCryptoTransactionQuery(selectedTransactionId, { skip: !selectedTransactionId });
   const [createAddress, addressState] = useCreateCryptoAddressMutation();
   const [withdraw, withdrawalState] = useCreateCryptoWithdrawalMutation();
+  const [cancelWithdrawal, cancelState] = useCancelCryptoWithdrawalMutation();
   const [depositAsset, setDepositAsset] = useState('');
   const [withdrawAsset, setWithdrawAsset] = useState('');
   const [error, setError] = useState('');
@@ -39,6 +44,17 @@ export function CryptoPage({ showToast }) {
     } catch (failure) { setError(failure?.data?.detail || 'Could not create the withdrawal.'); }
   };
   const refresh = () => { refreshBalances(); refreshTransactions(); refreshAddresses(); };
+  const cancelSelectedWithdrawal = async () => {
+    if (!selectedTransactionId || !window.confirm('Cancel this crypto withdrawal and release its reserved balance?')) return;
+    try {
+      await cancelWithdrawal(selectedTransactionId).unwrap();
+      showToast?.('Crypto withdrawal cancelled and reserved balance released.', 'success');
+      refreshBalances();
+      refreshTransactions();
+    } catch (failure) {
+      setError(failure?.data?.detail || 'This crypto withdrawal could not be cancelled.');
+    }
+  };
 
   return <div className="fade-in">
     <PageHeader title="Crypto" description="Receive and send supported digital assets held in your custodial wallet." action={<Button variant="secondary" onClick={refresh}><RefreshCw size={15}/>Refresh</Button>} />
@@ -47,6 +63,8 @@ export function CryptoPage({ showToast }) {
       {balances.map((balance) => <Panel key={balance.assetKey} className="p-4"><p className="text-xs text-slate-500">{balance.symbol} · {balance.networkCode}</p><p className="mt-2 text-xl font-bold text-ink">{balance.available}</p><p className="mt-1 text-xs text-slate-500">Available · {balance.reserved} reserved</p></Panel>)}
       {!balances.length && <Panel className="p-4 text-sm text-slate-500">Your crypto balances will appear here.</Panel>}
     </div>
+
+    <Panel className="mt-5 p-5"><h2 className="text-sm font-bold text-ink">Supported networks</h2>{networksError ? <p role="alert" className="mt-2 text-xs text-rose-700">Supported networks could not be loaded.</p> : networks.length ? <div className="mt-3 flex flex-wrap gap-2">{networks.map((network) => <span key={network.networkCode} className="rounded-full bg-slate-100 px-3 py-1.5 text-xs text-slate-700">{network.networkCode} · {network.assets?.map((asset) => asset.symbol).join(', ')}</span>)}</div> : <p className="mt-2 text-xs text-slate-500">No crypto networks are enabled.</p>}</Panel>
 
     <div className="mt-5 grid gap-5 xl:grid-cols-2">
       <Panel className="p-5 sm:p-6">
@@ -84,7 +102,7 @@ export function CryptoPage({ showToast }) {
     </div>
 
     <Panel className="mt-5 overflow-hidden"><div className="border-b border-slate-100 p-5"><h2 className="text-base font-bold text-ink">Crypto activity</h2><p className="mt-1 text-xs text-slate-500">Deposits are credited after network confirmations and any required manual review.</p></div>
-      {transactions.length ? <div className="divide-y divide-slate-100">{transactions.map((item) => <div key={item.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-ink">{item.direction === 'DEPOSIT' ? 'Received' : 'Sent'} {item.amount} {item.symbol}</p><p className="mt-1 text-xs text-slate-500">{item.networkCode} · {formatDate(item.createdAt)}{item.confirmations ? ` · ${item.confirmations} confirmations` : ''}</p>{item.txHash && <p className="mt-1 break-all font-mono text-[10px] text-slate-400">{item.txHash}</p>}</div><StatusBadge tone={tone(item.status)}>{item.status.replaceAll('_',' ')}</StatusBadge></div>)}</div> : <p className="p-6 text-sm text-slate-500">No crypto transactions yet.</p>}
+      {transactions.length ? <div className="divide-y divide-slate-100">{transactions.map((item) => <div key={item.id} className="p-4"><button type="button" onClick={() => setSelectedTransactionId((current) => current === item.id ? '' : item.id)} aria-expanded={selectedTransactionId === item.id} className="flex w-full flex-col gap-2 text-left sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-ink">{item.direction === 'DEPOSIT' ? 'Received' : 'Sent'} {item.amount} {item.symbol}</p><p className="mt-1 text-xs text-slate-500">{item.networkCode} · {formatDate(item.createdAt)}{item.confirmations ? ` · ${item.confirmations} confirmations` : ''}</p>{item.txHash && <p className="mt-1 break-all font-mono text-[10px] text-slate-400">{item.txHash}</p>}</div><StatusBadge tone={tone(item.status)}>{item.status.replaceAll('_',' ')}</StatusBadge></button>{selectedTransactionId === item.id && <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">{transactionLoading ? <p>Loading transaction details…</p> : selectedTransaction ? <><p>Reference: <span className="font-mono">{selectedTransaction.id}</span></p><p className="mt-1">Provider status: {selectedTransaction.providerStatus || '—'}</p>{selectedTransaction.destinationAddress && <p className="mt-1 break-all">Destination: <span className="font-mono">{selectedTransaction.destinationAddress}</span></p>}{selectedTransaction.failureReason && <p className="mt-1 text-rose-700">Reason: {selectedTransaction.failureReason}</p>}{selectedTransaction.direction === 'WITHDRAWAL' && ['RESERVED', 'REVIEW_REQUIRED'].includes(selectedTransaction.status) && <Button variant="secondary" className="mt-3 min-h-8 px-3 py-1.5 text-xs text-rose-700" disabled={cancelState.isLoading} onClick={cancelSelectedWithdrawal} isLoading={cancelState.isLoading} loadingText="Cancelling…">Cancel withdrawal</Button>}</> : <p role="alert">Transaction details could not be loaded.</p>}</div>}</div>)}</div> : <p className="p-6 text-sm text-slate-500">No crypto transactions yet.</p>}
     </Panel>
   </div>;
 }

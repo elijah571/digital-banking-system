@@ -2,7 +2,7 @@
   "info": {
     "name": "Digital Banking System",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "All endpoints through the API gateway, with JWT auth.\n\n1. Auth \u2192 Register, then open the link from the verification email (or the notification-service log).\n2. Auth \u2192 Login (saves the token; every other request sends it automatically).\n3. Admin requests use `{{adminToken}}` \u2014 run 'Login as admin' first (credentials in .env).\n\nOTP for flagged transfers: `docker compose logs notification-service | grep OTP` \u2192 paste into the `otp` variable."
+    "description": "All endpoints through the API gateway, with JWT auth.\n\n1. Auth → Register, then open the link from the verification email (or the notification-service log).\n2. Auth → Login (saves the token; every other request sends it automatically).\n3. Admin requests use `{{adminToken}}` — run 'Login as admin' first (credentials in .env).\n\nOTP for flagged transfers: `docker compose logs notification-service | grep OTP` → paste into the `otp` variable.\n\nThe Crypto folder covers customer, admin and Privy webhook routes. Internal service-to-service endpoint examples use service-specific URLs and `{{serviceToken}}`; they are not browser/frontend calls."
   },
   "auth": {
     "type": "bearer",
@@ -182,6 +182,76 @@
     {
       "key": "monnifySignature",
       "value": ""
+    },
+    {
+      "key": "cryptoAssetKey",
+      "value": "ETH",
+      "type": "string"
+    },
+    {
+      "key": "cryptoTransactionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cryptoReviewId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cryptoAmount",
+      "value": "0.01",
+      "type": "string"
+    },
+    {
+      "key": "cryptoDestinationAddress",
+      "value": "0x0000000000000000000000000000000000000001",
+      "type": "string"
+    },
+    {
+      "key": "cryptoDestinationTag",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cryptoProviderEventId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "svixTimestamp",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "svixSignature",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "manualReviewPayoutId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "payoutProvider",
+      "value": "monnify",
+      "type": "string"
+    },
+    {
+      "key": "payoutReason",
+      "value": "Provider attempts exhausted; reviewed by operations.",
+      "type": "string"
+    },
+    {
+      "key": "cryptoLedgerAmountBaseUnits",
+      "value": "10000000000000000",
+      "type": "string"
+    },
+    {
+      "key": "cryptoLedgerFeeBaseUnits",
+      "value": "0",
+      "type": "string"
     }
   ],
   "item": [
@@ -1991,7 +2061,7 @@
               ],
               "query": []
             },
-            "description": "Creates an ACTIVE account owned by the logged-in user, with a generated 10-digit account number. The account email is the user's login email. The initial deposit becomes the opening balance. Daily limit: SAVINGS 100,000 \u00b7 CURRENT 5,000,000.",
+            "description": "Creates an ACTIVE account owned by the logged-in user, with a generated 10-digit account number. The account email is the user's login email. The initial deposit becomes the opening balance. Daily limit: SAVINGS 100,000 · CURRENT 5,000,000.",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2457,6 +2527,96 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Crypto subledger (internal)",
+          "item": [
+            {
+              "name": "Register crypto asset ledger",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{accountServiceUrl}}/internal/v1/crypto/assets",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{serviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"assetKey\": \"{{cryptoAssetKey}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Apply crypto ledger operation",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{accountServiceUrl}}/internal/v1/crypto/operations",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{serviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"operation\": \"WITHDRAWAL_RESERVE\",\n  \"userId\": \"{{userId}}\",\n  \"assetKey\": \"{{cryptoAssetKey}}\",\n  \"amountBaseUnits\": \"{{cryptoLedgerAmountBaseUnits}}\",\n  \"feeAssetKey\": \"{{cryptoAssetKey}}\",\n  \"feeBaseUnits\": \"{{cryptoLedgerFeeBaseUnits}}\",\n  \"idempotencyKey\": \"postman-crypto-operation\",\n  \"reference\": \"{{cryptoTransactionId}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get customer crypto ledger balances",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{accountServiceUrl}}/internal/v1/crypto/balances/{{userId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{serviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
         }
       ]
     },
@@ -2716,7 +2876,7 @@
               ],
               "query": []
             },
-            "description": "Sends money **from one of your own accounts**. Debits the sender immediately and returns the transaction with status **PROCESSING**.\nIf `bankCode` is another bank's code, include a recent `nameEnquiryRef` from `POST /api/v1/transfers/name-enquiry`; the request opens an external payout through wallet-service and returns **202** with its payout status. An omitted or own-bank `bankCode` keeps the internal transfer flow, and a name-enquiry reference is optional there.\nThe fraud-detection service then checks it asynchronously (usually < 1 s):\n\n* **clean** \u2192 status becomes **COMPLETED** and the receiver is credited\n* **suspicious** (> 5 transfers/min, amount > 5\u00d7 the account's average, or > 90 % of balance)\n  \u2192 status becomes **PENDING_VERIFICATION** and an OTP is sent (valid 5 minutes).\n  Confirm with `POST /api/v1/transactions/{id}/verify`.\n\nPoll `GET /api/v1/transactions/{id}` to follow the status.",
+            "description": "Sends money **from one of your own accounts**. Debits the sender immediately and returns the transaction with status **PROCESSING**.\nIf `bankCode` is another bank's code, include a recent `nameEnquiryRef` from `POST /api/v1/transfers/name-enquiry`; the request opens an external payout through wallet-service and returns **202** with its payout status. An omitted or own-bank `bankCode` keeps the internal transfer flow, and a name-enquiry reference is optional there.\nThe fraud-detection service then checks it asynchronously (usually < 1 s):\n\n* **clean** → status becomes **COMPLETED** and the receiver is credited\n* **suspicious** (> 5 transfers/min, amount > 5× the account's average, or > 90 % of balance)\n  → status becomes **PENDING_VERIFICATION** and an OTP is sent (valid 5 minutes).\n  Confirm with `POST /api/v1/transactions/{id}/verify`.\n\nPoll `GET /api/v1/transactions/{id}` to follow the status.",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2770,7 +2930,7 @@
                 }
               ]
             },
-            "description": "Only for transactions in **PENDING_VERIFICATION**.\n\n* correct OTP \u2192 **COMPLETED**, receiver credited\n* wrong OTP, first or second attempt \u2192 **400** (`Incorrect OTP. N attempts left`), still PENDING_VERIFICATION\n* wrong OTP, third attempt \u2192 **FLAGGED**, sender refunded and sender account **BLOCKED**\n* OTP expired (5 min) \u2192 **EXPIRED**, sender refunded. A transfer whose code is never sent is also **EXPIRED** by the recovery job, once it is older than the code's lifetime plus five minutes.\n\nThe OTP is delivered by notification-service (currently written to its log).",
+            "description": "Only for transactions in **PENDING_VERIFICATION**.\n\n* correct OTP → **COMPLETED**, receiver credited\n* wrong OTP, first or second attempt → **400** (`Incorrect OTP. N attempts left`), still PENDING_VERIFICATION\n* wrong OTP, third attempt → **FLAGGED**, sender refunded and sender account **BLOCKED**\n* OTP expired (5 min) → **EXPIRED**, sender refunded. A transfer whose code is never sent is also **EXPIRED** by the recovery job, once it is older than the code's lifetime plus five minutes.\n\nThe OTP is delivered by notification-service (currently written to its log).",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3258,7 +3418,7 @@
               ],
               "query": []
             },
-            "description": "Receives `payment_intent.succeeded` / `payment_intent.payment_failed`, updates the payment and publishes `payment.completed` / `payment.failed`. Not meant to be called manually \u2014 the `Stripe-Signature` header is verified with STRIPE_WEBHOOK_SECRET. To test locally: `stripe listen --forward-to localhost:8080/api/v1/payments/webhook`.",
+            "description": "Receives `payment_intent.succeeded` / `payment_intent.payment_failed`, updates the payment and publishes `payment.completed` / `payment.failed`. Not meant to be called manually — the `Stripe-Signature` header is verified with STRIPE_WEBHOOK_SECRET. To test locally: `stripe listen --forward-to localhost:8080/api/v1/payments/webhook`.",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -5192,6 +5352,40 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Crypto withdrawal fraud check",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "http://localhost:8086/internal/v1/fraud/crypto-check",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{serviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"assetKey\": \"{{cryptoAssetKey}}\",\n  \"amount\": \"{{cryptoAmount}}\",\n  \"availableBalance\": \"100.00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Internal service-token endpoint called by crypto-service."
+          },
+          "response": []
         }
       ]
     },
@@ -5352,6 +5546,274 @@
               }
             },
             "description": "Use a raw-body HMAC-SHA512 hex digest with the Monnify client secret in monnify-signature. Sandbox Monnify callbacks may omit this header; the handler intentionally rejects unsigned requests."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Crypto",
+      "item": [
+        {
+          "name": "List enabled crypto assets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/assets"
+          },
+          "response": []
+        },
+        {
+          "name": "List crypto networks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/networks"
+          },
+          "response": []
+        },
+        {
+          "name": "Get my crypto balances",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/balances"
+          },
+          "response": []
+        },
+        {
+          "name": "List my crypto deposit addresses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/deposit-addresses"
+          },
+          "response": []
+        },
+        {
+          "name": "Create crypto deposit address",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/deposit-addresses",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assetKey\": \"{{cryptoAssetKey}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List my crypto transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/transactions"
+          },
+          "response": []
+        },
+        {
+          "name": "Get a crypto transaction",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/transactions/{{cryptoTransactionId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "Request crypto withdrawal",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/crypto/withdrawals",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assetKey\": \"{{cryptoAssetKey}}\",\n  \"amount\": \"{{cryptoAmount}}\",\n  \"destinationAddress\": \"{{cryptoDestinationAddress}}\",\n  \"destinationTag\": \"{{cryptoDestinationTag}}\",\n  \"pin\": \"{{pin}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires customer JWT, wallet PIN and Idempotency-Key."
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel a pending crypto withdrawal",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/withdrawals/{{cryptoTransactionId}}/cancel"
+          },
+          "response": []
+        },
+        {
+          "name": "List crypto manual reviews",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/admin/reviews",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Approve crypto operation",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/admin/transactions/{{cryptoReviewId}}/approve",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reject crypto operation",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/admin/transactions/{{cryptoReviewId}}/reject",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"{{payoutReason}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Requires crypto.operations.approve."
+          },
+          "response": []
+        },
+        {
+          "name": "List all crypto assets (admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/admin/assets",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create or update crypto asset (admin)",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/crypto/admin/assets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assetKey\": \"{{cryptoAssetKey}}\",\n  \"providerAssetId\": \"eth\",\n  \"networkCode\": \"ETHEREUM\",\n  \"displaySymbol\": \"ETH\",\n  \"displayName\": \"Ethereum\",\n  \"contractAddress\": null,\n  \"addressMode\": \"ACCOUNT\",\n  \"feeAssetKey\": \"{{cryptoAssetKey}}\",\n  \"decimals\": 18,\n  \"addressPattern\": \"^0x[0-9a-fA-F]{40}$\",\n  \"confirmationThreshold\": 12,\n  \"dailyWithdrawalLimitBaseUnits\": \"1000000000000000000\",\n  \"manualDepositReview\": true,\n  \"enabled\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Requires ROLE_SUPER_ADMIN. Uses the provider-neutral asset identifier consumed by Privy."
+          },
+          "response": []
+        },
+        {
+          "name": "Privy webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "svix-id",
+                "value": "{{cryptoProviderEventId}}"
+              },
+              {
+                "key": "svix-timestamp",
+                "value": "{{svixTimestamp}}"
+              },
+              {
+                "key": "svix-signature",
+                "value": "{{svixSignature}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/crypto/webhooks/privy",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"transaction.updated\",\n  \"data\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Use the exact raw provider request body and a valid Svix signature. This endpoint is public but signature-verified."
           },
           "response": []
         }

@@ -22,6 +22,33 @@ export const adminApi = baseApi.injectEndpoints({
       query: (params) => ({ url: '/api/v1/admin/payouts', params }),
       providesTags: ['Payout', 'Withdrawal'],
     }),
+    manualReviewPayouts: build.query({
+      query: (params = {}) => ({
+        url: '/api/v1/admin/payouts',
+        params: { state: 'REQUIRES_MANUAL_REVIEW', ...params },
+      }),
+      providesTags: ['Payout', 'Withdrawal'],
+    }),
+    reroutePayout: build.mutation({
+      query: ({ id, provider }) => ({
+        url: `/api/v1/admin/payouts/${encodeURIComponent(id)}/reroute`,
+        method: 'POST',
+        params: { provider },
+      }),
+      invalidatesTags: ['Payout', 'Withdrawal', 'Audit'],
+    }),
+    cancelAndRefundPayout: build.mutation({
+      query: ({ id, reason }) => ({
+        url: `/api/v1/admin/payouts/${encodeURIComponent(id)}/cancel-and-refund`,
+        method: 'POST',
+        body: { reason },
+      }),
+      invalidatesTags: ['Payout', 'Withdrawal', 'Account', 'Audit'],
+    }),
+    adminMerchants: build.query({
+      query: () => '/api/v1/admin/merchants',
+      providesTags: ['Merchant'],
+    }),
     adminAudit: build.query({
       query: (params) => ({ url: '/api/v1/admin/audit', params }),
       providesTags: ['Audit'],
@@ -73,6 +100,12 @@ export const {
   useUpdateUserMutation,
   usePendingPayoutsQuery,
   useLazyPendingPayoutsQuery,
+  useManualReviewPayoutsQuery,
+  useLazyManualReviewPayoutsQuery,
+  useReroutePayoutMutation,
+  useCancelAndRefundPayoutMutation,
+  useAdminMerchantsQuery,
+  useLazyAdminMerchantsQuery,
   useAdminAuditQuery,
   useLazyAdminAuditQuery,
   useReconciliationQuery,

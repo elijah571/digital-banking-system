@@ -21,7 +21,7 @@ export function CryptoOperationsPage({ showToast, currentUser }) {
   const submitAsset = async (event) => {
     event.preventDefault(); setError(''); const form = event.currentTarget; const fields = new FormData(form);
     const body = {
-      assetKey: fields.get('assetKey').trim().toUpperCase(), fireblocksAssetId: fields.get('fireblocksAssetId').trim(),
+      assetKey: fields.get('assetKey').trim().toUpperCase(), providerAssetId: fields.get('providerAssetId').trim(),
       networkCode: fields.get('networkCode').trim().toUpperCase(), displaySymbol: fields.get('displaySymbol').trim().toUpperCase(),
       displayName: fields.get('displayName').trim(), contractAddress: fields.get('contractAddress').trim() || null,
       addressMode: fields.get('addressMode'), feeAssetKey: fields.get('feeAssetKey').trim().toUpperCase(),
@@ -41,16 +41,16 @@ export function CryptoOperationsPage({ showToast, currentUser }) {
     catch (failure) { showToast?.(failure?.data?.detail || 'Could not save the decision.', 'error'); }
   };
   return <div className="fade-in">
-    <PageHeader title="Crypto operations" description="Configure explicitly supported Fireblocks assets and review flagged withdrawals or confirmed deposits." actions={<Button variant="secondary" onClick={() => { reloadAssets(); reloadReviews(); }}><RefreshCw size={15}/>Refresh</Button>} />
+    <PageHeader title="Crypto operations" description="Configure Privy-supported EVM assets and review crypto withdrawals or deposits requiring an operator decision." actions={<Button variant="secondary" onClick={() => { reloadAssets(); reloadReviews(); }}><RefreshCw size={15}/>Refresh</Button>} />
     {error && <p role="alert" className="mb-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
     {(assetsError || reviewsError) && <p role="alert" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Some crypto operations data could not be loaded. Check administrator access and refresh.</p>}
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.8fr)]">
       {canManageAssets && <>
-      <Panel className="p-5 sm:p-6"><h2 className="text-base font-bold text-ink">Supported asset and network</h2><p className="mt-1 text-xs leading-5 text-slate-500">Use the exact Fireblocks asset ID and configure the matching contract/network. Enabling requires Fireblocks credentials on the server.</p>
+      <Panel className="p-5 sm:p-6"><h2 className="text-base font-bold text-ink">Supported asset and network</h2><p className="mt-1 text-xs leading-5 text-slate-500">Use the Privy asset identifier and a network code present in the server’s Privy chain mapping. Only mapped EVM networks can be enabled.</p>
         <form onSubmit={submitAsset} className="mt-4 grid gap-3 sm:grid-cols-2">
           <Input name="assetKey" label="Internal asset key" placeholder="USDC_ETH_TEST" required />
-          <Input name="fireblocksAssetId" label="Fireblocks asset ID" placeholder="USDC_ETH_TEST5" required />
-          <Input name="networkCode" label="Network code" placeholder="ETH_TEST" required />
+          <Input name="providerAssetId" label="Privy asset identifier" placeholder="eth" required />
+          <Input name="networkCode" label="Network code" placeholder="ETHEREUM" required />
           <Input name="displaySymbol" label="Display symbol" placeholder="USDC" required />
           <Input name="displayName" label="Display name" placeholder="USD Coin" required />
           <Input name="contractAddress" label="Token contract (if applicable)" />
@@ -66,9 +66,9 @@ export function CryptoOperationsPage({ showToast, currentUser }) {
         </form>
       </Panel>
       </>}
-      {canReadAssets && <Panel className="p-5 sm:p-6"><h2 className="text-base font-bold text-ink">Configured assets</h2><div className="mt-4 space-y-3">{assets.length ? assets.map((asset) => <div key={asset.assetKey} className="rounded-xl border border-slate-200 p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-ink">{asset.displaySymbol} · {asset.networkCode}</p><p className="mt-1 text-xs text-slate-500">{asset.assetKey} · provider {asset.fireblocksAssetId} · {asset.decimals} decimals</p><p className="mt-1 text-xs text-slate-500">{asset.confirmationThreshold} confirmations · fee asset {asset.feeAssetKey}</p></div><StatusBadge tone={asset.enabled ? 'green' : 'slate'}>{asset.enabled ? 'Enabled' : 'Disabled'}</StatusBadge></div></div>) : <p className="text-sm text-slate-500">No assets configured.</p>}</div></Panel>}
+      {canReadAssets && <Panel className="p-5 sm:p-6"><h2 className="text-base font-bold text-ink">Configured assets</h2><div className="mt-4 space-y-3">{assets.length ? assets.map((asset) => <div key={asset.assetKey} className="rounded-xl border border-slate-200 p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-ink">{asset.displaySymbol} · {asset.networkCode}</p><p className="mt-1 text-xs text-slate-500">{asset.assetKey} · Privy asset {asset.providerAssetId} · {asset.decimals} decimals</p><p className="mt-1 text-xs text-slate-500">{asset.confirmationThreshold} confirmations · fee asset {asset.feeAssetKey}</p></div><StatusBadge tone={asset.enabled ? 'green' : 'slate'}>{asset.enabled ? 'Enabled' : 'Disabled'}</StatusBadge></div></div>) : <p className="text-sm text-slate-500">No assets configured.</p>}</div></Panel>}
     </div>
-    <Panel className="mt-5 overflow-hidden"><div className="border-b border-slate-100 p-5"><h2 className="text-base font-bold text-ink">Manual review queue</h2><p className="mt-1 text-xs text-slate-500">Confirm the asset, destination and requested amount before approving. Approving a withdrawal submits it to Fireblocks.</p></div>
+    <Panel className="mt-5 overflow-hidden"><div className="border-b border-slate-100 p-5"><h2 className="text-base font-bold text-ink">Manual review queue</h2><p className="mt-1 text-xs text-slate-500">Confirm the asset, destination and requested amount before approving. Approved withdrawals are submitted through the configured Privy custody provider.</p></div>
       {reviews.length ? <div className="divide-y divide-slate-100">{reviews.map((item) => <div key={item.id} className="flex flex-col gap-3 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-semibold text-ink">{item.direction} · {item.amount} {item.symbol} · {item.networkCode}</p><p className="mt-1 text-xs text-slate-500">Customer {item.userId} · {localTime(item.createdAt)}</p>{item.destinationAddress && <p className="mt-2 break-all font-mono text-xs text-slate-600">Destination: {item.destinationAddress}</p>}{item.destinationTag && <p className="mt-1 text-xs text-slate-500">Tag: {item.destinationTag}</p>}</div><StatusBadge tone="amber">Review required</StatusBadge></div>{canApprove ? <div className="flex gap-2"><Button disabled={decisionState.isLoading} onClick={() => review(item,true)}><Check size={15}/>Approve</Button><Button variant="secondary" disabled={decisionState.isLoading} onClick={() => review(item,false)}><X size={15}/>Reject</Button></div> : <p className="text-xs text-slate-600">Read-only review. Your role cannot approve crypto operations.</p>}</div>)}</div> : <p className="p-6 text-sm text-slate-500">No crypto transactions are waiting for review.</p>}
     </Panel>
   </div>;

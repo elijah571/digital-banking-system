@@ -60,6 +60,7 @@ export const baseApi = createApi({
     'Deposit',
     'Withdrawal',
     'Payout',
+    'Merchant',
     'Banks',
     'Audit',
     'Reconciliation',

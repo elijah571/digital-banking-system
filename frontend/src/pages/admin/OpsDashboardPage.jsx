@@ -115,7 +115,7 @@ export function OpsDashboardPage({ setView, currentUser }) {
           <div className="divide-y divide-slate-100">
             {canReadPayouts && <QueueLink icon={FileClock} title="Payout approvals" detail="Review outbound withdrawals" count={payouts.isError ? 'Unavailable' : payoutRows.length} onClick={() => setView('payouts')} />}
             {canReadKyc && <QueueLink icon={Fingerprint} title="Identity and account upgrades" detail="Inspect submitted documents and prompted face recordings" count={kyc.isError ? 'Unavailable' : kycCount} onClick={() => setView('kyc-reviews')} />}
-            {canReadCrypto && <QueueLink icon={Coins} title="Crypto reviews" detail="Review Fireblocks deposit and withdrawal requests" count={crypto.isError ? 'Unavailable' : (crypto.data || []).length} onClick={() => setView('crypto-operations')} />}
+            {canReadCrypto && <QueueLink icon={Coins} title="Crypto reviews" detail="Review crypto deposits and withdrawal requests" count={crypto.isError ? 'Unavailable' : (crypto.data || []).length} onClick={() => setView('crypto-operations')} />}
             {canReadRisk && <QueueLink icon={ShieldAlert} title="Risk alerts" detail="Inspect transactions held by risk rules" count={transactions.isError ? 'Unavailable' : riskCount} onClick={() => setView('risk-alerts')} />}
           </div>
         </Panel>
