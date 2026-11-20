@@ -15,7 +15,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** The bank list and the name enquiry (wallet-plan 8.4, 8.7): wallet-service only, and the simulator's three outcomes. */
-@SpringBootTest(properties = {"auth.jwt-secret=" + UserTokens.SECRET, "internal-auth.jwt-secret=" + TestTokens.SERVICE_SECRET})
+@SpringBootTest(properties = {
+        "auth.jwt-secret=" + UserTokens.SECRET,
+        "internal-auth.jwt-secret=" + TestTokens.SERVICE_SECRET,
+        // Keep this test deterministic when the developer's .env has Monnify webhook credentials.
+        "payout.monnify.webhook-secret="
+})
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
 class InternalPayoutControllerTest {
@@ -120,11 +125,9 @@ class InternalPayoutControllerTest {
     }
 
     @Test
-    void monnifyWebhookIsPublicAndRequiresAConfiguredSignatureKey() throws Exception {
+    void monnifyWebhookIsUnavailableWhenNoSignatureKeyIsConfigured() throws Exception {
         mvc.perform(post("/api/v1/webhooks/monnify").contentType(APPLICATION_JSON).content("{}"))
-                // The local environment may provide a webhook secret. Either way the public endpoint must
-                // reject this unsigned, malformed callback before acknowledging it.
-                .andExpect(status().is4xxClientError());
+                .andExpect(status().isServiceUnavailable());
     }
 
     private org.springframework.test.web.servlet.ResultActions send(String key, String accountNumber, String amount) throws Exception {

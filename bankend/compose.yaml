@@ -154,6 +154,8 @@ services:
       # The keyed hash of a PIN (threat model T3, D-P7) and the key for the PIN code (T2). Each at least 32 bytes.
       PIN_PEPPER: ${PIN_PEPPER:?set PIN_PEPPER in .env}
       PIN_OTP_HMAC_KEY: ${PIN_OTP_HMAC_KEY:?set PIN_OTP_HMAC_KEY in .env}
+      # Payout requests serialize on the same daily-usage row. Give queued concurrent withdrawals time to get a connection.
+      SPRING_DATASOURCE_HIKARI_CONNECTIONTIMEOUT: ${WALLET_DB_POOL_CONNECTION_TIMEOUT_MS:-${DB_POOL_CONNECTION_TIMEOUT_MS:-15000}}
     depends_on: *app-depends
     ports:
       - "8087:8087"

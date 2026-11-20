@@ -16,6 +16,7 @@ ROOT=$(git -C "$BANKEND" rev-parse --show-toplevel)
 REL=$(git -C "$BANKEND" rev-parse --show-prefix)          # "bankend/" inside the repository
 PROJECT=smoke
 APP_WAIT_TIMEOUT=${SMOKE_APP_WAIT_TIMEOUT:-900}
+SMOKE_TEST_SCRIPT=${SMOKE_TEST_SCRIPT:-./scripts/smoke-test.sh}
 OUT=$(mktemp -d /tmp/smoke-throwaway.XXXXXX)
 WT=$(mktemp -d /tmp/smoke-src.XXXXXX) && rmdir "$WT"       # git worktree add needs a path that does not exist yet
 OVERRIDE="$OUT/compose.override.yaml"
@@ -92,6 +93,9 @@ trap cleanup EXIT
 
 # 1. The worktree at the commit, and this bankend's .env (gitignored) copied into it for compose.
 git -C "$ROOT" worktree add --detach "$WT" "$COMMIT" > "$OUT/worktree.log" 2>&1 || { echo "worktree failed"; exit 2; }
+if [[ -n "${SMOKE_OVERLAY_DIR:-}" ]]; then
+  cp -a "$SMOKE_OVERLAY_DIR/." "$WT/$REL/"
+fi
 [[ -f "$BANKEND/.env" ]] || { echo "bankend/.env is missing"; exit 2; }
 cp "$BANKEND/.env" "$WT/$REL.env"
 echo "commit: $(git -C "$WT" log --oneline -1)"
@@ -136,7 +140,7 @@ sleep 2
 
 # 5. The smoke test, through the gateway. Each verify call is traced to $TRACE (see verify_call in smoke-test.sh).
 printf 'call\ttoken_empty\ttoken_len\ttoken_sha256\tstatus\tbody\trequest_sent\temail_logged\tverify_sent\tto_lines_after_mark\tlink_lines_after_mark\n' > "$TRACE"
-NOTIFICATION_LOG="$OUT/notification.log" TRACE_FILE="$TRACE" BASE_URL="http://127.0.0.1:$GATEWAY_PORT" ./scripts/smoke-test.sh > "$OUT/smoke.log" 2>&1
+NOTIFICATION_LOG="$OUT/notification.log" TRACE_FILE="$TRACE" BASE_URL="http://127.0.0.1:$GATEWAY_PORT" "$SMOKE_TEST_SCRIPT" > "$OUT/smoke.log" 2>&1
 SMOKE_RC=$?
 grep -E '^Result' "$OUT/smoke.log" | sed 's/\x1b\[[0-9;]*m//g'
 

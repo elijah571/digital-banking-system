@@ -1,5 +1,6 @@
 package org.elibanking.accountservice.service;
 
+import org.elibanking.common.events.KafkaEventEnvelope;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -24,8 +25,11 @@ public class AccountEventConsumer {
     @KafkaListener(topics = "fraud.detected", groupId = "account-service-group")
     public void consumeFraudDetected(@Payload Map<String, Object> payload) {
         try {
-
-            String accountNumber = (String) payload.get("accountNumber");
+            Map<String, Object> eventPayload = KafkaEventEnvelope.payload(payload);
+            Object value = eventPayload.get("accountNumber");
+            if (!(value instanceof String accountNumber) || accountNumber.isBlank()) {
+                throw new IllegalArgumentException("fraud.detected event has no accountNumber");
+            }
 
             log.info("Fraud detected - blocking account: {}", accountNumber);
             accountService.blockAccount(accountNumber);

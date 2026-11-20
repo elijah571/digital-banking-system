@@ -115,7 +115,7 @@ verify_call() {
 otp_after() {
   local mark=$1 otp=""
   for _ in $(seq 1 30); do
-    otp=$(notification_logs | tail -n "+$((mark + 1))" | grep -oP 'Your OTP is \K[0-9]{6}' | tail -1)
+    otp=$(notification_logs | tail -n "+$((mark + 1))" | grep -oP '(?:Your OTP is|one-time code[^:]*:) \K[0-9]{6}' | tail -1)
     [[ -n "$otp" ]] && { echo "$otp"; return 0; }
     sleep 1
   done
@@ -267,7 +267,7 @@ check "GET  /accounts/{n} with spoofed X-User-Id header -> 403" 403
 call GET "/accounts/0000000000" "" "$ADMIN_TOKEN";         check "GET  /accounts/{n} unknown -> 404" 404
 
 echo "== Accounts — admin operations"
-call PUT "/accounts/$B/credit?amount=100" "" "$Alice_TOKEN";  check "PUT  /accounts/{n}/credit as USER -> 403 (gateway admin rule)" 403
+call PUT "/accounts/$B/credit?amount=100" "" "$Alice_TOKEN";  check "PUT  /accounts/{n}/credit (removed endpoint) -> 404" 404
 call PUT "/accounts/$B/credit?amount=100" "" "$ADMIN_TOKEN";  check "PUT  /accounts/{n}/credit (removed in 3c.3) as ADMIN -> 404" 404
 call PUT "/admin/accounts/$B/credit?amount=100&reason=smoke" "" "$ADMIN_TOKEN" "Idempotency-Key: smoke-credit-$RUN_ID"; check "PUT  /admin/accounts/{n}/credit as ADMIN" 201
 call PUT "/admin/accounts/$B/deduct?amount=100&reason=smoke" "" "$ADMIN_TOKEN" "Idempotency-Key: smoke-deduct-$RUN_ID"; check "PUT  /admin/accounts/{n}/deduct as ADMIN" 201
@@ -509,7 +509,7 @@ call POST /auth/login "{\"email\":\"$Alice_EMAIL\",\"password\":\"$PASSWORD\"}";
 call POST /auth/forgot-password '{"email":"nobody-'$RUN_ID'@test.com"}';  check "POST /auth/forgot-password unknown email -> 200 (no enumeration)" 200
 reset_mark=$(log_mark)
 call POST /auth/forgot-password "{\"email\":\"$Alice_EMAIL\"}";            check "POST /auth/forgot-password" 200
-if RESET=$(link_after "$reset_mark" "$Alice_EMAIL" 'Password reset token: \K[A-Za-z0-9_-]+'); then
+if RESET=$(link_after "$reset_mark" "$Alice_EMAIL" 'reset-password\?token=\K[A-Za-z0-9_-]+'); then
   call POST /auth/reset-password "{\"token\":\"$RESET\",\"newPassword\":\"weak\"}"; check "POST /auth/reset-password weak password -> 400" 400
   call POST /auth/reset-password "{\"token\":\"$RESET\",\"newPassword\":\"NewSecret456\"}"; check "POST /auth/reset-password" 200
   call POST /auth/reset-password "{\"token\":\"$RESET\",\"newPassword\":\"Other789xyz\"}"; check "POST /auth/reset-password token reused -> 400" 400

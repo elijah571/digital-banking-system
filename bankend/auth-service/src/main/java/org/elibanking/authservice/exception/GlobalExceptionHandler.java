@@ -7,11 +7,18 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ProblemDetail> invalidRequest(MethodArgumentNotValidException e) {
+        return ResponseEntity.badRequest().body(
+                ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Request validation failed"));
+    }
 
     @ExceptionHandler(AuthException.class)
     public ProblemDetail handle(AuthException e) {
