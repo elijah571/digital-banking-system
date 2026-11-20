@@ -155,6 +155,7 @@ services:
       PIN_PEPPER: ${PIN_PEPPER:?set PIN_PEPPER in .env}
       PIN_OTP_HMAC_KEY: ${PIN_OTP_HMAC_KEY:?set PIN_OTP_HMAC_KEY in .env}
       # Payout requests serialize on the same daily-usage row. Give queued concurrent withdrawals time to get a connection.
+      SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE: ${WALLET_DB_POOL_MAX_SIZE:-50}
       SPRING_DATASOURCE_HIKARI_CONNECTIONTIMEOUT: ${WALLET_DB_POOL_CONNECTION_TIMEOUT_MS:-${DB_POOL_CONNECTION_TIMEOUT_MS:-15000}}
     depends_on: *app-depends
     ports:
@@ -324,6 +325,7 @@ services:
       SMTP_PORT: ${SMTP_PORT:-465}
       SMTP_MAIL: ${SMTP_MAIL:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      # Accepts one mailbox or "Display Name <mailbox>"; use an address verified by the SMTP provider.
       MAIL_FROM: ${MAIL_FROM:-}
       AUTH_SERVICE_URL: http://auth-service:8083
       INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}

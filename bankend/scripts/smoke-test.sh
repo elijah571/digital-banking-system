@@ -479,8 +479,14 @@ if wait_status "$T3" PENDING_VERIFICATION "$Carol_TOKEN"; then
   call POST "/transactions/$T3/verify?otp=000000" "" "$Carol_TOKEN"; check "POST /transactions/{id}/verify (wrong OTP 1 of 3) -> 400" 400 .detail "Incorrect OTP. 2 attempts left"
   call POST "/transactions/$T3/verify?otp=000000" "" "$Carol_TOKEN"; check "POST /transactions/{id}/verify (wrong OTP 2 of 3) -> 400" 400 .detail "Incorrect OTP. 1 attempt left"
   call POST "/transactions/$T3/verify?otp=000000" "" "$Carol_TOKEN"; check "POST /transactions/{id}/verify (wrong OTP 3 of 3) -> FLAGGED" 200 .status FLAGGED
-  sleep 2
-  call GET "/accounts/$C" "" "$Carol_TOKEN";                  check "     sender account BLOCKED" 200 .status BLOCKED
+  # Account blocking is consumed asynchronously from the fraud.detected event; poll the read model instead of assuming
+  # Kafka delivery and handling will finish within a fixed two-second delay.
+  for _ in $(seq 1 30); do
+    call GET "/accounts/$C" "" "$Carol_TOKEN"
+    [[ "$STATUS" == 200 && "$(jq -r '.status // empty' <<<"$BODY")" == BLOCKED ]] && break
+    sleep 1
+  done
+  check "     sender account BLOCKED" 200 .status BLOCKED
   call GET "/accounts/$C/balance" "" "$Carol_TOKEN";          check "     sender refunded" 200 '.=="2000.00"' true
 else
   check "     flagged -> PENDING_VERIFICATION" 200 .status PENDING_VERIFICATION

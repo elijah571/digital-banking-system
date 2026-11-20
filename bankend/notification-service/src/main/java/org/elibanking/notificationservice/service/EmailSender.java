@@ -1,6 +1,8 @@
 package org.elibanking.notificationservice.service;
 
 import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.AddressException;
+import jakarta.mail.internet.InternetAddress;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -52,7 +54,11 @@ public class EmailSender {
         try {
             MimeMessage message = mailSender.getObject().createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            helper.setFrom(from, "Eli Digital Bank");
+            InternetAddress sender = parseFromAddress(from);
+            if (sender.getPersonal() == null || sender.getPersonal().isBlank()) {
+                sender.setPersonal("Eli Digital Bank", "UTF-8");
+            }
+            helper.setFrom(sender);
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(plainText, html);
@@ -67,5 +73,14 @@ public class EmailSender {
 
     private boolean isConfigured() {
         return !username.isBlank() && !password.isBlank();
+    }
+
+    static InternetAddress parseFromAddress(String configuredFrom) throws AddressException {
+        InternetAddress[] parsed = InternetAddress.parse(configuredFrom, true);
+        if (parsed.length != 1) {
+            throw new AddressException("MAIL_FROM must contain exactly one valid email address");
+        }
+        parsed[0].validate();
+        return parsed[0];
     }
 }

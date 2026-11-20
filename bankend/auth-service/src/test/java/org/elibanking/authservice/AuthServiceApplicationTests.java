@@ -7,13 +7,18 @@ import org.hibernate.SessionFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
         "auth.jwt-secret=test-secret-test-secret-test-secret-0123456789",
@@ -22,15 +27,28 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
         "auth.admin-password="
 })
 @Import(TestcontainersConfiguration.class)
+@AutoConfigureMockMvc
 class AuthServiceApplicationTests {
 
 	@Autowired UserAdminService users;
 	@Autowired JdbcTemplate jdbc;
 	@Autowired SessionFactory sessionFactory;
 	@Autowired EntityManager entityManager;
+	@Autowired MockMvc mvc;
 
 	@Test
 	void contextLoads() {
+	}
+
+	@Test
+	void weakPasswordsAreValidationErrorsRatherThanAuthenticationFailures() throws Exception {
+		mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
+				.content("{\"fullName\":\"Weak Password\",\"email\":\"weak@example.test\",\"password\":\"short\"}"))
+				.andExpect(status().isBadRequest());
+
+		mvc.perform(post("/api/v1/auth/reset-password").contentType(MediaType.APPLICATION_JSON)
+				.content("{\"token\":\"invalid-token\",\"newPassword\":\"weak\"}"))
+				.andExpect(status().isBadRequest());
 	}
 
 	@Test
