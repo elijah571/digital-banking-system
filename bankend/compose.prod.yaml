@@ -4,6 +4,9 @@
 #
 # - Only the API gateway is reachable from outside (put HTTPS in front of it).
 # - MySQL / Redis / Kafka and the internal services are reachable only on the Docker network.
+# - Redis requires a password (REDIS_PASSWORD); Compose refuses to start without it.
+# - Infrastructure hosts / ports / credentials are overridable from .env, so .env can point at
+#   either the bundled Compose containers (the defaults) or external managed cloud instances.
 # - Containers restart automatically (also after a server reboot).
 # - Swagger UI / API docs are switched off.
 # Requires Docker Compose >= 2.24 (for !reset).
@@ -23,12 +26,44 @@ x-prod-app-env: &prod-app-env
   MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info"
   JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
 
+# MySQL + Kafka connection settings shared by every backend service. Each value defaults to the
+# bundled Compose container but can be overridden in .env to target a managed instance. MYSQL_PASSWORD
+# defaults to the bundled MySQL's root password; set MYSQL_USER / MYSQL_PASSWORD for an external DB.
+x-prod-infra-env: &prod-infra-env
+  MYSQL_HOST: ${MYSQL_HOST:-mysql}
+  MYSQL_PORT: ${MYSQL_PORT:-3306}
+  MYSQL_USER: ${MYSQL_USER:-root}
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:-${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD (or MYSQL_PASSWORD) in .env}}
+  KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
+
+# Redis connection + authentication for the Redis-dependent services. REDIS_PASSWORD is required
+# (enforced on the redis service below). Set REDIS_SSL_ENABLED=true for a managed Redis over TLS.
+x-prod-redis-env: &prod-redis-env
+  REDIS_HOST: ${REDIS_HOST:-redis}
+  REDIS_PORT: ${REDIS_PORT:-6379}
+  SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+  SPRING_DATA_REDIS_SSL_ENABLED: ${REDIS_SSL_ENABLED:-false}
+
 services:
   mysql:
     <<: *prod
+    environment:
+      # No default in production: Compose refuses to start without an explicit root password.
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
     ports: !reset []
   redis:
     <<: *prod
+    # Production Redis rejects unauthenticated clients; REDIS_PASSWORD is required.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"]
+    environment:
+      # redis-cli reads REDISCLI_AUTH automatically, so the healthcheck authenticates without
+      # putting the password on the command line (no "-a is insecure" warning, nothing leaked).
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     ports: !reset []
   kafka:
     <<: *prod
@@ -37,30 +72,30 @@ services:
   auth-service:
     <<: *prod
     ports: !reset []
-    environment: *prod-app-env
+    environment:
+      <<: [*prod-app-env, *prod-infra-env, *prod-redis-env]
     mem_limit: 512m
   account-service:
     <<: *prod
     ports: !reset []
     environment:
-      <<: *prod-app-env
+      # account-service does not use Redis.
+      <<: [*prod-app-env, *prod-infra-env]
     mem_limit: 768m
   wallet-service:
     <<: *prod
     ports: !reset []
     environment:
-      <<: *prod-app-env
+      <<: [*prod-app-env, *prod-infra-env, *prod-redis-env]
     mem_limit: 768m
   crypto-service:
     <<: *prod
     ports: !reset []
     environment:
-      <<: *prod-app-env
+      # crypto-service does not use Redis.
+      <<: [*prod-app-env, *prod-infra-env]
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
-      MYSQL_HOST: mysql
-      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       ACCOUNT_SERVICE_URL: http://account-service:8081
       WALLET_SERVICE_URL: http://wallet-service:8087
       FRAUD_SERVICE_URL: http://fraud-detection-service:8084
@@ -76,30 +111,35 @@ services:
   transaction-service:
     <<: *prod
     ports: !reset []
-    environment: *prod-app-env
+    environment:
+      <<: [*prod-app-env, *prod-infra-env, *prod-redis-env]
     mem_limit: 768m
   fraud-detection-service:
     <<: *prod
     ports: !reset []
-    environment: *prod-app-env
+    environment:
+      <<: [*prod-app-env, *prod-infra-env, *prod-redis-env]
     mem_limit: 512m
   payment-service:
     <<: *prod
     ports: !reset []
-    environment: *prod-app-env
+    environment:
+      <<: [*prod-app-env, *prod-infra-env, *prod-redis-env]
     mem_limit: 512m
   notification-service:
     <<: *prod
     ports: !reset []
     environment:
-      <<: *prod-app-env
+      <<: [*prod-app-env, *prod-infra-env, *prod-redis-env]
       AUTH_SERVICE_URL: http://auth-service:8083
       INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
       MAIL_LOG_CONTENT: "false"   # never log verification links / reset tokens in production
     mem_limit: 384m
   api-gateway:
     <<: *prod
-    environment: *prod-app-env
+    environment:
+      # api-gateway uses Redis (rate limiting) but not MySQL or Kafka.
+      <<: [*prod-app-env, *prod-redis-env]
     mem_limit: 512m
     ports: !override
       - "${GATEWAY_PORT:-8080}:8080"
